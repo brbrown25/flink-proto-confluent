@@ -1,7 +1,9 @@
 plugins {
     java
     `maven-publish`
+    signing
     id("com.gradleup.shadow") version "8.3.5"
+    id("io.github.gradle-nexus.publish-plugin") version "2.0.0"
     checkstyle
     jacoco
     id("com.diffplug.spotless") version "7.0.2"
@@ -9,9 +11,11 @@ plugins {
 }
 
 group = "com.bbrownsound"
-version = "1.0.0-SNAPSHOT"
+version = project.findProperty("version")?.toString() ?: "1.0.0-SNAPSHOT"
 
 java {
+    withSourcesJar()
+    withJavadocJar()
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
 }
@@ -90,7 +94,7 @@ tasks.named<Test>("test").configure {
 }
 
 tasks.shadowJar {
-    archiveBaseName.set("proto-confluent")
+    archiveBaseName.set("flink-proto-confluent")
     archiveClassifier.set("")
     mergeServiceFiles()
     dependencies {
@@ -194,6 +198,16 @@ tasks.test {
     finalizedBy(tasks.jacocoTestReport)
 }
 
+// Sonatype Central Portal (Maven Central) via OSSRH Staging API
+nexusPublishing {
+    repositories {
+        sonatype {
+            nexusUrl.set(uri("https://ossrh-staging-api.central.sonatype.com/service/local/"))
+            snapshotRepositoryUrl.set(uri("https://central.sonatype.com/repository/maven-snapshots/"))
+        }
+    }
+}
+
 publishing {
     repositories {
         maven {
@@ -214,9 +228,57 @@ publishing {
                 classifier = "all"
             }
             groupId = project.group.toString()
-            artifactId = "proto-confluent"
+            artifactId = "flink-proto-confluent"
             version = project.version.toString()
         }
+        create<MavenPublication>("sonatype") {
+            from(components["java"])
+            artifact(tasks.named("sourcesJar").get())
+            artifact(tasks.named("javadocJar").get())
+            groupId = project.group.toString()
+            artifactId = "flink-proto-confluent"
+            version = project.version.toString()
+            pom {
+                name.set(artifactId)
+                description.set("Flink table format for Protobuf with Confluent Schema Registry")
+                url.set("https://github.com/bbrownsound/flink-proto-confluent")
+                licenses {
+                    license {
+                        name.set("The Apache License, Version 2.0")
+                        url.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
+                    }
+                }
+                developers {
+                    developer {
+                        name.set("Brandon Brown")
+                        organization.set("bbrownsound")
+                        organizationUrl.set("https://github.com/bbrownsound")
+                    }
+                }
+                scm {
+                    connection.set("scm:git:git://github.com/bbrownsound/flink-proto-confluent-bb.git")
+                    developerConnection.set("scm:git:ssh://github.com:bbrownsound/flink-proto-confluent-bb.git")
+                    url.set("https://github.com/bbrownsound/flink-proto-confluent-bb")
+                }
+            }
+        }
+    }
+}
+
+// Sign Sonatype publication when credentials are present (CI or local)
+val signingKey: String? by project
+val signingPassword: String? by project
+if (signingKey != null && signingPassword != null) {
+    signing {
+        useInMemoryPgpKeys(signingKey, signingPassword)
+        sign(publishing.publications["sonatype"])
+    }
+}
+
+// Only publish the sonatype publication to Sonatype (not gpr)
+tasks.withType<PublishToMavenRepository>().configureEach {
+    if (name.contains("Sonatype") && name.contains("Gpr")) {
+        enabled = false
     }
 }
 

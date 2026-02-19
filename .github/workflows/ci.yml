@@ -1,0 +1,139 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+
+    - name: Setup build environment
+      uses: ./.github/actions/setup-build
+    
+    - name: Build with Gradle
+      run: gradle build -x test -x integrationTest
+    
+    - name: Run unit tests with coverage verification
+      run: gradle test integrationTest jacocoTestReport jacocoTestCoverageVerification
+    
+    - name: Generate test report
+      uses: dorny/test-reporter@v2
+      if: success() || failure()
+      with:
+        name: Unit Test Results
+        path: build/test-results/test/*.xml
+        reporter: java-junit
+    
+    - name: Upload unit test results
+      uses: actions/upload-artifact@v6
+      if: always()
+      with:
+        name: unit-test-results
+        path: |
+          build/test-results/test/
+          build/reports/tests/test/
+    
+    - name: Upload coverage report
+      uses: actions/upload-artifact@v6
+      with:
+        name: coverage-report
+        path: build/reports/jacoco/test/
+
+  integration-test:
+    runs-on: ubuntu-latest
+    needs: build
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+
+    - name: Setup build environment
+      uses: ./.github/actions/setup-build
+    
+    - name: Run integration tests
+      run: gradle integrationTest
+      env:
+        TESTCONTAINERS_RYUK_DISABLED: true
+    
+    - name: Generate integration test report
+      uses: dorny/test-reporter@v2
+      if: success() || failure()
+      with:
+        name: Integration Test Results
+        path: build/test-results/integrationTest/*.xml
+        reporter: java-junit
+    
+    - name: Upload integration test results
+      uses: actions/upload-artifact@v6
+      if: always()
+      with:
+        name: integration-test-results
+        path: |
+          build/test-results/integrationTest/
+          build/reports/tests/integrationTest/
+
+  coverage:
+    runs-on: ubuntu-latest
+    needs: [build, integration-test]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+
+    - name: Setup build environment
+      uses: ./.github/actions/setup-build
+    
+    - name: Run tests with coverage verification
+      run: gradle test integrationTest jacocoTestReport jacocoTestCoverageVerification
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        files: build/reports/jacoco/test/jacocoTestReport.xml
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false
+    
+    - name: Add coverage to PR
+      uses: madrapps/jacoco-report@v1.7.2
+      if: github.event_name == 'pull_request'
+      with:
+        paths: build/reports/jacoco/test/jacocoTestReport.xml
+        token: ${{ secrets.GITHUB_TOKEN }}
+        min-coverage-overall: 80
+        min-coverage-changed-files: 80
+        title: Code Coverage
+        update-comment: true
+
+  checkstyle:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+
+    - name: Setup build environment
+      uses: ./.github/actions/setup-build
+    
+    - name: Run lint (checkstyle, SpotBugs, Spotless)
+      run: gradle checkstyleMain checkstyleTest checkstyleIntegrationTest spotbugsMain spotbugsTest spotlessCheck
+    
+    - name: Upload lint results
+      uses: actions/upload-artifact@v6
+      if: always()
+      with:
+        name: lint-results
+        path: build/reports/checkstyle/

@@ -1,0 +1,39 @@
+name: Publish Snapshot
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build
+
+      - name: Check snapshot version
+        id: version
+        run: |
+          V=$(gradle properties -q | grep "^version:" | awk '{print $2}')
+          echo "version=$V" >> $GITHUB_OUTPUT
+          if [[ "$V" == *-SNAPSHOT ]]; then echo "snapshot=true" >> $GITHUB_OUTPUT; else echo "snapshot=false" >> $GITHUB_OUTPUT; fi
+
+      - name: Run all tests with coverage verification
+        run: gradle test integrationTest jacocoTestReport jacocoTestCoverageVerification
+
+      - name: Publish to Sonatype (snapshot)
+        if: steps.version.outputs.snapshot == 'true'
+        run: gradle publishSonatypePublicationToSonatypeRepository
+        env:
+          ORG_GRADLE_PROJECT_sonatypeUsername: ${{ secrets.SONATYPE_USERNAME }}
+          ORG_GRADLE_PROJECT_sonatypePassword: ${{ secrets.SONATYPE_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingKey: ${{ secrets.GPG_SIGNING_KEY }}
+          ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.GPG_SIGNING_PASSPHRASE }}
