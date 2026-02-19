@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package com.bbrownsound.flink.formats.proto.test.v1;
+option java_package = "com.bbrownsound.flink.formats.proto.test.v1";
+
+// Message with a oneof to exercise oneof code paths in serialize/deserialize converters.
+message MessageWithOneof {
+  oneof choice {
+    int32 a = 1;
+    string b = 2;
+  }
+}
