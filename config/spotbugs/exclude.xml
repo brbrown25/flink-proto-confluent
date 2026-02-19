@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FindBugsFilter>
+  <!-- Generated protobuf Java (test fixtures); not our code. Match package and subpackages (e.g. .v1). -->
+  <Match>
+    <Package name="~com\.bbrownsound\.flink\.formats\.proto\.test(\..*)?"/>
+  </Match>
+  <!-- Converters capture Descriptor in serializable lambda; used at job build time. -->
+  <Match>
+    <Class name="~com\.bbrownsound\.flink\.formats\.proto\.registry\.confluent\.serialize\.RowDataToProtoConverters\$.*"/>
+    <Bug code="Se"/>
+  </Match>
+</FindBugsFilter>

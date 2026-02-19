@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package com.bbrownsound.flink.formats.proto.test.v1;
+option java_package = "com.bbrownsound.flink.formats.proto.test.v1";
+
+message SimpleMessage {
+  string content = 1;
+  string date_time = 2;
+}

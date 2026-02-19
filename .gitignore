@@ -1,3 +1,31 @@
+# Gradle
+.gradle/
+build/
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Java
+*.class
+*.log
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+
+# Test / reports
+*.exec
+test-output/
+
+
 # Compiled class file
 *.class
 
@@ -22,3 +50,11 @@
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
 replay_pid*
+
+build
+.DS_Store
+.bloop/
+.gradle/
+.metals/
+.idea/
+.vscode/
