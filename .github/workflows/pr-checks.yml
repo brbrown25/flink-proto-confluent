@@ -1,0 +1,85 @@
+name: PR Checks
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+
+    - name: Setup build environment
+      uses: ./.github/actions/setup-build
+    
+    - name: Run lint (checkstyle, SpotBugs, Spotless)
+      run: gradle checkstyleMain checkstyleTest checkstyleIntegrationTest spotbugsMain spotbugsTest spotlessCheck
+    
+    - name: Annotate Checkstyle issues
+      uses: jwgmeligmeyling/checkstyle-github-action@master
+      with:
+        path: 'build/reports/checkstyle/*.xml'
+
+  dependency-review:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+    
+    - name: Dependency Review
+      uses: actions/dependency-review-action@v4
+      with:
+        fail-on-severity: high
+
+  build-check:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+
+    - name: Setup build environment
+      uses: ./.github/actions/setup-build
+    
+    - name: Build
+      run: gradle build -x test -x integrationTest
+    
+    - name: Check JAR contents
+      run: |
+        echo "JAR contents (proto-confluent):"
+        jar tf build/libs/proto-confluent-*.jar | head -50
+
+  test-matrix:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        java-version: ['17', '21']
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+
+    - name: Setup build environment
+      uses: ./.github/actions/setup-build
+      with:
+        java-version: ${{ matrix.java-version }}
+    
+    - name: Run tests on JDK ${{ matrix.java-version }}
+      run: gradle test
+    
+    - name: Upload test results
+      uses: actions/upload-artifact@v6
+      if: always()
+      with:
+        name: test-results-jdk${{ matrix.java-version }}
+        path: build/test-results/test/

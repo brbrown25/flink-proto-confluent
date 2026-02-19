@@ -1,6 +1,131 @@
-# flink-proto-confluent (improved)
+# flink-proto-confluent
+
+[![Maven Central](https://img.shields.io/maven-central/v/com.bbrownsound/flink-proto-confluent.svg)](https://search.maven.org/artifact/com.bbrownsound/flink-proto-confluent)
+[![CI](https://github.com/brandonbrown/flink-proto-confluent/actions/workflows/ci.yml/badge.svg)](https://github.com/brandonbrown/flink-proto-confluent/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/brandonbrown/flink-proto-confluent/branch/main/graph/badge.svg)](https://codecov.io/gh/brandonbrown/flink-proto-confluent)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![GitHub release](https://img.shields.io/github/v/release/brandonbrown/flink-proto-confluent)](https://github.com/brandonbrown/flink-proto-confluent/releases)
 
 A Confluent Schema Registry Protobuf format for Apache Flink Table API. This project is an improved, standalone derivative of [amstee/flink-proto-confluent](https://github.com/amstee/flink-proto-confluent), repackaged under `com.bbrownsound` with additional features and tests.
+
+## Resolving the dependency
+
+Releases are published to [Maven Central](https://search.maven.org/artifact/com.bbrownsound/flink-proto-confluent). Add the dependency as follows.
+
+**Gradle (Groovy):**
+
+```groovy
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'com.bbrownsound:flink-proto-confluent:1.0.0'
+}
+```
+
+**Gradle (Kotlin):**
+
+```kotlin
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation("com.bbrownsound:flink-proto-confluent:1.0.0")
+}
+```
+
+**Maven:**
+
+```xml
+<repositories>
+    <repository>
+        <id>central</id>
+        <url>https://repo.maven.apache.org/maven2</url>
+    </repository>
+</repositories>
+
+<dependencies>
+    <dependency>
+        <groupId>com.bbrownsound</groupId>
+        <artifactId>flink-proto-confluent</artifactId>
+        <version>1.0.0</version>
+    </dependency>
+</dependencies>
+```
+
+**sbt:**
+
+```scala
+libraryDependencies += "com.bbrownsound" % "flink-proto-confluent" % "1.0.0"
+```
+
+Replace `1.0.0` with the [latest release](https://github.com/bbrownsound/flink-proto-confluent/releases) version.
+
+### Snapshots
+
+Snapshot builds (e.g. `1.0.0-SNAPSHOT`) are published to the [Sonatype snapshot repository](https://central.sonatype.com/repository/maven-snapshots) on each merge to `main`. To depend on snapshots, add that repository and use a `-SNAPSHOT` version.
+
+**Gradle (Groovy):**
+
+```groovy
+repositories {
+    mavenCentral()
+    maven { url 'https://central.sonatype.com/repository/maven-snapshots/' }
+}
+
+dependencies {
+    implementation 'com.bbrownsound:flink-proto-confluent:1.0.0-SNAPSHOT'
+}
+```
+
+**Gradle (Kotlin):**
+
+```kotlin
+repositories {
+    mavenCentral()
+    maven { url = uri("https://central.sonatype.com/repository/maven-snapshots/") }
+}
+
+dependencies {
+    implementation("com.bbrownsound:flink-proto-confluent:1.0.0-SNAPSHOT")
+}
+```
+
+**Maven:**
+
+```xml
+<repositories>
+    <repository>
+        <id>central</id>
+        <url>https://repo.maven.apache.org/maven2</url>
+    </repository>
+    <repository>
+        <id>sonatype-snapshots</id>
+        <url>https://central.sonatype.com/repository/maven-snapshots/</url>
+        <snapshots><enabled>true</enabled></snapshots>
+    </repository>
+</repositories>
+
+<dependencies>
+    <dependency>
+        <groupId>com.bbrownsound</groupId>
+        <artifactId>flink-proto-confluent</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+    </dependency>
+</dependencies>
+```
+
+**sbt:**
+
+```scala
+resolvers += "Sonatype Snapshots" at "https://central.sonatype.com/repository/maven-snapshots/"
+
+libraryDependencies += "com.bbrownsound" % "flink-proto-confluent" % "1.0.0-SNAPSHOT"
+```
+
+Use the current snapshot version from `build.gradle.kts` (or the repo); resolution may use a timestamped build. Prefer a release version for stable builds.
 
 ## Build
 
