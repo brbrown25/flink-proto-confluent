@@ -11,7 +11,11 @@ plugins {
 }
 
 group = "com.bbrownsound"
-version = project.findProperty("version")?.toString() ?: "1.0.0-SNAPSHOT"
+version = project.findProperty("version")?.toString()?.takeIf { it != "unspecified" } ?: "1.0.0-SNAPSHOT"
+
+tasks.register("printVersion") {
+    doLast { println(project.version) }
+}
 
 java {
     withSourcesJar()

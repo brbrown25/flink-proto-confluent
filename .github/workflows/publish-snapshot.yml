@@ -2,7 +2,8 @@ name: Publish Snapshot
 
 on:
   push:
-    branches: [main]
+    branches: [main, master]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -22,16 +23,20 @@ jobs:
       - name: Check snapshot version
         id: version
         run: |
-          V=$(gradle properties -q | grep "^version:" | awk '{print $2}')
+          V=$(gradle -q printVersion | tail -1)
           echo "version=$V" >> $GITHUB_OUTPUT
           if [[ "$V" == *-SNAPSHOT ]]; then echo "snapshot=true" >> $GITHUB_OUTPUT; else echo "snapshot=false" >> $GITHUB_OUTPUT; fi
+          SNAP=$([[ "$V" == *-SNAPSHOT ]] && echo true || echo false)
+          echo "Detected version: '$V' → snapshot=$SNAP (publish will $([ "$SNAP" = true ] && echo 'run' || echo 'be skipped'))"
 
       - name: Run all tests with coverage verification
         run: gradle test integrationTest jacocoTestReport jacocoTestCoverageVerification
 
       - name: Publish to Sonatype (snapshot)
         if: steps.version.outputs.snapshot == 'true'
-        run: gradle publishSonatypePublicationToSonatypeRepository
+        run: |
+          echo "Publishing snapshot to Sonatype..."
+          gradle publishSonatypePublicationToSonatypeRepository
         env:
           ORG_GRADLE_PROJECT_sonatypeUsername: ${{ secrets.SONATYPE_USERNAME }}
           ORG_GRADLE_PROJECT_sonatypePassword: ${{ secrets.SONATYPE_PASSWORD }}
