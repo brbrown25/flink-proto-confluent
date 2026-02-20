@@ -44,15 +44,15 @@ dependencies {
     implementation("com.google.api.grpc:proto-google-common-protos:2.66.0")
     implementation("org.apache.commons:commons-lang3:3.20.0")
 
-    testImplementation("org.junit.jupiter:junit-jupiter:5.10.0")
-    testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.10.2")
+    testImplementation("org.junit.jupiter:junit-jupiter:6.0.3")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher:6.0.3")
     testImplementation("org.apache.flink:flink-test-utils-junit:$flinkVersion")
     testImplementation("org.apache.flink:flink-runtime:$flinkVersion:tests")
     testImplementation("org.apache.flink:flink-table-common:$flinkVersion")
     testImplementation("org.testcontainers:testcontainers:2.0.3")
     testImplementation("org.testcontainers:testcontainers-kafka:2.0.3")
     testImplementation("org.testcontainers:testcontainers-junit-jupiter:2.0.3")
-    testImplementation("org.awaitility:awaitility:4.2.0")
+    testImplementation("org.awaitility:awaitility:4.3.0")
 }
 
 // Integration test: Kafka + Schema Registry + MiniCluster (optional: ClickHouse)
