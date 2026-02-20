@@ -42,7 +42,7 @@ dependencies {
     implementation("com.google.protobuf:protobuf-java:$protoVersion")
     implementation("com.google.protobuf:protobuf-java-util:$protoVersion")
     implementation("com.google.api.grpc:proto-google-common-protos:2.22.1")
-    implementation("org.apache.commons:commons-lang3:3.14.0")
+    implementation("org.apache.commons:commons-lang3:3.20.0")
 
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.0")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.10.2")
