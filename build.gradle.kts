@@ -75,12 +75,12 @@ dependencies {
     add("integrationTestImplementation", "org.apache.flink:flink-table-planner-loader:$flinkVersion")
     add("integrationTestImplementation", "org.apache.flink:flink-table-runtime:$flinkVersion")
     add("integrationTestImplementation", "org.apache.flink:flink-connector-base:$flinkVersion")
-    add("integrationTestImplementation", "org.apache.flink:flink-connector-kafka:3.4.0-1.20")
+    add("integrationTestImplementation", "org.apache.flink:flink-connector-kafka:4.0.1-2.0")
     add("integrationTestImplementation", "org.apache.flink:flink-test-utils:$flinkVersion")
     add("integrationTestImplementation", "org.apache.flink:flink-test-utils-junit:$flinkVersion")
     add("integrationTestImplementation", "org.apache.flink:flink-runtime:$flinkVersion:tests")
     add("integrationTestImplementation", "com.clickhouse:clickhouse-jdbc:0.4.6")
-    add("integrationTestImplementation", "org.apache.flink:flink-connector-jdbc:3.1.0-1.17")
+    add("integrationTestImplementation", "org.apache.flink:flink-connector-jdbc:3.3.0-1.20")
 }
 
 tasks.test {
