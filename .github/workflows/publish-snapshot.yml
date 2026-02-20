@@ -2,7 +2,8 @@ name: Publish Snapshot
 
 on:
   push:
-    branches: [main]
+    branches: [main, master]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -22,13 +23,16 @@ jobs:
       - name: Check snapshot version
         id: version
         run: |
-          V=$(gradle properties -q | grep "^version:" | awk '{print $2}')
+          V=$(gradle -q printVersion | tail -1)
           echo "version=$V" >> $GITHUB_OUTPUT
           if [[ "$V" == *-SNAPSHOT ]]; then echo "snapshot=true" >> $GITHUB_OUTPUT; else echo "snapshot=false" >> $GITHUB_OUTPUT; fi
+          SNAP=$([[ "$V" == *-SNAPSHOT ]] && echo true || echo false)
+          echo "Detected version: '$V' → snapshot=$SNAP (publish will $([ "$SNAP" = true ] && echo 'run' || echo 'be skipped'))"
 
       - name: Run all tests with coverage verification
         run: gradle test integrationTest jacocoTestReport jacocoTestCoverageVerification
 
+      # GPG_SIGNING_KEY: ASCII-armored secret key (paste output of gpg --armor --export-secret-keys KEY_ID).
       - name: Publish to Sonatype (snapshot)
         if: steps.version.outputs.snapshot == 'true'
         run: gradle publishSonatypePublicationToSonatypeRepository
@@ -37,3 +41,15 @@ jobs:
           ORG_GRADLE_PROJECT_sonatypePassword: ${{ secrets.SONATYPE_PASSWORD }}
           ORG_GRADLE_PROJECT_signingKey: ${{ secrets.GPG_SIGNING_KEY }}
           ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.GPG_SIGNING_PASSPHRASE }}
+
+      # Debug: if publish failed, check that GPG_SIGNING_KEY is ASCII-armored (does not log the key)
+      - name: Debug signing key format
+        if: failure() && steps.version.outputs.snapshot == 'true'
+        run: |
+          if echo "$KEY_CHECK" | head -1 | grep -q "-----BEGIN PGP"; then
+            echo "Key format OK (ASCII-armored). If sign still failed, check passphrase."
+          else
+            echo "Key format invalid. Store ASCII-armored key: gpg --armor --export-secret-keys KEY_ID"
+          fi
+        env:
+          KEY_CHECK: ${{ secrets.GPG_SIGNING_KEY }}

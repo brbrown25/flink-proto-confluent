@@ -1,8 +1,9 @@
 # flink-proto-confluent
 
 [![Maven Central](https://img.shields.io/maven-central/v/com.bbrownsound/flink-proto-confluent.svg)](https://search.maven.org/artifact/com.bbrownsound/flink-proto-confluent)
+[![Snapshots](https://img.shields.io/badge/snapshots-Sonatype%20Central-green)](https://central.sonatype.com/repository/maven-snapshots/)
 [![CI](https://github.com/brandonbrown/flink-proto-confluent/actions/workflows/ci.yml/badge.svg)](https://github.com/brandonbrown/flink-proto-confluent/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/brandonbrown/flink-proto-confluent/branch/main/graph/badge.svg)](https://codecov.io/gh/brandonbrown/flink-proto-confluent)
+[![codecov](https://codecov.io/gh/brbrown25/flink-proto-confluent/graph/badge.svg?token=WXE51L52H4)](https://codecov.io/gh/brbrown25/flink-proto-confluent)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![GitHub release](https://img.shields.io/github/v/release/brandonbrown/flink-proto-confluent)](https://github.com/brandonbrown/flink-proto-confluent/releases)
 

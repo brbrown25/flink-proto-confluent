@@ -2,7 +2,7 @@ plugins {
     java
     `maven-publish`
     signing
-    id("com.gradleup.shadow") version "8.3.5"
+    id("com.gradleup.shadow") version "9.3.1"
     id("io.github.gradle-nexus.publish-plugin") version "2.0.0"
     checkstyle
     jacoco
@@ -11,7 +11,11 @@ plugins {
 }
 
 group = "com.bbrownsound"
-version = project.findProperty("version")?.toString() ?: "1.0.0-SNAPSHOT"
+version = project.findProperty("version")?.toString()?.takeIf { it != "unspecified" } ?: "1.0.0-SNAPSHOT"
+
+tasks.register("printVersion") {
+    doLast { println(project.version) }
+}
 
 java {
     withSourcesJar()
@@ -233,8 +237,6 @@ publishing {
         }
         create<MavenPublication>("sonatype") {
             from(components["java"])
-            artifact(tasks.named("sourcesJar").get())
-            artifact(tasks.named("javadocJar").get())
             groupId = project.group.toString()
             artifactId = "flink-proto-confluent"
             version = project.version.toString()
