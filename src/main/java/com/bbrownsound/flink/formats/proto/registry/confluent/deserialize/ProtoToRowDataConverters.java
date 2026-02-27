@@ -259,7 +259,10 @@ public class ProtoToRowDataConverters {
     final int arity = targetType.getFieldCount();
     final Map<FieldDescriptor, Pair<ProtoToRowDataConverter, Integer>> fieldConverters =
         new HashMap<>();
-    for (int i = 0; i < targetType.getFieldCount(); i++) {
+    // Iterate only up to the oneof's field count; table schema may have more columns (e.g. 28
+    // when proto oneof has 27). Extra columns are left null.
+    final int oneofFieldCount = readSchema.getFieldCount();
+    for (int i = 0; i < targetType.getFieldCount() && i < oneofFieldCount; i++) {
       final FieldDescriptor fieldDescriptor = readSchema.getField(i);
       fieldConverters.put(
           fieldDescriptor,

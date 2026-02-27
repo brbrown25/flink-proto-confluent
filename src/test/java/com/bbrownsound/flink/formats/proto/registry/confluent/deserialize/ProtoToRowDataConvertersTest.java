@@ -18,6 +18,7 @@ import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.data.StringData;
 import org.apache.flink.table.types.logical.DateType;
 import org.apache.flink.table.types.logical.DecimalType;
+import org.apache.flink.table.types.logical.IntType;
 import org.apache.flink.table.types.logical.RowType;
 import org.apache.flink.table.types.logical.TimeType;
 import org.apache.flink.table.types.logical.VarCharType;
@@ -298,6 +299,42 @@ class ProtoToRowDataConvertersTest {
     RowData choiceRow = row.getRow(0, 2);
     assertNotNull(choiceRow);
     assertEquals(StringData.fromString("hello"), choiceRow.getString(1));
+  }
+
+  /**
+   * When the table schema has more columns for a oneof than the proto oneof has fields (e.g. 28
+   * vs 27), conversion should succeed and extra columns are left null. This guards against
+   * IndexOutOfBounds when iterating by targetType.getFieldCount() only.
+   */
+  @Test
+  void oneof_tableSchemaWithMoreColumnsThanProto_extraColumnsNull() throws IOException {
+    // Oneof "choice" has 2 fields (a, b); use table schema with 3 columns (a, b, extra).
+    RowType oneofRowTypeWithExtra =
+        new RowType(
+            true,
+            java.util.List.of(
+                new RowType.RowField("a", new IntType(true)),
+                new RowType.RowField("b", new VarCharType(true, 256)),
+                new RowType.RowField("extra", new VarCharType(true, 256))));
+    RowType rowType =
+        new RowType(
+            false,
+            java.util.List.of(new RowType.RowField("choice", oneofRowTypeWithExtra)));
+    var converter =
+        ProtoToRowDataConverters.createConverter(
+            TestOneof.MessageWithOneof.getDescriptor(), rowType);
+    TestOneof.MessageWithOneof msg =
+        TestOneof.MessageWithOneof.newBuilder().setA(42).build();
+    Object result = converter.convert(msg);
+    assertNotNull(result);
+    RowData row = (RowData) result;
+    assertEquals(1, row.getArity());
+    RowData choiceRow = row.getRow(0, 3);
+    assertNotNull(choiceRow);
+    assertEquals(3, choiceRow.getArity());
+    assertEquals(42, choiceRow.getInt(0));
+    assertTrue(choiceRow.isNullAt(1));
+    assertTrue(choiceRow.isNullAt(2));
   }
 
   @Test
