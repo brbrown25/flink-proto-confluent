@@ -37,7 +37,7 @@ jobs:
         reporter: java-junit
     
     - name: Upload unit test results
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@v7
       if: always()
       with:
         name: unit-test-results
@@ -46,7 +46,7 @@ jobs:
           build/reports/tests/test/
     
     - name: Upload coverage report
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@v7
       with:
         name: coverage-report
         path: build/reports/jacoco/test/
@@ -76,7 +76,7 @@ jobs:
         reporter: java-junit
     
     - name: Upload integration test results
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@v7
       if: always()
       with:
         name: integration-test-results
@@ -132,7 +132,7 @@ jobs:
       run: gradle checkstyleMain checkstyleTest checkstyleIntegrationTest spotbugsMain spotbugsTest spotlessCheck
     
     - name: Upload lint results
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@v7
       if: always()
       with:
         name: lint-results
