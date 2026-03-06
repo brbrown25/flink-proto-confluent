@@ -6,11 +6,16 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.bbrownsound.flink.formats.proto.test.v1.TestSimple;
+import com.google.protobuf.DynamicMessage;
+import io.confluent.kafka.serializers.protobuf.KafkaProtobufDeserializer;
+import io.confluent.kafka.serializers.protobuf.KafkaProtobufDeserializerConfig;
 import io.confluent.kafka.serializers.protobuf.KafkaProtobufSerializer;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutionException;
@@ -28,8 +33,12 @@ import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.admin.TopicDescription;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.consumer.ConsumerRecords;
+import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -302,6 +311,273 @@ class ProtoConfluentMiniClusterIntegrationTest {
     } finally {
       COLLECT_SINK_REGISTRY.remove(COLLECT_KEY);
     }
+  }
+
+  /**
+   * Sink with dynamic (Row-derived) schema: no value.message-class. Flink writes to Kafka using
+   * proto-confluent; schema is the Row type. Consumer reads as DynamicMessage and verifies content.
+   */
+  @Test
+  void sinkDynamicSchema_insertIntoKafka_consumableAsDynamicMessage() throws Exception {
+    String sinkTopic = "integration-simple-sink-dynamic";
+    String bootstrapForJob =
+        bootstrapServers.startsWith("PLAINTEXT://")
+            ? bootstrapServers.substring("PLAINTEXT://".length())
+            : bootstrapServers;
+    createTopic(sinkTopic, bootstrapForJob);
+    produceTwoMessagesToTopic(TOPIC, bootstrapForJob);
+
+    StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+    env.setParallelism(1);
+    StreamTableEnvironment tableEnv = StreamTableEnvironment.create(env);
+
+    String createSrc =
+        "CREATE TABLE simple_src ("
+            + "  `content` STRING,"
+            + "  `date_time` STRING"
+            + ") WITH ("
+            + "  'connector' = 'kafka',"
+            + "  'topic' = '"
+            + TOPIC
+            + "',"
+            + "  'properties.bootstrap.servers' = '"
+            + bootstrapForJob
+            + "',"
+            + "  'scan.startup.mode' = 'earliest-offset',"
+            + "  'value.format' = 'proto-confluent',"
+            + "  'value.proto-confluent.url' = '"
+            + schemaRegistryUrl
+            + "',"
+            + "  'value.proto-confluent.topic' = '"
+            + TOPIC
+            + "',"
+            + "  'value.proto-confluent.is_key' = 'false'"
+            + ")";
+    tableEnv.executeSql(createSrc);
+
+    String createSink =
+        "CREATE TABLE simple_sink ("
+            + "  `content` STRING,"
+            + "  `date_time` STRING"
+            + ") WITH ("
+            + "  'connector' = 'kafka',"
+            + "  'topic' = '"
+            + sinkTopic
+            + "',"
+            + "  'properties.bootstrap.servers' = '"
+            + bootstrapForJob
+            + "',"
+            + "  'value.format' = 'proto-confluent',"
+            + "  'value.proto-confluent.url' = '"
+            + schemaRegistryUrl
+            + "',"
+            + "  'value.proto-confluent.topic' = '"
+            + sinkTopic
+            + "',"
+            + "  'value.proto-confluent.auto-register-schemas' = 'true',"
+            + "  'value.proto-confluent.is_key' = 'false'"
+            + ")";
+    tableEnv.executeSql(createSink);
+
+    tableEnv.executeSql("INSERT INTO simple_sink SELECT * FROM simple_src");
+
+    await()
+        .atMost(90, SECONDS)
+        .pollInterval(Duration.ofSeconds(2))
+        .until(
+            () -> {
+              List<DynamicMessage> consumed = consumeAsDynamicMessage(sinkTopic, bootstrapForJob);
+              return consumed.size() >= 2;
+            });
+
+    List<DynamicMessage> messages = consumeAsDynamicMessage(sinkTopic, bootstrapForJob);
+    assertTrue(messages.size() >= 2, "Expected at least 2 messages; got " + messages.size());
+    DynamicMessage first = messages.get(0);
+    assertEquals(
+        "hello",
+        first.getField(first.getDescriptorForType().findFieldByName("content")).toString());
+    assertEquals(
+        "2025-01-01",
+        first.getField(first.getDescriptorForType().findFieldByName("date_time")).toString());
+    log("sinkDynamicSchema: done");
+  }
+
+  /**
+   * Sink with value.message-class: Flink writes using SimpleMessage schema. Consumer deserializes
+   * as SPECIFIC_PROTOBUF_VALUE_TYPE=SimpleMessage and verifies typed accessors.
+   */
+  @Test
+  void sinkWithMessageClass_insertIntoKafka_consumableAsSimpleMessage() throws Exception {
+    String sinkTopic = "integration-simple-sink-message-class";
+    String bootstrapForJob =
+        bootstrapServers.startsWith("PLAINTEXT://")
+            ? bootstrapServers.substring("PLAINTEXT://".length())
+            : bootstrapServers;
+    createTopic(sinkTopic, bootstrapForJob);
+    produceTwoMessagesToTopic(TOPIC, bootstrapForJob);
+
+    StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+    env.setParallelism(1);
+    StreamTableEnvironment tableEnv = StreamTableEnvironment.create(env);
+
+    String createSrc =
+        "CREATE TABLE simple_src ("
+            + "  `content` STRING,"
+            + "  `date_time` STRING"
+            + ") WITH ("
+            + "  'connector' = 'kafka',"
+            + "  'topic' = '"
+            + TOPIC
+            + "',"
+            + "  'properties.bootstrap.servers' = '"
+            + bootstrapForJob
+            + "',"
+            + "  'scan.startup.mode' = 'earliest-offset',"
+            + "  'value.format' = 'proto-confluent',"
+            + "  'value.proto-confluent.url' = '"
+            + schemaRegistryUrl
+            + "',"
+            + "  'value.proto-confluent.topic' = '"
+            + TOPIC
+            + "',"
+            + "  'value.proto-confluent.is_key' = 'false'"
+            + ")";
+    tableEnv.executeSql(createSrc);
+
+    String createSink =
+        "CREATE TABLE simple_sink ("
+            + "  `content` STRING,"
+            + "  `date_time` STRING"
+            + ") WITH ("
+            + "  'connector' = 'kafka',"
+            + "  'topic' = '"
+            + sinkTopic
+            + "',"
+            + "  'properties.bootstrap.servers' = '"
+            + bootstrapForJob
+            + "',"
+            + "  'value.format' = 'proto-confluent',"
+            + "  'value.proto-confluent.url' = '"
+            + schemaRegistryUrl
+            + "',"
+            + "  'value.proto-confluent.topic' = '"
+            + sinkTopic
+            + "',"
+            + "  'value.proto-confluent.auto-register-schemas' = 'true',"
+            + "  'value.proto-confluent.properties' = 'value.message-class:"
+            + TestSimple.SimpleMessage.class.getName()
+            + "',"
+            + "  'value.proto-confluent.is_key' = 'false'"
+            + ")";
+    tableEnv.executeSql(createSink);
+
+    tableEnv.executeSql("INSERT INTO simple_sink SELECT * FROM simple_src");
+
+    await()
+        .atMost(90, SECONDS)
+        .pollInterval(Duration.ofSeconds(2))
+        .until(
+            () -> {
+              List<TestSimple.SimpleMessage> consumed =
+                  consumeAsSimpleMessage(sinkTopic, bootstrapForJob);
+              return consumed.size() >= 2;
+            });
+
+    List<TestSimple.SimpleMessage> messages = consumeAsSimpleMessage(sinkTopic, bootstrapForJob);
+    assertTrue(messages.size() >= 2, "Expected at least 2 messages; got " + messages.size());
+    TestSimple.SimpleMessage first = messages.get(0);
+    assertEquals("hello", first.getContent());
+    assertEquals("2025-01-01", first.getDateTime());
+    log("sinkWithMessageClass: done");
+  }
+
+  private void createTopic(String topic, String bootstrapForJob) throws Exception {
+    try (AdminClient admin =
+        AdminClient.create(Map.of(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapForJob))) {
+      admin.createTopics(List.of(new NewTopic(topic, 1, (short) 1))).all().get(60, SECONDS);
+      awaitKafkaTopicReady(admin, topic);
+    }
+  }
+
+  private void produceTwoMessagesToTopic(String topic, String bootstrapForJob) throws Exception {
+    Map<String, Object> producerConfig =
+        Map.<String, Object>of(
+            "bootstrap.servers",
+            bootstrapForJob,
+            "key.serializer",
+            StringSerializer.class.getName(),
+            "value.serializer",
+            KafkaProtobufSerializer.class.getName(),
+            "schema.registry.url",
+            schemaRegistryUrl,
+            "auto.register.schemas",
+            "true");
+    try (KafkaProducer<String, TestSimple.SimpleMessage> producer =
+        new KafkaProducer<>(producerConfig)) {
+      producer
+          .send(
+              new ProducerRecord<>(
+                  topic,
+                  TestSimple.SimpleMessage.newBuilder()
+                      .setContent("hello")
+                      .setDateTime("2025-01-01")
+                      .build()))
+          .get(10, SECONDS);
+      producer
+          .send(
+              new ProducerRecord<>(
+                  topic,
+                  TestSimple.SimpleMessage.newBuilder()
+                      .setContent("world")
+                      .setDateTime("2025-01-02")
+                      .build()))
+          .get(10, SECONDS);
+      producer.flush();
+    }
+  }
+
+  private List<DynamicMessage> consumeAsDynamicMessage(String topic, String bootstrap) {
+    Map<String, Object> props = new java.util.HashMap<>();
+    props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap);
+    props.put(ConsumerConfig.GROUP_ID_CONFIG, "dynamic-" + UUID.randomUUID());
+    props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
+    props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, KafkaProtobufDeserializer.class);
+    props.put(KafkaProtobufDeserializerConfig.SCHEMA_REGISTRY_URL_CONFIG, schemaRegistryUrl);
+    props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+    List<DynamicMessage> out = new ArrayList<>();
+    try (KafkaConsumer<String, DynamicMessage> consumer = new KafkaConsumer<>(props)) {
+      consumer.subscribe(Collections.singletonList(topic));
+      ConsumerRecords<String, DynamicMessage> records = consumer.poll(Duration.ofMillis(5000));
+      records.forEach(
+          r -> {
+            if (r.value() != null) out.add(r.value());
+          });
+    }
+    return out;
+  }
+
+  private List<TestSimple.SimpleMessage> consumeAsSimpleMessage(String topic, String bootstrap) {
+    Map<String, Object> props = new java.util.HashMap<>();
+    props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap);
+    props.put(ConsumerConfig.GROUP_ID_CONFIG, "specific-" + UUID.randomUUID());
+    props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
+    props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, KafkaProtobufDeserializer.class);
+    props.put(KafkaProtobufDeserializerConfig.SCHEMA_REGISTRY_URL_CONFIG, schemaRegistryUrl);
+    props.put(
+        KafkaProtobufDeserializerConfig.SPECIFIC_PROTOBUF_VALUE_TYPE,
+        TestSimple.SimpleMessage.class.getName());
+    props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+    List<TestSimple.SimpleMessage> out = new ArrayList<>();
+    try (KafkaConsumer<String, TestSimple.SimpleMessage> consumer = new KafkaConsumer<>(props)) {
+      consumer.subscribe(Collections.singletonList(topic));
+      ConsumerRecords<String, TestSimple.SimpleMessage> records =
+          consumer.poll(Duration.ofMillis(5000));
+      records.forEach(
+          r -> {
+            if (r.value() != null) out.add(r.value());
+          });
+    }
+    return out;
   }
 
   private static final class CollectSink extends RichSinkFunction<Row> {
