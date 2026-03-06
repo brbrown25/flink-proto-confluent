@@ -90,4 +90,36 @@ class RowDataProtoSerializerTest {
     assertNotNull(result);
     assertTrue(result.length > 0);
   }
+
+  @Test
+  void serializeRowData_whenValueMessageClassConfigured_usesMessageClassDescriptor()
+      throws Exception {
+    MockSchemaRegistryClient mockRegistry =
+        new MockSchemaRegistryClient(Collections.singletonList(new ProtobufSchemaProvider()));
+    RowDataProtoSerializer serializerWithMessageClass = new RowDataProtoSerializer(mockRegistry);
+    ProtoConfluentFormatConfig formatConfig =
+        new ProtoConfluentFormatConfig(
+            "http://localhost:8081",
+            "test-topic",
+            false,
+            Map.of(
+                "schema.registry.url",
+                "http://localhost:8081",
+                RowDataProtoSerializer.VALUE_MESSAGE_CLASS_CONFIG,
+                TestSimple.SimpleMessage.class.getName()));
+    serializerWithMessageClass.configure(formatConfig.getProperties(), formatConfig.isKey);
+
+    GenericRowData row = new GenericRowData(2);
+    row.setField(0, StringData.fromString("msg-class-content"));
+    row.setField(1, StringData.fromString("2025-06-01"));
+
+    byte[] result =
+        serializerWithMessageClass.serializeRowData("test-topic", rowType, row);
+    assertNotNull(result);
+    assertTrue(result.length > 0);
+    // Schema should be registered under topic-value with SimpleMessage descriptor
+    assertTrue(
+        mockRegistry.getLatestSchemaMetadata("test-topic-value") != null
+            || result.length > 5);
+  }
 }

@@ -3,6 +3,7 @@ package com.bbrownsound.flink.formats.proto.registry.confluent.serialize;
 import com.bbrownsound.flink.formats.proto.registry.confluent.util.RowTypeToProto;
 import com.google.protobuf.Descriptors;
 import com.google.protobuf.DynamicMessage;
+import com.google.protobuf.Message;
 import io.confluent.kafka.schemaregistry.ParsedSchema;
 import io.confluent.kafka.schemaregistry.client.SchemaMetadata;
 import io.confluent.kafka.schemaregistry.client.SchemaRegistryClient;
@@ -10,20 +11,31 @@ import io.confluent.kafka.schemaregistry.client.rest.exceptions.RestClientExcept
 import io.confluent.kafka.schemaregistry.protobuf.ProtobufSchema;
 import io.confluent.kafka.serializers.protobuf.KafkaProtobufSerializer;
 import java.io.IOException;
+import java.lang.reflect.Method;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import org.apache.flink.table.api.ValidationException;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.types.logical.RowType;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Derived from https://github.com/amstee/flink-proto-confluent (Apache-2.0). See NOTICE in project
  * root.
  */
 public class RowDataProtoSerializer extends KafkaProtobufSerializer<DynamicMessage> {
+  private static final Logger LOG = LoggerFactory.getLogger(RowDataProtoSerializer.class);
+
+  /** Config key for optional specific Protobuf message class (e.g. for schema registration). */
+  public static final String VALUE_MESSAGE_CLASS_CONFIG = "value.message-class";
+
   private final Map<String, RowDataToProtoConverters.RowDataToProtoConverter> converters;
   private final Map<String, Descriptors.Descriptor> schemaCache;
+
+  /** When set via {@value #VALUE_MESSAGE_CLASS_CONFIG}, used for serialization and registration. */
+  private volatile Descriptors.Descriptor messageClassDescriptor;
 
   RowDataProtoSerializer(SchemaRegistryClient client) {
     super(client);
@@ -31,7 +43,39 @@ public class RowDataProtoSerializer extends KafkaProtobufSerializer<DynamicMessa
     this.schemaCache = new ConcurrentHashMap<>();
   }
 
+  @Override
+  public void configure(Map<String, ?> configs, boolean isKey) {
+    super.configure(configs, isKey);
+    Object messageClassObj = configs.get(VALUE_MESSAGE_CLASS_CONFIG);
+    if (messageClassObj instanceof String) {
+      String className = (String) messageClassObj;
+      if (!className.isEmpty()) {
+        try {
+          this.messageClassDescriptor = descriptorFromMessageClass(className);
+          LOG.info(
+              "[proto-confluent] Using message class for serialization: {} -> {}",
+              className,
+              messageClassDescriptor.getFullName());
+        } catch (Exception e) {
+          throw new ValidationException(
+              "Failed to resolve descriptor for value.message-class=" + className, e);
+        }
+      }
+    }
+  }
+
+  private static Descriptors.Descriptor descriptorFromMessageClass(String className)
+      throws ReflectiveOperationException {
+    Class<?> clazz = Class.forName(className);
+    Method getDefault = clazz.getMethod("getDefaultInstance");
+    Message defaultInstance = (Message) getDefault.invoke(null);
+    return defaultInstance.getDescriptorForType();
+  }
+
   private Descriptors.Descriptor getDescriptor(String subject, RowType rowType) {
+    if (messageClassDescriptor != null) {
+      return messageClassDescriptor;
+    }
     Descriptors.Descriptor desc;
 
     try {
