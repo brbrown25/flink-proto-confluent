@@ -29,7 +29,7 @@ jobs:
       run: gradle test integrationTest jacocoTestReport jacocoTestCoverageVerification
     
     - name: Generate test report
-      uses: dorny/test-reporter@v2
+      uses: dorny/test-reporter@v3
       if: success() || failure()
       with:
         name: Unit Test Results
@@ -68,7 +68,7 @@ jobs:
         TESTCONTAINERS_RYUK_DISABLED: true
     
     - name: Generate integration test report
-      uses: dorny/test-reporter@v2
+      uses: dorny/test-reporter@v3
       if: success() || failure()
       with:
         name: Integration Test Results
