@@ -75,7 +75,7 @@ dependencies {
     add("integrationTestImplementation", "org.apache.flink:flink-table-planner-loader:$flinkVersion")
     add("integrationTestImplementation", "org.apache.flink:flink-table-runtime:$flinkVersion")
     add("integrationTestImplementation", "org.apache.flink:flink-connector-base:$flinkVersion")
-    add("integrationTestImplementation", "org.apache.flink:flink-connector-kafka:4.0.1-2.0")
+    add("integrationTestImplementation", "org.apache.flink:flink-connector-kafka:5.0.0-2.2")
     add("integrationTestImplementation", "org.apache.flink:flink-test-utils:$flinkVersion")
     add("integrationTestImplementation", "org.apache.flink:flink-test-utils-junit:$flinkVersion")
     add("integrationTestImplementation", "org.apache.flink:flink-runtime:$flinkVersion:tests")
