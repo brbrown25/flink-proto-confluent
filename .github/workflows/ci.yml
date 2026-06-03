@@ -108,7 +108,7 @@ jobs:
         fail_ci_if_error: false
     
     - name: Add coverage to PR
-      uses: madrapps/jacoco-report@v1.7.2
+      uses: madrapps/jacoco-report@v1.8.0
       if: github.event_name == 'pull_request'
       with:
         paths: build/reports/jacoco/test/jacocoTestReport.xml
