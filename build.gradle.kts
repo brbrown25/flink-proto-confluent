@@ -6,7 +6,7 @@ plugins {
     id("io.github.gradle-nexus.publish-plugin") version "2.0.0"
     checkstyle
     jacoco
-    id("com.diffplug.spotless") version "8.6.0"
+    id("com.diffplug.spotless") version "8.7.0"
     id("com.github.spotbugs") version "6.5.6"
 }
 
