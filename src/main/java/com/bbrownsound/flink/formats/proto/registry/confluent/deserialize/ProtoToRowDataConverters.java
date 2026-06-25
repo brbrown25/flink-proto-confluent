@@ -272,11 +272,18 @@ public class ProtoToRowDataConverters {
       final Message message = (Message) object;
       final GenericRowData row = new GenericRowData(arity);
       final FieldDescriptor oneofFieldDescriptor = message.getOneofFieldDescriptor(readSchema);
+      // getOneofFieldDescriptor returns null when no case of the oneof is set. The descriptor
+      // may also be absent from fieldConverters when the proto oneof has gained a case that is
+      // not present in the target table schema (schema drift). In either case, leave the row's
+      // columns null instead of dereferencing a null converter (which previously NPE'd and, with
+      // no error tolerance on the Kafka source, crash-looped the whole job on a single record).
       final Pair<ProtoToRowDataConverter, Integer> converters =
-          fieldConverters.get(oneofFieldDescriptor);
-      row.setField(
-          converters.getRight(),
-          converters.getLeft().convert(message.getField(oneofFieldDescriptor)));
+          oneofFieldDescriptor == null ? null : fieldConverters.get(oneofFieldDescriptor);
+      if (converters != null) {
+        row.setField(
+            converters.getRight(),
+            converters.getLeft().convert(message.getField(oneofFieldDescriptor)));
+      }
       return row;
     };
   }

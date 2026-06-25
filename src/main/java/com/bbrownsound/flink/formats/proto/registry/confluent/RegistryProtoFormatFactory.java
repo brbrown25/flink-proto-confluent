@@ -68,7 +68,10 @@ public class RegistryProtoFormatFactory
             ProtoConfluentFormatOptions.BASIC_AUTH_CREDENTIALS_SOURCE,
             ProtoConfluentFormatOptions.BASIC_AUTH_USER_INFO,
             ProtoConfluentFormatOptions.BEARER_AUTH_CREDENTIALS_SOURCE,
-            ProtoConfluentFormatOptions.BEARER_AUTH_TOKEN)
+            ProtoConfluentFormatOptions.BEARER_AUTH_TOKEN,
+            ProtoConfluentFormatOptions.ON_DESERIALIZE_ERROR,
+            ProtoConfluentFormatOptions.DEAD_LETTER_TOPIC,
+            ProtoConfluentFormatOptions.DEAD_LETTER_PROPERTIES)
         .collect(Collectors.toSet());
   }
 
@@ -97,6 +100,9 @@ public class RegistryProtoFormatFactory
     options.add(ProtoConfluentFormatOptions.BASIC_AUTH_USER_INFO);
     options.add(ProtoConfluentFormatOptions.BEARER_AUTH_CREDENTIALS_SOURCE);
     options.add(ProtoConfluentFormatOptions.BEARER_AUTH_TOKEN);
+    options.add(ProtoConfluentFormatOptions.ON_DESERIALIZE_ERROR);
+    options.add(ProtoConfluentFormatOptions.DEAD_LETTER_TOPIC);
+    options.add(ProtoConfluentFormatOptions.DEAD_LETTER_PROPERTIES);
     return options;
   }
 

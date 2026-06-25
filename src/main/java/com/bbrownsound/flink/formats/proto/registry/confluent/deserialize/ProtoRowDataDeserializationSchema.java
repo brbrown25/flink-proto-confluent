@@ -23,6 +23,15 @@ import io.confluent.kafka.schemaregistry.client.CachedSchemaRegistryClient;
 import io.confluent.kafka.schemaregistry.protobuf.ProtobufSchemaProvider;
 import io.confluent.kafka.serializers.protobuf.KafkaProtobufDeserializer;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Properties;
+
+import org.apache.flink.metrics.Counter;
+import org.apache.kafka.clients.producer.KafkaProducer;
+import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.header.internals.RecordHeader;
+import org.apache.kafka.common.serialization.ByteArraySerializer;
+
 /**
  * Derived from https://github.com/amstee/flink-proto-confluent (Apache-2.0). See NOTICE in project
  * root.
@@ -43,6 +52,10 @@ public class ProtoRowDataDeserializationSchema implements DeserializationSchema<
   private transient KafkaProtobufDeserializer<DynamicMessage> deserializer;
   private transient Map<Integer, ProtoToRowDataConverters.ProtoToRowDataConverter> converters;
   private transient AtomicLong deserializeCount;
+  /** Counts records that failed to deserialize (exposed as the numDeserializeErrors metric). */
+  private transient Counter deserializeErrors;
+  /** Optional producer for the dead-letter topic; null when DLQ is not configured. */
+  private transient KafkaProducer<byte[], byte[]> deadLetterProducer;
 
   /**
    * Creates a deserialization schema for the given row type and config.
@@ -78,6 +91,21 @@ public class ProtoRowDataDeserializationSchema implements DeserializationSchema<
       this.deserializer.configure(formatConfig.getProperties(), formatConfig.isKey);
       this.converters = new ConcurrentHashMap<>();
       this.deserializeCount = new AtomicLong(0);
+      if (context != null) {
+        this.deserializeErrors = context.getMetricGroup().counter("numDeserializeErrors");
+      }
+
+      final Map<String, String> dlqProps = formatConfig.getDeadLetterProperties();
+      if (formatConfig.deadLetterTopic != null && dlqProps.containsKey("bootstrap.servers")) {
+        final Properties producerProps = new Properties();
+        producerProps.putAll(dlqProps);
+        producerProps.put("key.serializer", ByteArraySerializer.class.getName());
+        producerProps.put("value.serializer", ByteArraySerializer.class.getName());
+        this.deadLetterProducer = new KafkaProducer<>(producerProps);
+        LOG.info(
+            "[proto-confluent] dead-letter producer enabled: topic={}",
+            formatConfig.deadLetterTopic);
+      }
       LOG.debug("[proto-confluent] deserializer.open: client and deserializer initialized");
     }
   }
@@ -151,8 +179,38 @@ public class ProtoRowDataDeserializationSchema implements DeserializationSchema<
               + e.getClass().getSimpleName()
               + ": "
               + e.getMessage());
-      throw new IOException("Proto-confluent deserialize failed: " + e.getMessage(), e);
+      if (deserializeErrors != null) {
+        deserializeErrors.inc();
+      }
+      if (deadLetterProducer != null) {
+        try {
+          final ProducerRecord<byte[], byte[]> dlqRecord =
+              new ProducerRecord<>(formatConfig.deadLetterTopic, null, message);
+          dlqRecord
+              .headers()
+              .add(new RecordHeader("error.class", utf8(e.getClass().getName())))
+              .add(new RecordHeader("error.message", utf8(String.valueOf(e.getMessage()))))
+              .add(new RecordHeader("source.topic", utf8(String.valueOf(formatConfig.topic))));
+          deadLetterProducer.send(dlqRecord);
+        } catch (Exception dlqEx) {
+          LOG.error(
+              "[proto-confluent] failed to produce to dead-letter topic {}",
+              formatConfig.deadLetterTopic,
+              dlqEx);
+        }
+      }
+      // Default ("skip"): drop the poison record and keep the job running. A single
+      // unparseable record must not crash-loop the source. Opt into the old fatal behavior
+      // with on-deserialize-error=fail.
+      if ("fail".equalsIgnoreCase(formatConfig.onDeserializeError)) {
+        throw new IOException("Proto-confluent deserialize failed: " + e.getMessage(), e);
+      }
+      return null;
     }
+  }
+
+  private static byte[] utf8(String s) {
+    return s.getBytes(StandardCharsets.UTF_8);
   }
 
   @Override

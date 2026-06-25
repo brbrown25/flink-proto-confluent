@@ -133,5 +133,43 @@ public class ProtoConfluentFormatOptions {
                   + "via Flink config options. However, note that Flink options "
                   + "have higher precedence.");
 
+  /** What to do when a record fails to deserialize: "skip" (drop + count) or "fail" (throw). */
+  public static final ConfigOption<String> ON_DESERIALIZE_ERROR =
+      ConfigOptions.key("on-deserialize-error")
+          .stringType()
+          .defaultValue("fail")
+          .withFallbackKeys("on_deserialize_error")
+          .withDescription(
+              "Behavior when a record cannot be deserialized: 'fail' (throw and fail the task — "
+                  + "the default, preserving existing semantics) or 'skip' (log, increment the "
+                  + "numDeserializeErrors metric, optionally route to the dead-letter topic, and "
+                  + "return null so a single poison record cannot crash-loop the job). Set 'skip' "
+                  + "(ideally with 'dead-letter-topic') for resilient pipelines.");
+
+  /** Optional dead-letter topic for records that fail to deserialize. */
+  public static final ConfigOption<String> DEAD_LETTER_TOPIC =
+      ConfigOptions.key("dead-letter-topic")
+          .stringType()
+          .noDefaultValue()
+          .withFallbackKeys("dead_letter_topic")
+          .withDescription(
+              "Optional Kafka topic to which the raw bytes of records that fail to deserialize "
+                  + "are produced (with error metadata in headers). Requires "
+                  + "'dead-letter.properties' to contain at least 'bootstrap.servers'. When unset, "
+                  + "failed records are only logged and counted.");
+
+  /**
+   * Producer properties for the dead-letter topic (bootstrap.servers + security). Forwarded
+   * verbatim to the KafkaProducer; key/value serializers are set to ByteArraySerializer in code.
+   */
+  public static final ConfigOption<Map<String, String>> DEAD_LETTER_PROPERTIES =
+      ConfigOptions.key("dead-letter.properties")
+          .mapType()
+          .noDefaultValue()
+          .withDescription(
+              "Properties forwarded verbatim to the dead-letter KafkaProducer (e.g. "
+                  + "bootstrap.servers, security.protocol, sasl.mechanism, sasl.jaas.config). "
+                  + "Only used when 'dead-letter-topic' is set.");
+
   private ProtoConfluentFormatOptions() {}
 }

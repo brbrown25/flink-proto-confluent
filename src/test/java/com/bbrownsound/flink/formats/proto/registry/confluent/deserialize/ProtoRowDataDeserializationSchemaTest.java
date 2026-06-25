@@ -65,6 +65,22 @@ class ProtoRowDataDeserializationSchemaTest {
   }
 
   @Test
+  void deserialize_invalidBytesSkippedWhenOnErrorSkip() throws IOException {
+    RowType rowType =
+        (RowType) ProtoToLogicalType.toLogicalType(TestSimple.SimpleMessage.getDescriptor());
+    Map<String, String> props = Map.of("schema.registry.url", "http://localhost:8081");
+    ProtoConfluentFormatConfig config =
+        new ProtoConfluentFormatConfig("http://localhost:8081", "test-topic", false, props);
+    config.onDeserializeError = "skip";
+    var schema = new ProtoRowDataDeserializationSchema(rowType, null, config);
+    schema.open(null);
+    byte[] invalid = new byte[] {0, 1, 2, 3, 4};
+    // With on-deserialize-error=skip a poison record is dropped (returns null) instead of
+    // throwing, so the Kafka source does not crash-loop. (No dead-letter-topic configured here.)
+    assertNull(schema.deserialize(invalid));
+  }
+
+  @Test
   void open_initializesClientAndDeserializer() {
     RowType rowType =
         (RowType) ProtoToLogicalType.toLogicalType(TestSimple.SimpleMessage.getDescriptor());
