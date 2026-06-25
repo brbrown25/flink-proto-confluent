@@ -28,6 +28,15 @@ public class ProtoConfluentFormatConfig implements Serializable {
   /** Whether this format is used for the key (vs value). */
   public Boolean isKey;
 
+  /** Behavior on deserialize failure: "fail" (default) or "skip". */
+  public String onDeserializeError = "fail";
+
+  /** Optional dead-letter topic for records that fail to deserialize (null = disabled). */
+  public String deadLetterTopic;
+
+  /** Producer properties for the dead-letter topic (bootstrap.servers + security). */
+  private Map<String, String> deadLetterProperties = new HashMap<>();
+
   /** Optional properties passed to Schema Registry client. */
   private Map<String, String> properties;
 
@@ -60,6 +69,13 @@ public class ProtoConfluentFormatConfig implements Serializable {
     schemaRegistryUrl = formatOptions.get(ProtoConfluentFormatOptions.URL);
     topic = formatOptions.get(ProtoConfluentFormatOptions.TOPIC);
     isKey = formatOptions.get(ProtoConfluentFormatOptions.IS_KEY);
+    onDeserializeError = formatOptions.get(ProtoConfluentFormatOptions.ON_DESERIALIZE_ERROR);
+    deadLetterTopic =
+        formatOptions.getOptional(ProtoConfluentFormatOptions.DEAD_LETTER_TOPIC).orElse(null);
+    deadLetterProperties = new HashMap<>();
+    formatOptions
+        .getOptional(ProtoConfluentFormatOptions.DEAD_LETTER_PROPERTIES)
+        .ifPresent(deadLetterProperties::putAll);
 
     properties = RegistryProtoFormatFactory.buildOptionalPropertiesMap(formatOptions);
     if (properties == null) {
@@ -86,5 +102,16 @@ public class ProtoConfluentFormatConfig implements Serializable {
    */
   public Map<String, String> getProperties() {
     return properties == null ? Collections.emptyMap() : new HashMap<>(properties);
+  }
+
+  /**
+   * Returns a copy of the dead-letter producer properties map.
+   *
+   * @return copy of the dead-letter producer properties, never null
+   */
+  public Map<String, String> getDeadLetterProperties() {
+    return deadLetterProperties == null
+        ? Collections.emptyMap()
+        : new HashMap<>(deadLetterProperties);
   }
 }
