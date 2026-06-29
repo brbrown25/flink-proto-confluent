@@ -44,8 +44,8 @@ dependencies {
     implementation("com.google.api.grpc:proto-google-common-protos:2.72.0")
     implementation("org.apache.commons:commons-lang3:3.20.0")
 
-    testImplementation("org.junit.jupiter:junit-jupiter:6.1.0")
-    testRuntimeOnly("org.junit.platform:junit-platform-launcher:6.1.0")
+    testImplementation("org.junit.jupiter:junit-jupiter:6.1.1")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher:6.1.1")
     testImplementation("org.apache.flink:flink-test-utils-junit:$flinkVersion")
     testImplementation("org.apache.flink:flink-runtime:$flinkVersion:tests")
     testImplementation("org.apache.flink:flink-table-common:$flinkVersion")
