@@ -34,6 +34,24 @@ public class ProtoConfluentFormatOptions {
           .withFallbackKeys("is_key")
           .withDescription("is this format used on a kafka key, default false");
 
+  /**
+   * Fully-qualified generated protobuf message class used to serialize/register instead of a
+   * dynamic (Row-derived) schema.
+   */
+  public static final ConfigOption<String> MESSAGE_CLASS =
+      ConfigOptions.key("message-class")
+          .stringType()
+          .noDefaultValue()
+          .withFallbackKeys("message_class")
+          .withDescription(
+              "Fully-qualified generated protobuf message class (e.g. "
+                  + "'com.example.MyProto$MyMessage') to use for serialization and schema "
+                  + "registration. When set, the format serializes with this named message's "
+                  + "descriptor instead of deriving a dynamic schema from the Flink Row type. "
+                  + "Applies to the key when 'is_key' is true and to the value otherwise, so a "
+                  + "sink can pin an explicit named entity for its key and/or value. When unset, "
+                  + "the format falls back to the previous dynamic-schema behavior.");
+
   /** Whether to auto-register schemas. */
   public static final ConfigOption<Boolean> AUTO_REGISTER_SCHEMAS =
       ConfigOptions.key("auto-register-schemas")

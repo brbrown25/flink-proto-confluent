@@ -28,13 +28,26 @@ import org.slf4j.LoggerFactory;
 public class RowDataProtoSerializer extends KafkaProtobufSerializer<DynamicMessage> {
   private static final Logger LOG = LoggerFactory.getLogger(RowDataProtoSerializer.class);
 
-  /** Config key for optional specific Protobuf message class (e.g. for schema registration). */
+  /**
+   * Config key for an explicit Protobuf message class used when this serializer encodes the value
+   * (i.e. {@code isKey == false}), e.g. for schema registration.
+   */
   public static final String VALUE_MESSAGE_CLASS_CONFIG = "value.message-class";
+
+  /**
+   * Config key for an explicit Protobuf message class used when this serializer encodes the key
+   * (i.e. {@code isKey == true}). Companion to {@link #VALUE_MESSAGE_CLASS_CONFIG} so a Kafka sink
+   * can pin an explicit named entity for its key instead of a dynamic schema.
+   */
+  public static final String KEY_MESSAGE_CLASS_CONFIG = "key.message-class";
 
   private final Map<String, RowDataToProtoConverters.RowDataToProtoConverter> converters;
   private final Map<String, Descriptors.Descriptor> schemaCache;
 
-  /** When set via {@value #VALUE_MESSAGE_CLASS_CONFIG}, used for serialization and registration. */
+  /**
+   * When set via {@value #KEY_MESSAGE_CLASS_CONFIG} (key) or {@value #VALUE_MESSAGE_CLASS_CONFIG}
+   * (value), used for serialization and registration in place of a dynamic schema.
+   */
   private volatile Descriptors.Descriptor messageClassDescriptor;
 
   RowDataProtoSerializer(SchemaRegistryClient client) {
@@ -46,19 +59,23 @@ public class RowDataProtoSerializer extends KafkaProtobufSerializer<DynamicMessa
   @Override
   public void configure(Map<String, ?> configs, boolean isKey) {
     super.configure(configs, isKey);
-    Object messageClassObj = configs.get(VALUE_MESSAGE_CLASS_CONFIG);
+    // A single format instance serves either the key or the value, so select the matching config
+    // key. This keeps key and value message classes independent for a table that pins both.
+    String configKey = isKey ? KEY_MESSAGE_CLASS_CONFIG : VALUE_MESSAGE_CLASS_CONFIG;
+    Object messageClassObj = configs.get(configKey);
     if (messageClassObj instanceof String) {
       String className = (String) messageClassObj;
       if (!className.isEmpty()) {
         try {
           this.messageClassDescriptor = descriptorFromMessageClass(className);
           LOG.info(
-              "[proto-confluent] Using message class for serialization: {} -> {}",
+              "[proto-confluent] Using message class for {} serialization: {} -> {}",
+              isKey ? "key" : "value",
               className,
               messageClassDescriptor.getFullName());
         } catch (Exception e) {
           throw new ValidationException(
-              "Failed to resolve descriptor for value.message-class=" + className, e);
+              "Failed to resolve descriptor for " + configKey + "=" + className, e);
         }
       }
     }

@@ -86,6 +86,16 @@ public class ProtoConfluentFormatConfig implements Serializable {
   properties.put("normalize.schemas", normalize.toString());
   properties.put("use.schema.id", schemaId.toString());
   properties.put("skip.known.types", skipKnown.toString());
+    // An explicit message-class is role-scoped: route it to the key or value serializer property
+    // based on is_key so the serializer picks it up. A value already tunneled in via the raw
+    // 'properties' map (e.g. 'value.message-class:...') is preserved when this option is unset.
+    formatOptions
+        .getOptional(ProtoConfluentFormatOptions.MESSAGE_CLASS)
+        .filter(v -> !v.isEmpty())
+        .ifPresent(
+            v ->
+                properties.put(
+                    Boolean.TRUE.equals(isKey) ? "key.message-class" : "value.message-class", v));
     LOG.debug(
         "[proto-confluent] FormatConfig from options: schemaRegistryURL={}, topic={}, "
             + "isKey={}, propertiesKeys={}",
