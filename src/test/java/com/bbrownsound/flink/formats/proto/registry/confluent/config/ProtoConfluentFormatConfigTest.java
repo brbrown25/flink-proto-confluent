@@ -6,6 +6,7 @@ import org.apache.flink.configuration.Configuration;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.junit.jupiter.api.Test;
 
@@ -53,5 +54,50 @@ class ProtoConfluentFormatConfigTest {
     assertTrue(config.isKey);
     assertEquals("true", config.getProperties().get("auto.register.schemas"));
     assertEquals("false", config.getProperties().get("normalize.schemas"));
+  }
+
+  @Test
+  void messageClass_routedToValueProperty_whenNotKey() {
+    Configuration options = new Configuration();
+    options.set(ProtoConfluentFormatOptions.URL, "http://sr:8081");
+    options.set(ProtoConfluentFormatOptions.TOPIC, "events");
+    options.set(ProtoConfluentFormatOptions.IS_KEY, false);
+    options.set(ProtoConfluentFormatOptions.MESSAGE_CLASS, "com.example.Foo$Bar");
+    ProtoConfluentFormatConfig config = new ProtoConfluentFormatConfig(options);
+    assertEquals("com.example.Foo$Bar", config.getProperties().get("value.message-class"));
+    assertNull(config.getProperties().get("key.message-class"));
+  }
+
+  @Test
+  void messageClass_routedToKeyProperty_whenKey() {
+    Configuration options = new Configuration();
+    options.set(ProtoConfluentFormatOptions.URL, "http://sr:8081");
+    options.set(ProtoConfluentFormatOptions.TOPIC, "events");
+    options.set(ProtoConfluentFormatOptions.IS_KEY, true);
+    options.set(ProtoConfluentFormatOptions.MESSAGE_CLASS, "com.example.Foo$Bar");
+    ProtoConfluentFormatConfig config = new ProtoConfluentFormatConfig(options);
+    assertEquals("com.example.Foo$Bar", config.getProperties().get("key.message-class"));
+    assertNull(config.getProperties().get("value.message-class"));
+  }
+
+  @Test
+  void messageClass_absentByDefault() {
+    Configuration options = new Configuration();
+    options.set(ProtoConfluentFormatOptions.URL, "http://sr:8081");
+    options.set(ProtoConfluentFormatOptions.TOPIC, "events");
+    ProtoConfluentFormatConfig config = new ProtoConfluentFormatConfig(options);
+    assertNull(config.getProperties().get("value.message-class"));
+    assertNull(config.getProperties().get("key.message-class"));
+  }
+
+  @Test
+  void messageClass_emptyValueIgnored() {
+    Configuration options = new Configuration();
+    options.set(ProtoConfluentFormatOptions.URL, "http://sr:8081");
+    options.set(ProtoConfluentFormatOptions.TOPIC, "events");
+    options.set(ProtoConfluentFormatOptions.MESSAGE_CLASS, "");
+    ProtoConfluentFormatConfig config = new ProtoConfluentFormatConfig(options);
+    assertNull(config.getProperties().get("value.message-class"));
+    assertNull(config.getProperties().get("key.message-class"));
   }
 }

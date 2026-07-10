@@ -45,6 +45,18 @@ class RegistryProtoFormatFactoryTest {
   }
 
   @Test
+  void optionalOptions_containsMessageClass() {
+    var optional = factory.optionalOptions();
+    assertTrue(optional.stream().anyMatch(o -> o.key().equals("message-class")));
+  }
+
+  @Test
+  void forwardOptions_containsMessageClass() {
+    var forward = factory.forwardOptions();
+    assertTrue(forward.stream().anyMatch(o -> o.key().equals("message-class")));
+  }
+
+  @Test
   void buildOptionalPropertiesMap_empty() {
     Configuration options = new Configuration();
     options.set(ProtoConfluentFormatOptions.URL, "http://localhost:8081");

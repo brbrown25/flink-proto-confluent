@@ -60,6 +60,7 @@ public class RegistryProtoFormatFactory
             ProtoConfluentFormatOptions.URL,
             ProtoConfluentFormatOptions.TOPIC,
             ProtoConfluentFormatOptions.IS_KEY,
+            ProtoConfluentFormatOptions.MESSAGE_CLASS,
             ProtoConfluentFormatOptions.PROPERTIES,
             ProtoConfluentFormatOptions.SSL_KEYSTORE_LOCATION,
             ProtoConfluentFormatOptions.SSL_KEYSTORE_PASSWORD,
@@ -87,6 +88,7 @@ public class RegistryProtoFormatFactory
   public Set<ConfigOption<?>> optionalOptions() {
     Set<ConfigOption<?>> options = new HashSet<>();
     options.add(ProtoConfluentFormatOptions.IS_KEY);
+    options.add(ProtoConfluentFormatOptions.MESSAGE_CLASS);
     options.add(ProtoConfluentFormatOptions.PROPERTIES);
     options.add(ProtoConfluentFormatOptions.AUTO_REGISTER_SCHEMAS);
     options.add(ProtoConfluentFormatOptions.NORMALIZE_SCHEMAS);

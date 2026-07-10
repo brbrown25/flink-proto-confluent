@@ -160,6 +160,18 @@ Then in Flink SQL (e.g. `sql-client.sh`), use the format identifier `proto-confl
 'value.proto-confluent.is_key' = 'false'
 ```
 
+To pin an **explicit named** protobuf message class for the key and/or value (instead of the default dynamic, Row-derived schema), set `message-class` on the corresponding format:
+
+```sql
+'key.format' = 'proto-confluent',
+'key.proto-confluent.is_key' = 'true',
+'key.proto-confluent.message-class' = 'com.example.OrderProto$OrderKey',
+'value.format' = 'proto-confluent',
+'value.proto-confluent.message-class' = 'com.example.OrderProto$Order'
+```
+
+`message-class` is role-scoped by `is_key` (key vs value). See [docs/format-options.md](docs/format-options.md) for the full option reference and a complete keyed-sink example.
+
 ## Testing
 
 Tests use JUnit 5 and real components (e.g. Testcontainers for Kafka/Schema Registry); **Mockito is not used**. Coverage includes both unit tests and integration tests.
