@@ -119,10 +119,12 @@ class RowDataProtoSerializerTest {
         serializerWithMessageClass.serializeRowData("test-topic", rowType, row);
     assertNotNull(result);
     assertTrue(result.length > 0);
-    // Schema should be registered under topic-value with SimpleMessage descriptor
-    assertTrue(
-        mockRegistry.getLatestSchemaMetadata("test-topic-value") != null
-            || result.length > 5);
+    // The explicit value message class registers the SimpleMessage schema under the -value subject.
+    ProtobufSchema registered =
+        (ProtobufSchema)
+            mockRegistry.getSchemaById(
+                mockRegistry.getLatestSchemaMetadata("test-topic-value").getId());
+    assertTrue(registered.toDescriptor().getFullName().endsWith("SimpleMessage"));
   }
 
   @Test

@@ -91,6 +91,38 @@ class ProtoConfluentFormatConfigTest {
   }
 
   @Test
+  void messageClass_typedOptionWinsOverTunneledProperty() {
+    // Both a raw tunneled 'value.message-class' (via properties) and the typed MESSAGE_CLASS
+    // option are set. The typed option must win — locks the precedence contract so a future
+    // reorder of the puts in ProtoConfluentFormatConfig can't flip it silently.
+    Configuration options = new Configuration();
+    options.set(ProtoConfluentFormatOptions.URL, "http://sr:8081");
+    options.set(ProtoConfluentFormatOptions.TOPIC, "events");
+    options.set(ProtoConfluentFormatOptions.IS_KEY, false);
+    options.set(
+        ProtoConfluentFormatOptions.PROPERTIES,
+        Map.of("value.message-class", "com.example.Tunneled$Old"));
+    options.set(ProtoConfluentFormatOptions.MESSAGE_CLASS, "com.example.Typed$New");
+    ProtoConfluentFormatConfig config = new ProtoConfluentFormatConfig(options);
+    assertEquals("com.example.Typed$New", config.getProperties().get("value.message-class"));
+  }
+
+  @Test
+  void messageClass_tunneledPropertyPreserved_whenTypedOptionUnset() {
+    // The raw 'value.message-class' tunnel is the path existing consumers rely on; it must survive
+    // untouched when the typed MESSAGE_CLASS option is not set.
+    Configuration options = new Configuration();
+    options.set(ProtoConfluentFormatOptions.URL, "http://sr:8081");
+    options.set(ProtoConfluentFormatOptions.TOPIC, "events");
+    options.set(ProtoConfluentFormatOptions.IS_KEY, false);
+    options.set(
+        ProtoConfluentFormatOptions.PROPERTIES,
+        Map.of("value.message-class", "com.example.Tunneled$Old"));
+    ProtoConfluentFormatConfig config = new ProtoConfluentFormatConfig(options);
+    assertEquals("com.example.Tunneled$Old", config.getProperties().get("value.message-class"));
+  }
+
+  @Test
   void messageClass_emptyValueIgnored() {
     Configuration options = new Configuration();
     options.set(ProtoConfluentFormatOptions.URL, "http://sr:8081");
