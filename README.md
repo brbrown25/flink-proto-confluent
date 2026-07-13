@@ -143,6 +143,10 @@ Or use the Makefile:
 - `make coverage` — unit tests + integration tests + JaCoCo report (HTML in `build/reports/jacoco/test/html/`). Full `make check` enforces ≥80% line coverage overall and for packages `serialize` and `deserialize` (`jacocoTestCoverageVerification`). Tests do not use Mockito.
 - `make clean` — `./gradlew clean`
 
+## Releasing
+
+Maintainers: see [docs/RELEASING.md](docs/RELEASING.md) for how to cut a release (tag a `v*` version → CI publishes to Maven Central and opens a GitHub Release) and how automatic snapshot publishing works.
+
 ## Usage
 
 Copy the built JAR into your Flink `lib/` directory:
