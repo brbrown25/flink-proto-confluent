@@ -2,7 +2,7 @@ plugins {
     java
     `maven-publish`
     signing
-    id("com.gradleup.shadow") version "9.5.1"
+    id("com.gradleup.shadow") version "9.6.1"
     id("io.github.gradle-nexus.publish-plugin") version "2.0.0"
     checkstyle
     jacoco
