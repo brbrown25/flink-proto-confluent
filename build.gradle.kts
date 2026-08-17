@@ -47,6 +47,7 @@ dependencies {
     testImplementation("org.junit.jupiter:junit-jupiter:6.1.3")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher:6.1.3")
     testImplementation("org.apache.flink:flink-test-utils-junit:$flinkVersion")
+    testImplementation("org.apache.flink:flink-test-utils:$flinkVersion")
     testImplementation("org.apache.flink:flink-runtime:$flinkVersion:tests")
     testImplementation("org.apache.flink:flink-table-common:$flinkVersion")
     testImplementation("org.testcontainers:testcontainers:2.0.5")
