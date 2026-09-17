@@ -2,7 +2,6 @@ package com.bbrownsound.flink.formats.proto.registry.confluent.deserialize;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.bbrownsound.flink.formats.proto.registry.confluent.util.ProtoToLogicalType;
@@ -363,14 +362,19 @@ class ProtoToRowDataConvertersTest {
     assertEquals(StringData.fromString("hello"), row.getString(0));
   }
 
+  /**
+   * A table column with no counterpart in the writer's descriptor reads as NULL instead of failing.
+   * This is what lets a table declared against a newer schema version read records that were
+   * written under an older one, where the added field simply does not exist on the wire.
+   */
   @Test
-  void tableFieldNotFound_throws() {
+  void tableFieldNotFoundInWriterSchema_readsAsNull() throws IOException {
     RowType rowTypeWithExtra =
         new RowType(
             false,
             java.util.List.of(
                 new RowType.RowField("content", new VarCharType(false, 100)),
-                new RowType.RowField("missing_field", new VarCharType(false, 100))));
+                new RowType.RowField("missing_field", new VarCharType(true, 100))));
     var descriptor =
         RowTypeToProto.fromRowType(
             new RowType(
@@ -379,8 +383,16 @@ class ProtoToRowDataConvertersTest {
                     new RowType.RowField("content", new VarCharType(false, 100)))),
             "OneField",
             "test.v1");
-    assertThrows(
-        IllegalStateException.class,
-        () -> ProtoToRowDataConverters.createConverter(descriptor, rowTypeWithExtra));
+
+    var converter = ProtoToRowDataConverters.createConverter(descriptor, rowTypeWithExtra);
+    com.google.protobuf.DynamicMessage msg =
+        com.google.protobuf.DynamicMessage.newBuilder(descriptor)
+            .setField(descriptor.findFieldByName("content"), "hello")
+            .build();
+
+    RowData row = (RowData) converter.convert(msg);
+    assertNotNull(row);
+    assertEquals(StringData.fromString("hello"), row.getString(0));
+    assertTrue(row.isNullAt(1), "a column absent from the writer schema must read as NULL");
   }
 }

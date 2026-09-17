@@ -72,3 +72,14 @@ Notes:
   behavior.
 - The class name is the JVM binary name — nested/generated message classes use
   `$` (e.g. `com.example.OrderProto$Order`).
+
+## Schema evolution and subject naming
+
+A source decodes each record with the writer schema named by the schema ID in the record's Confluent wire header, so a topic holding records written under several schema versions is read without extra configuration.
+
+- **Columns added in a later version.** A table column that does not exist in the writer's schema is read as `NULL` (and logged once per converter at `WARN`), so a table declared against v2 still reads v1 records. The same warning is how a mistyped column name surfaces: it becomes an always-`NULL` column.
+- **Columns removed in a later version.** Declare only the columns the table needs; columns the writer no longer has follow the rule above.
+- **`use-schema-id`.** Pins the schema ID stamped into the wire header on a sink. The schema must already be registered under the subject.
+- **`auto-register-schemas`.** With `false` (the default), writing to a subject that has no registered schema fails instead of silently registering one. With `true`, a change the registry rejects under the subject's compatibility level fails the job with the registry's error.
+- **`normalize-schemas`.** The format always registers schemas derived from a protobuf descriptor, and those are already in Confluent's normalized form, so this option does not change what a sink registers. It does not retroactively match a denormalized schema that is already stored in the registry — that registers as a new version.
+- **Subject-naming strategy.** There is no dedicated option; set it through the `properties` passthrough, e.g. `'value.proto-confluent.properties' = 'value.subject.name.strategy:io.confluent.kafka.serializers.subject.RecordNameStrategy'`. Strategies that derive the subject from the record rather than the topic require `message-class` or a Row-derived schema, since no subject can be named before a schema exists.

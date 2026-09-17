@@ -124,6 +124,26 @@ public class RowDataProtoSerializer extends KafkaProtobufSerializer<DynamicMessa
   }
 
   /**
+   * Resolves the Protobuf descriptor to serialize with. An explicit message class always wins.
+   * Otherwise the descriptor comes from the latest schema registered under the subject that the
+   * configured subject-naming strategy derives from the topic. Strategies that name the subject
+   * after the record rather than the topic (e.g. {@code RecordNameStrategy}) cannot produce a
+   * subject before a schema exists, so in that case the Row-derived schema is used and the
+   * underlying serializer resolves the subject from the message it is handed.
+   */
+  private Descriptors.Descriptor resolveDescriptor(String topic, RowType rowType) {
+    if (messageClassDescriptor != null) {
+      return messageClassDescriptor;
+    }
+    String subject = getSubjectName(topic, isKey, null, null);
+    if (subject == null) {
+      return RowTypeToProto.fromRowType(rowType, "Row", "com.flink.proto.confluent");
+    }
+    Descriptors.Descriptor cached = schemaCache.get(subject);
+    return cached != null ? cached : getDescriptor(subject, rowType);
+  }
+
+  /**
    * Serializes a Flink RowData to Confluent wire format (magic byte + schema id + protobuf bytes).
    *
    * @param topic the topic name for subject resolution
@@ -132,14 +152,7 @@ public class RowDataProtoSerializer extends KafkaProtobufSerializer<DynamicMessa
    * @return the serialized bytes
    */
   public byte[] serializeRowData(String topic, RowType rowType, RowData row) {
-    String subject = getSubjectName(topic, isKey, null, null);
-    Descriptors.Descriptor desc;
-
-    if (schemaCache.containsKey(subject)) {
-      desc = schemaCache.get(subject);
-    } else {
-      desc = getDescriptor(subject, rowType);
-    }
+    Descriptors.Descriptor desc = resolveDescriptor(topic, rowType);
 
     Descriptors.Descriptor finalDesc = desc;
     RowDataToProtoConverters.RowDataToProtoConverter converter =
