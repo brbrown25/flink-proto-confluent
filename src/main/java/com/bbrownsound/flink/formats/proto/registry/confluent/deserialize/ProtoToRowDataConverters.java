@@ -34,6 +34,8 @@ import org.apache.flink.table.types.logical.MultisetType;
 import org.apache.flink.table.types.logical.RowType;
 import org.apache.flink.table.types.logical.utils.LogicalTypeUtils;
 import org.apache.flink.table.utils.DateTimeUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Runtime converters between {@link com.google.protobuf.Message} and {@link
@@ -41,8 +43,26 @@ import org.apache.flink.table.utils.DateTimeUtils;
  * https://github.com/amstee/flink-proto-confluent (Apache-2.0). See NOTICE in project root.
  */
 public class ProtoToRowDataConverters {
+  private static final Logger LOG = LoggerFactory.getLogger(ProtoToRowDataConverters.class);
   private static final String KEY_FIELD = "key";
   private static final String VALUE_FIELD = "value";
+
+  /**
+   * Records that a table column has no counterpart in the writer's Protobuf descriptor. The column
+   * is read as NULL rather than failing the job, so a table declared against a newer schema version
+   * can still read records written under an older one (a field added in v2 is simply absent from
+   * v1 payloads). A genuine column-name typo shows up as an always-null column plus this warning.
+   */
+  private static void logMissingField(Descriptor readSchema, String tableFieldName) {
+    LOG.warn(
+        "[proto-confluent] Table field '{}' not found in proto descriptor '{}' (proto fields: [{}])"
+            + " - reading it as NULL",
+        tableFieldName,
+        readSchema.getFullName(),
+        readSchema.getFields().stream()
+            .map(FieldDescriptor::getName)
+            .collect(Collectors.joining(", ")));
+  }
 
   /**
    * Runtime converter that converts Protobuf data structures into objects of Flink Table &amp; SQL
@@ -116,16 +136,9 @@ public class ProtoToRowDataConverters {
       } else {
         FieldDescriptor fieldDescriptor = findFieldDescriptor(fieldDescriptors, name);
         if (fieldDescriptor == null) {
-          String protoFields =
-              readSchema.getFields().stream()
-                  .map(FieldDescriptor::getName)
-                  .collect(Collectors.joining(", "));
-          throw new IllegalStateException(
-              "Table field '"
-                  + name
-                  + "' not found in proto descriptor. Proto fields: ["
-                  + protoFields
-                  + "]");
+          logMissingField(readSchema, name);
+          result.add(new IndexedFieldConverter(i, null, null, null));
+          continue;
         }
         ProtoToRowDataConverter converter =
             createFieldConverter(fieldDescriptor, rowField.getType());
@@ -144,6 +157,11 @@ public class ProtoToRowDataConverters {
       return;
     }
     FieldDescriptor fd = ic.fieldDescriptor;
+    if (fd == null) {
+      // Column absent from the writer's schema (e.g. a field added in a later schema version
+      // reading records written under an older one): leave it null.
+      return;
+    }
     if (!fd.hasPresence() || message.hasField(fd)) {
       row.setField(ic.index, ic.converter.convert(message.getField(fd)));
     }
@@ -214,16 +232,8 @@ public class ProtoToRowDataConverters {
                   final FieldDescriptor fieldDescriptor =
                       findFieldDescriptor(fieldDescriptors, rowField.getName());
                   if (fieldDescriptor == null) {
-                    String protoFields =
-                        readSchema.getFields().stream()
-                            .map(FieldDescriptor::getName)
-                            .collect(Collectors.joining(", "));
-                    throw new IllegalStateException(
-                        "Table field '"
-                            + rowField.getName()
-                            + "' not found in proto descriptor. Proto fields: ["
-                            + protoFields
-                            + "]");
+                    logMissingField(readSchema, rowField.getName());
+                    return new FieldDescriptorWithConverter(null, null);
                   }
                   return new FieldDescriptorWithConverter(
                       fieldDescriptor, createFieldConverter(fieldDescriptor, rowField.getType()));
@@ -235,6 +245,11 @@ public class ProtoToRowDataConverters {
       for (int i = 0; i < arity; i++) {
         final FieldDescriptor fieldDescriptor = fieldConverters[i].descriptor;
         final ProtoToRowDataConverter converter = fieldConverters[i].converter;
+        if (fieldDescriptor == null) {
+          // Column absent from the writer's schema (e.g. a field added in a later schema version
+          // reading records written under an older one): leave it null.
+          continue;
+        }
         if (!fieldDescriptor.hasPresence() || message.hasField(fieldDescriptor)) {
           row.setField(i, converter.convert(message.getField(fieldDescriptor)));
         }
