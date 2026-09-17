@@ -105,6 +105,15 @@ public class ProtoRowDataDeserializationSchema implements DeserializationSchema<
         LOG.info(
             "[proto-confluent] dead-letter producer enabled: topic={}",
             formatConfig.deadLetterTopic);
+      } else if (formatConfig.deadLetterTopic != null) {
+        // A dead-letter topic without 'bootstrap.servers' cannot produce anything: the format
+        // degrades to log-and-count instead of failing the job, so warn loudly rather than
+        // dropping poison records silently.
+        LOG.warn(
+            "[proto-confluent] dead-letter topic '{}' is configured but "
+                + "'dead-letter.properties' has no 'bootstrap.servers': no dead-letter producer "
+                + "was created, records that fail to deserialize are only logged and counted",
+            formatConfig.deadLetterTopic);
       }
       LOG.debug("[proto-confluent] deserializer.open: client and deserializer initialized");
     }

@@ -14,11 +14,18 @@ namespace in `CREATE TABLE` — e.g. `value.proto-confluent.url` or
 | `normalize-schemas` | `true` | Normalize schemas before registration/lookup. |
 | `use-schema-id` | `-1` | Fixed schema ID for serialization (`-1` = auto). |
 | `skip-known-types` | `true` | Skip well-known types during schema handling. |
-| `on-deserialize-error` | `fail` | `fail` (throw and fail the task) or `skip` (log, count, drop the poison record). |
-| `dead-letter-topic` | *(none)* | Topic that receives raw bytes of records that fail to deserialize. |
+| `on-deserialize-error` | `fail` | `fail` (throw and fail the task) or `skip` (log, count, drop the poison record). Matched case-insensitively; any other value (including a typo) is treated as `skip`. |
+| `dead-letter-topic` | *(none)* | Topic that receives raw bytes of records that fail to deserialize. Requires `dead-letter.properties.bootstrap.servers`; without it no producer is created and failures are only logged and counted (a WARN is logged at open). |
 
 SSL (`ssl.keystore.*`, `ssl.truststore.*`), auth (`basic-auth.*`,
 `bearer-auth.*`), `properties`, and `dead-letter.properties` are also supported.
+
+## Option precedence and validation
+
+- **Typed options beat tunneled `properties`.** Anything set through the raw `properties` map is applied first, then the typed Flink options overwrite it. Setting both `properties.basic.auth.user.info` and `basic-auth.user-info` therefore resolves to the typed `basic-auth.user-info` value; the same holds for `basic-auth.credentials-source`, `bearer-auth.*`, `ssl.keystore.*`, `ssl.truststore.*`, and `message-class`. A tunneled key survives untouched only when its typed counterpart is unset.
+- **`on-deserialize-error` is not validated.** Only `fail` (case-insensitive) is fatal; every other value, valid or not, takes the `skip` path — the error is logged, `numDeserializeErrors` is incremented, the record is optionally routed to the dead-letter topic, and `null` is returned. A typo therefore silently disables fail-fast behavior.
+- **`url` and `topic` are required.** Omitting either makes format creation fail with a Flink `ValidationException` from `FactoryUtil.validateFactoryOptions` ("Missing required options"), for both the decoding and the encoding format.
+- **A dead-letter topic without `bootstrap.servers` is a no-op.** `dead-letter-topic` alone does not fail the job; the producer is skipped and a WARN is logged.
 
 ## Explicit key and value message classes
 

@@ -3,12 +3,14 @@ package com.bbrownsound.flink.formats.proto.registry.confluent;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Map;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.table.connector.format.DecodingFormat;
 import org.apache.flink.table.connector.format.EncodingFormat;
+import org.apache.flink.table.api.ValidationException;
 import org.apache.flink.table.data.RowData;
 import org.junit.jupiter.api.Test;
 
@@ -126,5 +128,108 @@ class RegistryProtoFormatFactoryTest {
         factory.createEncodingFormat(null, options);
     assertNotNull(format);
     assertTrue(format instanceof ProtoEncodingFormat);
+  }
+
+  @Test
+  void buildOptionalPropertiesMap_typedOptionsWinOverTunneledProperties() {
+    // Covers issue #71: 'properties' is applied first and typed options overwrite it, so the
+    // typed Flink option is the effective value for every auth/SSL key.
+    Configuration options = new Configuration();
+    options.set(ProtoConfluentFormatOptions.URL, "http://localhost:8081");
+    options.set(ProtoConfluentFormatOptions.TOPIC, "t");
+    options.set(
+        ProtoConfluentFormatOptions.PROPERTIES,
+        Map.of(
+            "basic.auth.user.info", "tunneled-user:tunneled-pass",
+            "bearer.auth.token", "tunneled-token",
+            "schema.registry.ssl.truststore.location", "/tunneled/truststore.jks"));
+    options.set(ProtoConfluentFormatOptions.BASIC_AUTH_USER_INFO, "typed-user:typed-pass");
+    options.set(ProtoConfluentFormatOptions.BEARER_AUTH_TOKEN, "typed-token");
+    options.set(ProtoConfluentFormatOptions.SSL_TRUSTSTORE_LOCATION, "/typed/truststore.jks");
+    Map<String, String> props = RegistryProtoFormatFactory.buildOptionalPropertiesMap(options);
+    assertNotNull(props);
+    assertEquals("typed-user:typed-pass", props.get("basic.auth.user.info"));
+    assertEquals("typed-token", props.get("bearer.auth.token"));
+    assertEquals("/typed/truststore.jks", props.get("schema.registry.ssl.truststore.location"));
+  }
+
+  @Test
+  void buildOptionalPropertiesMap_unrelatedTunneledKeysSurvive() {
+    Configuration options = new Configuration();
+    options.set(ProtoConfluentFormatOptions.URL, "http://localhost:8081");
+    options.set(ProtoConfluentFormatOptions.TOPIC, "t");
+    options.set(
+        ProtoConfluentFormatOptions.PROPERTIES,
+        Map.of("proxy.host", "proxy.internal", "basic.auth.user.info", "tunneled:pass"));
+    options.set(ProtoConfluentFormatOptions.BASIC_AUTH_USER_INFO, "typed:pass");
+    Map<String, String> props = RegistryProtoFormatFactory.buildOptionalPropertiesMap(options);
+    assertNotNull(props);
+    assertEquals("proxy.internal", props.get("proxy.host"));
+    assertEquals("typed:pass", props.get("basic.auth.user.info"));
+  }
+
+  @Test
+  void createDecodingFormat_missingUrl_throwsValidationException() {
+    Configuration options = new Configuration();
+    options.set(ProtoConfluentFormatOptions.TOPIC, "test-topic");
+    ValidationException e =
+        assertThrows(
+            ValidationException.class, () -> factory.createDecodingFormat(null, options));
+    assertTrue(
+        e.getMessage().contains("url"),
+        "Validation error should name the missing 'url' option: " + e.getMessage());
+  }
+
+  @Test
+  void createDecodingFormat_missingTopic_throwsValidationException() {
+    Configuration options = new Configuration();
+    options.set(ProtoConfluentFormatOptions.URL, "http://localhost:8081");
+    ValidationException e =
+        assertThrows(
+            ValidationException.class, () -> factory.createDecodingFormat(null, options));
+    assertTrue(
+        e.getMessage().contains("topic"),
+        "Validation error should name the missing 'topic' option: " + e.getMessage());
+  }
+
+  @Test
+  void createDecodingFormat_missingAllRequiredOptions_throwsValidationException() {
+    Configuration options = new Configuration();
+    ValidationException e =
+        assertThrows(
+            ValidationException.class, () -> factory.createDecodingFormat(null, options));
+    assertTrue(e.getMessage().contains("url"), e.getMessage());
+    assertTrue(e.getMessage().contains("topic"), e.getMessage());
+  }
+
+  @Test
+  void createEncodingFormat_missingUrl_throwsValidationException() {
+    Configuration options = new Configuration();
+    options.set(ProtoConfluentFormatOptions.TOPIC, "test-topic");
+    ValidationException e =
+        assertThrows(
+            ValidationException.class, () -> factory.createEncodingFormat(null, options));
+    assertTrue(e.getMessage().contains("url"), e.getMessage());
+  }
+
+  @Test
+  void createEncodingFormat_missingTopic_throwsValidationException() {
+    Configuration options = new Configuration();
+    options.set(ProtoConfluentFormatOptions.URL, "http://localhost:8081");
+    ValidationException e =
+        assertThrows(
+            ValidationException.class, () -> factory.createEncodingFormat(null, options));
+    assertTrue(e.getMessage().contains("topic"), e.getMessage());
+  }
+
+  @Test
+  void createDecodingFormat_invalidOnDeserializeError_isNotRejectedByValidation() {
+    // Documented behavior (issue #71): 'on-deserialize-error' has no value validator, so an
+    // unrecognized value passes factory validation and degrades to the 'skip' path at runtime.
+    Configuration options = new Configuration();
+    options.set(ProtoConfluentFormatOptions.URL, "http://localhost:8081");
+    options.set(ProtoConfluentFormatOptions.TOPIC, "test-topic");
+    options.set(ProtoConfluentFormatOptions.ON_DESERIALIZE_ERROR, "bogus");
+    assertNotNull(factory.createDecodingFormat(null, options));
   }
 }
