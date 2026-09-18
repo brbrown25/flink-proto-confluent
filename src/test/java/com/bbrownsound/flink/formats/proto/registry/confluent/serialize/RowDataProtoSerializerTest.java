@@ -7,6 +7,7 @@ import org.apache.flink.table.data.GenericRowData;
 import org.apache.flink.table.data.StringData;
 import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.RowType;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -21,6 +22,7 @@ import com.bbrownsound.flink.formats.proto.test.v1.TestSimple;
 import io.confluent.kafka.schemaregistry.client.MockSchemaRegistryClient;
 import io.confluent.kafka.schemaregistry.protobuf.ProtobufSchema;
 import io.confluent.kafka.schemaregistry.protobuf.ProtobufSchemaProvider;
+import io.confluent.kafka.serializers.subject.RecordNameStrategy;
 
 /**
  * Unit tests for {@link RowDataProtoSerializer}. Uses {@link MockSchemaRegistryClient} so no real
@@ -91,6 +93,11 @@ class RowDataProtoSerializerTest {
     byte[] result = serializer.serializeRowData(topic, rowType, row);
     assertNotNull(result);
     assertTrue(result.length > 0);
+
+    // The registry schema is cached under the subject, so a second call serves it from the cache
+    // without another registry lookup.
+    byte[] fromCache = serializer.serializeRowData(topic, rowType, row);
+    assertArrayEquals(result, fromCache);
   }
 
   @Test
@@ -226,5 +233,41 @@ class RowDataProtoSerializerTest {
             RowDataProtoSerializer.VALUE_MESSAGE_CLASS_CONFIG,
             "com.example.DoesNotExist");
     assertThrows(ValidationException.class, () -> badSerializer.configure(configs, false));
+  }
+
+  /**
+   * A subject-naming strategy that names the subject after the record (not the topic) cannot derive
+   * a subject before a schema exists, so getSubjectName returns null. Serialization must then fall
+   * back to the Row-derived schema and let the underlying serializer resolve the subject from the
+   * message it is handed, registering under the record name rather than {@code <topic>-value}.
+   */
+  @Test
+  void serializeRowData_whenSubjectStrategyYieldsNullSubject_usesRowDerivedSchema()
+      throws Exception {
+    MockSchemaRegistryClient recordNameRegistry =
+        new MockSchemaRegistryClient(Collections.singletonList(new ProtobufSchemaProvider()));
+    RowDataProtoSerializer recordNameSerializer =
+        new RowDataProtoSerializer(recordNameRegistry);
+    recordNameSerializer.configure(
+        Map.of(
+            "schema.registry.url",
+            "http://localhost:8081",
+            "auto.register.schemas",
+            "true",
+            "value.subject.name.strategy",
+            RecordNameStrategy.class.getName()),
+        false);
+
+    GenericRowData row = new GenericRowData(2);
+    row.setField(0, StringData.fromString("record-name-content"));
+    row.setField(1, StringData.fromString("2025-09-01"));
+
+    byte[] result = recordNameSerializer.serializeRowData("record-name-topic", rowType, row);
+    assertNotNull(result);
+    assertTrue(result.length > 0);
+    // The Row-derived schema is registered under the record name, not <topic>-value.
+    assertTrue(
+        recordNameRegistry.getAllSubjects().contains("com.flink.proto.confluent.Row"),
+        "expected record-name subject, got " + recordNameRegistry.getAllSubjects());
   }
 }

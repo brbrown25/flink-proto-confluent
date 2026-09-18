@@ -395,4 +395,142 @@ class ProtoToRowDataConvertersTest {
     assertEquals(StringData.fromString("hello"), row.getString(0));
     assertTrue(row.isNullAt(1), "a column absent from the writer schema must read as NULL");
   }
+
+  /**
+   * Same forward-compatible read as {@link #tableFieldNotFoundInWriterSchema_readsAsNull()}, but on
+   * a writer schema that has a oneof: that takes the separate oneof-aware converter path, where a
+   * table column absent from the writer's descriptor must also read as NULL rather than fail.
+   */
+  @Test
+  void oneof_tableFieldNotFoundInWriterSchema_readsAsNull() throws IOException {
+    RowType choiceRowType =
+        (RowType)
+            ProtoToLogicalType.toLogicalType(TestOneof.MessageWithOneof.getDescriptor())
+                .getChildren()
+                .get(0);
+    RowType rowTypeWithExtra =
+        new RowType(
+            false,
+            java.util.List.of(
+                new RowType.RowField("choice", choiceRowType),
+                new RowType.RowField("added_in_v2", new VarCharType(true, 100))));
+
+    var converter =
+        ProtoToRowDataConverters.createConverter(
+            TestOneof.MessageWithOneof.getDescriptor(), rowTypeWithExtra);
+    TestOneof.MessageWithOneof msg = TestOneof.MessageWithOneof.newBuilder().setA(7).build();
+
+    RowData row = (RowData) converter.convert(msg);
+    assertNotNull(row);
+    assertEquals(2, row.getArity());
+    RowData choiceRow = row.getRow(0, 2);
+    assertNotNull(choiceRow);
+    assertEquals(7, choiceRow.getInt(0));
+    assertTrue(
+        row.isNullAt(1), "a column absent from a oneof writer schema must read as NULL");
+  }
+
+  /**
+   * A writer schema with both a oneof and regular fields: the oneof-aware converter path must also
+   * read the plain fields. Covers a field without presence (proto3 scalar), a field with presence
+   * (message-typed) both set and unset, and a message with the oneof left unset.
+   */
+  @Test
+  void oneof_withRegularFields_readsPresentAndAbsentFields() throws Exception {
+    var descriptor = oneofWithRegularFieldsDescriptor();
+    RowType rowType = (RowType) ProtoToLogicalType.toLogicalType(descriptor);
+    var converter = ProtoToRowDataConverters.createConverter(descriptor, rowType);
+    int noteIndex = rowType.getFieldIndex("note");
+    int metaIndex = rowType.getFieldIndex("meta");
+    var metaDescriptor = descriptor.findFieldByName("meta").getMessageType();
+
+    com.google.protobuf.DynamicMessage populated =
+        com.google.protobuf.DynamicMessage.newBuilder(descriptor)
+            .setField(descriptor.findFieldByName("a"), 5)
+            .setField(descriptor.findFieldByName("note"), "hello")
+            .setField(
+                descriptor.findFieldByName("meta"),
+                com.google.protobuf.DynamicMessage.newBuilder(metaDescriptor)
+                    .setField(metaDescriptor.findFieldByName("origin"), "v1")
+                    .build())
+            .build();
+    RowData row = (RowData) converter.convert(populated);
+    assertEquals(StringData.fromString("hello"), row.getString(noteIndex));
+    assertEquals(StringData.fromString("v1"), row.getRow(metaIndex, 1).getString(0));
+
+    // Nothing set: the oneof is absent, the presence-tracked message field is absent, and the
+    // proto3 scalar reads as its default.
+    com.google.protobuf.DynamicMessage empty =
+        com.google.protobuf.DynamicMessage.newBuilder(descriptor).build();
+    RowData emptyRow = (RowData) converter.convert(empty);
+    assertTrue(emptyRow.isNullAt(rowType.getFieldIndex("choice")), "unset oneof reads as NULL");
+    assertTrue(emptyRow.isNullAt(metaIndex), "unset message field reads as NULL");
+    assertEquals(
+        StringData.fromString(""),
+        emptyRow.getString(noteIndex),
+        "an unset proto3 scalar reads as its default");
+  }
+
+  /** Builds a descriptor with a oneof ("choice"), a proto3 scalar and a message-typed field. */
+  private static com.google.protobuf.Descriptors.Descriptor oneofWithRegularFieldsDescriptor()
+      throws Exception {
+    var meta =
+        com.google.protobuf.DescriptorProtos.DescriptorProto.newBuilder()
+            .setName("Meta")
+            .addField(
+                com.google.protobuf.DescriptorProtos.FieldDescriptorProto.newBuilder()
+                    .setName("origin")
+                    .setNumber(1)
+                    .setType(
+                        com.google.protobuf.DescriptorProtos.FieldDescriptorProto.Type.TYPE_STRING)
+                    .setLabel(
+                        com.google.protobuf.DescriptorProtos.FieldDescriptorProto.Label
+                            .LABEL_OPTIONAL));
+    var message =
+        com.google.protobuf.DescriptorProtos.DescriptorProto.newBuilder()
+            .setName("OneofWithRegular")
+            .addNestedType(meta)
+            .addOneofDecl(
+                com.google.protobuf.DescriptorProtos.OneofDescriptorProto.newBuilder()
+                    .setName("choice"))
+            .addField(
+                com.google.protobuf.DescriptorProtos.FieldDescriptorProto.newBuilder()
+                    .setName("a")
+                    .setNumber(1)
+                    .setType(
+                        com.google.protobuf.DescriptorProtos.FieldDescriptorProto.Type.TYPE_INT32)
+                    .setLabel(
+                        com.google.protobuf.DescriptorProtos.FieldDescriptorProto.Label
+                            .LABEL_OPTIONAL)
+                    .setOneofIndex(0))
+            .addField(
+                com.google.protobuf.DescriptorProtos.FieldDescriptorProto.newBuilder()
+                    .setName("note")
+                    .setNumber(2)
+                    .setType(
+                        com.google.protobuf.DescriptorProtos.FieldDescriptorProto.Type.TYPE_STRING)
+                    .setLabel(
+                        com.google.protobuf.DescriptorProtos.FieldDescriptorProto.Label
+                            .LABEL_OPTIONAL))
+            .addField(
+                com.google.protobuf.DescriptorProtos.FieldDescriptorProto.newBuilder()
+                    .setName("meta")
+                    .setNumber(3)
+                    .setType(
+                        com.google.protobuf.DescriptorProtos.FieldDescriptorProto.Type.TYPE_MESSAGE)
+                    .setTypeName(".test.v1.OneofWithRegular.Meta")
+                    .setLabel(
+                        com.google.protobuf.DescriptorProtos.FieldDescriptorProto.Label
+                            .LABEL_OPTIONAL));
+    var fileProto =
+        com.google.protobuf.DescriptorProtos.FileDescriptorProto.newBuilder()
+            .setName("oneof_with_regular.proto")
+            .setSyntax("proto3")
+            .setPackage("test.v1")
+            .addMessageType(message)
+            .build();
+    return com.google.protobuf.Descriptors.FileDescriptor.buildFrom(
+            fileProto, new com.google.protobuf.Descriptors.FileDescriptor[0])
+        .findMessageTypeByName("OneofWithRegular");
+  }
 }
