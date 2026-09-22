@@ -6,6 +6,13 @@ inputs:
     description: 'Java version to use'
     required: false
     default: '21'
+  cache-read-only:
+    description: >-
+      When true the job restores the Gradle cache but does not write it back.
+      Only the canonical post-merge pipeline (ci.yml, push to the default
+      branch) should write the cache; every other job reads it.
+    required: false
+    default: 'true'
 
 runs:
   using: 'composite'
@@ -18,5 +25,33 @@ runs:
 
     # No gradle-version pin: builds are driven through the committed wrapper
     # (./gradlew), which is the single source of truth for the Gradle version.
+    # setup-gradle keys its cache entry by workflow, job and matrix values, so
+    # the JDK 17 and 21 legs keep separate entries instead of evicting one
+    # another. Writes are restricted to the job that passes
+    # cache-read-only: false (see docs/ci.md).
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v4
+      with:
+        cache-read-only: ${{ inputs.cache-read-only }}
+
+    - name: Report Gradle cache state
+      shell: bash
+      run: |
+        set -euo pipefail
+        gradle_home="${GRADLE_USER_HOME:-$HOME/.gradle}"
+        modules="$gradle_home/caches/modules-2/files-2.1"
+        dists="$gradle_home/wrapper/dists"
+        mode=$([ '${{ inputs.cache-read-only }}' = 'true' ] && echo 'read-only' || echo 'read-write')
+
+        if [ -d "$modules" ]; then
+          groups=$(find "$modules" -maxdepth 1 -mindepth 1 -type d | wc -l | tr -d ' ')
+          echo "::notice title=Gradle cache::HIT - $groups dependency group(s) restored ($(du -sh "$gradle_home/caches" | cut -f1)), mode=$mode"
+        else
+          echo "::notice title=Gradle cache::MISS - no dependency cache restored, mode=$mode"
+        fi
+
+        if [ -d "$dists" ]; then
+          echo "Gradle wrapper distributions in cache: $(find "$dists" -maxdepth 2 -mindepth 2 -type d -printf '%f ' 2>/dev/null || ls "$dists")"
+        else
+          echo "Gradle wrapper distribution not cached; the wrapper will download it."
+        fi
