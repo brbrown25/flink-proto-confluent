@@ -81,3 +81,5 @@ Two of the steps are outside the repository and must be done once, in repository
 2. **List `codecov/project` and `codecov/patch` as required status checks** in the ruleset that protects the default branch. A red status that is not required is advisory only.
 
 Both `codecov/codecov-action` invocations use `fail_ci_if_error: true`, so an upload that fails fails the job rather than passing silently and leaving Codecov to report on stale data.
+
+<!-- Docs-only probe: verifies that a documentation-only pull request skips the heavy jobs and that Codecov still reports. Remove with the probe. -->
