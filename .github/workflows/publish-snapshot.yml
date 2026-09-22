@@ -27,19 +27,43 @@ jobs:
       - name: Setup build environment
         uses: ./.github/actions/setup-build
 
-      - name: Check snapshot version
+      # Snapshot coordinates carry the commit they were built from, so a consumer can pin to the
+      # exact build they tested against instead of racing a mutable `X.Y.Z-SNAPSHOT`. The base is
+      # the next patch after the last release (see build.gradle.kts), which is a placeholder for
+      # "unreleased work on main" — the real next version is decided by release-please from the
+      # conventional commits, and may well be a minor or major instead.
+      - name: Compute snapshot version
         id: version
         run: |
-          V=$(./gradlew -q printVersion | tail -1)
-          echo "version=$V" >> $GITHUB_OUTPUT
-          if [[ "$V" == *-SNAPSHOT ]]; then echo "snapshot=true" >> $GITHUB_OUTPUT; else echo "snapshot=false" >> $GITHUB_OUTPUT; fi
-          SNAP=$([[ "$V" == *-SNAPSHOT ]] && echo true || echo false)
-          echo "Detected version: '$V' → snapshot=$SNAP (publish will $([ "$SNAP" = true ] && echo 'run' || echo 'be skipped'))"
+          set -euo pipefail
+          BASE=$(./gradlew -q printVersion | tail -1)
+          if [[ "$BASE" != *-SNAPSHOT ]]; then
+            echo "::error::Expected a -SNAPSHOT base version from printVersion, got '$BASE'."
+            exit 1
+          fi
+          SHA=$(git rev-parse --short=7 HEAD)
+          VERSION="${BASE%-SNAPSHOT}-${SHA}-SNAPSHOT"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Publishing snapshot version: $VERSION"
+
+      # Release commits are published by release.yml from the tag release-please pushes; a
+      # snapshot of the same tree would only add a confusing duplicate coordinate.
+      - name: Check for release commit
+        id: guard
+        run: |
+          set -euo pipefail
+          SUBJECT=$(git log -1 --pretty=%s)
+          if [[ "$SUBJECT" == chore\(release\)* ]]; then
+            echo "publish=false" >> $GITHUB_OUTPUT
+            echo "Release commit detected ('$SUBJECT'); skipping snapshot publish."
+          else
+            echo "publish=true" >> $GITHUB_OUTPUT
+          fi
 
       # GPG_SIGNING_KEY: ASCII-armored secret key (paste output of gpg --armor --export-secret-keys KEY_ID).
       - name: Publish to Sonatype (snapshot)
-        if: steps.version.outputs.snapshot == 'true'
-        run: ./gradlew publishSonatypePublicationToSonatypeRepository
+        if: steps.guard.outputs.publish == 'true'
+        run: ./gradlew -Pversion=${{ steps.version.outputs.version }} publishSonatypePublicationToSonatypeRepository
         env:
           ORG_GRADLE_PROJECT_sonatypeUsername: ${{ secrets.SONATYPE_USERNAME }}
           ORG_GRADLE_PROJECT_sonatypePassword: ${{ secrets.SONATYPE_PASSWORD }}
@@ -48,7 +72,7 @@ jobs:
 
       # Debug: if publish failed, check that GPG_SIGNING_KEY is ASCII-armored (does not log the key)
       - name: Debug signing key format
-        if: failure() && steps.version.outputs.snapshot == 'true'
+        if: failure() && steps.guard.outputs.publish == 'true'
         run: |
           if echo "$KEY_CHECK" | head -1 | grep -q "-----BEGIN PGP"; then
             echo "Key format OK (ASCII-armored). If sign still failed, check passphrase."

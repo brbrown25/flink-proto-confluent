@@ -14,6 +14,7 @@ Releases are published to [Maven Central](https://search.maven.org/artifact/com.
 
 **Gradle (Groovy):**
 
+<!-- x-release-please-start-version -->
 ```groovy
 repositories {
     mavenCentral()
@@ -23,9 +24,11 @@ dependencies {
     implementation 'com.bbrownsound:flink-proto-confluent:1.0.0'
 }
 ```
+<!-- x-release-please-end-version -->
 
 **Gradle (Kotlin):**
 
+<!-- x-release-please-start-version -->
 ```kotlin
 repositories {
     mavenCentral()
@@ -35,9 +38,11 @@ dependencies {
     implementation("com.bbrownsound:flink-proto-confluent:1.0.0")
 }
 ```
+<!-- x-release-please-end-version -->
 
 **Maven:**
 
+<!-- x-release-please-start-version -->
 ```xml
 <repositories>
     <repository>
@@ -54,18 +59,25 @@ dependencies {
     </dependency>
 </dependencies>
 ```
+<!-- x-release-please-end-version -->
 
 **sbt:**
 
+<!-- x-release-please-start-version -->
 ```scala
 libraryDependencies += "com.bbrownsound" % "flink-proto-confluent" % "1.0.0"
 ```
+<!-- x-release-please-end-version -->
 
+<!-- x-release-please-start-version -->
 Replace `1.0.0` with the [latest release](https://github.com/bbrownsound/flink-proto-confluent/releases) version.
+<!-- x-release-please-end-version -->
 
 ### Snapshots
 
-Snapshot builds (e.g. `1.0.0-SNAPSHOT`) are published to the [Sonatype snapshot repository](https://central.sonatype.com/repository/maven-snapshots) on each merge to `main`. To depend on snapshots, add that repository and use a `-SNAPSHOT` version.
+Every merge to `main` publishes a snapshot to the [Sonatype snapshot repository](https://central.sonatype.com/repository/maven-snapshots). Snapshot coordinates carry the short commit SHA they were built from — `1.0.1-a1b2c3d-SNAPSHOT`, not a bare `1.0.1-SNAPSHOT` — so the artifact you resolve today is the same one you resolved yesterday, and you can pin to the exact commit you tested against. The numeric part is the next patch after the last release; it is a placeholder for unreleased work on `main`, not a promise about the next version number.
+
+Browse [the published snapshots](https://central.sonatype.com/repository/maven-snapshots/com/bbrownsound/flink-proto-confluent/) to find the coordinate you want, then add the snapshot repository:
 
 **Gradle (Groovy):**
 
@@ -76,7 +88,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.bbrownsound:flink-proto-confluent:1.0.0-SNAPSHOT'
+    implementation 'com.bbrownsound:flink-proto-confluent:1.0.1-a1b2c3d-SNAPSHOT'
 }
 ```
 
@@ -89,7 +101,7 @@ repositories {
 }
 
 dependencies {
-    implementation("com.bbrownsound:flink-proto-confluent:1.0.0-SNAPSHOT")
+    implementation("com.bbrownsound:flink-proto-confluent:1.0.1-a1b2c3d-SNAPSHOT")
 }
 ```
 
@@ -112,7 +124,7 @@ dependencies {
     <dependency>
         <groupId>com.bbrownsound</groupId>
         <artifactId>flink-proto-confluent</artifactId>
-        <version>1.0.0-SNAPSHOT</version>
+        <version>1.0.1-a1b2c3d-SNAPSHOT</version>
     </dependency>
 </dependencies>
 ```
@@ -122,10 +134,10 @@ dependencies {
 ```scala
 resolvers += "Sonatype Snapshots" at "https://central.sonatype.com/repository/maven-snapshots/"
 
-libraryDependencies += "com.bbrownsound" % "flink-proto-confluent" % "1.0.0-SNAPSHOT"
+libraryDependencies += "com.bbrownsound" % "flink-proto-confluent" % "1.0.1-a1b2c3d-SNAPSHOT"
 ```
 
-Use the current snapshot version from `build.gradle.kts` (or the repo); resolution may use a timestamped build. Prefer a release version for stable builds.
+Substitute the SHA of the commit you want. Prefer a release version for stable builds; snapshots exist so you can try unreleased work with a coordinate that will not change underneath you.
 
 ## Build
 

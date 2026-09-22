@@ -8,10 +8,13 @@ Each workflow owns a distinct slice of the pipeline so that no Gradle task runs 
 | --- | --- | --- |
 | `pr-checks.yml` | `pull_request` | All pull-request signal: lint, build/JAR check, dependency review, the JDK 17 + 21 unit-test matrix, and one integration-test + coverage run on the primary JDK. |
 | `ci.yml` | `push` to `main`/`master`, `workflow_dispatch` | The canonical post-merge build: one job that builds, runs unit + integration tests, verifies coverage and uploads to Codecov, plus a parallel lint job. |
-| `publish-snapshot.yml` | `workflow_run` after a successful **CI** run on `main`/`master`, `workflow_dispatch` | Publishing snapshots. It does not re-test: it is gated on the CI run for the same SHA. |
-| `release.yml` | tag `v*` / release created | Release verification and publishing to Maven Central. |
+| `publish-snapshot.yml` | `workflow_run` after a successful **CI** run on `main`/`master`, `workflow_dispatch` | Publishing SHA-qualified snapshots (`X.Y.Z-<shortsha>-SNAPSHOT`). It does not re-test: it is gated on the CI run for the same SHA. Skips release commits. |
+| `release-please.yml` | `push` to `main`, `workflow_dispatch` | Maintaining the `chore(release): X.Y.Z` pull request, and on its merge creating the tag and the GitHub Release. |
+| `release.yml` | tag `v*` | Release verification, publishing to Maven Central, and attaching the shadow JAR to the GitHub Release. |
 
 `ci.yml` deliberately does **not** trigger on `pull_request`; that is what makes the PR path free of same-JDK repeats.
+
+`release.yml` triggers only on the tag push, never on `release: created`. Both triggers would fire concurrent runs for one version whose publish jobs contend for the same Sonatype staging repository; a `concurrency` group keyed on the tag is the second guard against that. See [RELEASING.md](RELEASING.md) for the full release flow.
 
 ## Where each task runs
 

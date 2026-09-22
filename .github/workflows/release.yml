@@ -1,15 +1,26 @@
 name: Release
 
+# Triggered by the `vX.Y.Z` tag that release-please pushes when a release PR merges (see
+# release-please.yml). Publishes to Maven Central and attaches the shadow JAR to the GitHub
+# Release that release-please already created.
+#
+# The tag push is the only trigger on purpose. A `release: [created]` trigger would fire a
+# second, concurrent run for the same version, and both publish jobs would contend for the same
+# Sonatype staging repository.
 on:
   push:
     tags:
       - 'v*'
-  release:
-    types: [created]
 
 permissions:
   contents: write
   packages: write
+
+# One publish at a time per version. Never cancel in flight: a half-published staging repository
+# is worse than a slow release.
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
   build-and-test:
@@ -57,11 +68,25 @@ jobs:
           ORG_GRADLE_PROJECT_signingKey: ${{ secrets.GPG_SIGNING_KEY }}
           ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.GPG_SIGNING_PASSPHRASE }}
 
-      - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v3
-        with:
-          files: build/libs/*.jar
-          generate_release_notes: true
+      - name: Attach shadow JAR to GitHub Release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # release-please creates the Release and the tag together, but the tag push can reach
+          # this workflow marginally before the Release object is queryable. Wait for it rather
+          # than creating a duplicate.
+          for attempt in 1 2 3 4 5 6; do
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              gh release upload "$TAG" build/libs/*.jar --clobber
+              echo "Attached shadow JAR to release $TAG."
+              exit 0
+            fi
+            echo "Release $TAG not visible yet (attempt $attempt/6); retrying in 10s."
+            sleep 10
+          done
+          # Fallback for a hand-pushed tag (see docs/RELEASING.md): no release-please run, so no
+          # Release exists and this workflow has to create one.
+          echo "No release found for $TAG after 60s; creating one (hand-pushed tag?)."
+          gh release create "$TAG" --verify-tag --title "$TAG" --generate-notes build/libs/*.jar

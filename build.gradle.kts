@@ -11,10 +11,31 @@ plugins {
 }
 
 group = "com.bbrownsound"
-version = project.findProperty("version")?.toString()?.takeIf { it != "unspecified" } ?: "1.0.0-SNAPSHOT"
+
+/**
+ * Derives the next patch version from the last released one, e.g. "1.0.0" -> "1.0.1". Used only
+ * to build a local snapshot version; CI always supplies -Pversion= explicitly.
+ */
+fun nextPatchAfter(released: String): String {
+    val parts = released.trim().removePrefix("v").split(".")
+    require(parts.size == 3 && parts.all { it.toIntOrNull() != null }) {
+        "releaseVersion in gradle.properties must be MAJOR.MINOR.PATCH, got '$released'"
+    }
+    return "${parts[0]}.${parts[1]}.${parts[2].toInt() + 1}"
+}
+
+// `releaseVersion` in gradle.properties is the last version published to Maven Central, owned by
+// release-please. Both CI publish paths pass an explicit -Pversion= that wins over it: release.yml
+// passes the tag version, publish-snapshot.yml passes a SHA-qualified snapshot. A build with no
+// override (any local build) gets the next patch as a -SNAPSHOT, so it can never collide with a
+// coordinate that has already been published.
+val releaseVersion: String by project
+version = project.findProperty("version")?.toString()?.takeIf { it != "unspecified" }
+    ?: "${nextPatchAfter(releaseVersion)}-SNAPSHOT"
 
 tasks.register("printVersion") {
-    doLast { println(project.version) }
+    val resolved = project.version.toString()
+    doLast { println(resolved) }
 }
 
 java {
