@@ -1,0 +1,35 @@
+name: Release Please
+
+# Maintains a `chore(release): X.Y.Z` pull request from the conventional commits landed on main.
+# Merging that PR is what cuts a release: release-please rewrites the version in
+# gradle.properties and README.md, updates CHANGELOG.md, then creates tag `vX.Y.Z` and the
+# GitHub Release. The tag fires release.yml, which publishes to Maven Central and attaches the
+# shadow JAR to the release created here.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: release-please-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Maintain release PR and cut release on merge
+        uses: googleapis/release-please-action@v4
+        with:
+          # Pull requests opened with the default GITHUB_TOKEN do not trigger workflow runs, so
+          # the release PR would arrive without CI. RELEASE_PLEASE_TOKEN (a PAT or GitHub App
+          # installation token) makes the PR trigger checks like any other. The fallback keeps
+          # the workflow functional before that secret exists — the release PR just runs no CI.
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json

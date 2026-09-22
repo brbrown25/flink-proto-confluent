@@ -1,0 +1,27 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "last-release-sha": "9572b8dda3174f9875fb3ecb54e0d3870df25537",
+  "include-component-in-tag": false,
+  "packages": {
+    ".": {
+      "release-type": "simple",
+      "package-name": "flink-proto-confluent",
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        "gradle.properties",
+        "README.md"
+      ],
+      "changelog-sections": [
+        { "type": "feat", "section": "Features" },
+        { "type": "fix", "section": "Bug Fixes" },
+        { "type": "perf", "section": "Performance" },
+        { "type": "deps", "section": "Dependencies" },
+        { "type": "refactor", "section": "Refactoring" },
+        { "type": "docs", "section": "Documentation", "hidden": true },
+        { "type": "test", "section": "Tests", "hidden": true },
+        { "type": "tests", "section": "Tests", "hidden": true },
+        { "type": "chore", "section": "Chores", "hidden": true }
+      ]
+    }
+  }
+}
