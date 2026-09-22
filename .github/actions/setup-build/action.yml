@@ -5,7 +5,7 @@ inputs:
   java-version:
     description: 'Java version to use'
     required: false
-    default: '17'
+    default: '21'
 
 runs:
   using: 'composite'
@@ -16,7 +16,7 @@ runs:
         java-version: ${{ inputs.java-version }}
         distribution: 'temurin'
 
+    # No gradle-version pin: builds are driven through the committed wrapper
+    # (./gradlew), which is the single source of truth for the Gradle version.
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v4
-      with:
-        gradle-version: '9.3.0'
