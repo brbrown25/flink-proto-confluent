@@ -5,7 +5,18 @@ name: CI
 on:
   push:
     branches: [ main, master ]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - 'NOTICE'
+      - '.gitignore'
   workflow_dispatch:
+
+# Only the newest run per branch matters; supersede anything still in flight.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

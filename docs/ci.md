@@ -55,3 +55,8 @@ Gradle's own cache key includes the workflow, job and matrix values, so the JDK 
 
 The suites pull `confluentinc/cp-kafka`, `confluentinc/cp-schema-registry` and `clickhouse/clickhouse-server` on every run. These images are deliberately **not** cached: measurement showed an Actions cache restore plus `docker load` is slower than pulling from Docker Hub, and the tarballs would consume roughly 3.7 GB of the 10 GB repository cache budget. See #76 for the numbers.
 
+## Concurrency and path filters
+
+`ci.yml` and `pr-checks.yml` each declare a `concurrency` group with `cancel-in-progress: true` — keyed on the ref for `ci.yml` and on the pull-request number for `pr-checks.yml` — so pushing several commits in quick succession leaves only the newest pipeline running.
+
+Documentation-only changes skip the heavy jobs. `ci.yml` uses `paths-ignore` on its `push` trigger. `pr-checks.yml` cannot use `paths-ignore` without leaving required checks permanently pending, so it instead runs a cheap `changes` job that diffs the PR against its base and exports `code=true|false`; `lint`, `build-check`, `test-matrix` and `coverage` all gate on it. A docs-only PR therefore reports those checks as skipped rather than absent. Both filters treat `docs/`, any `*.md`, `LICENSE`, `NOTICE` and `.gitignore` as documentation; anything else — including `.github/` itself — counts as code.

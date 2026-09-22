@@ -6,14 +6,53 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
 
+# A new push to a PR cancels the pipeline for the superseded commit.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   pull-requests: write
   checks: write
 
 jobs:
+  # Single source of truth for "does this PR touch anything buildable?". Every
+  # heavy job gates on it, so a docs-only PR reports each check as a skip
+  # rather than leaving a required check pending forever.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Detect non-documentation changes
+      id: filter
+      env:
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      run: |
+        set -euo pipefail
+        changed=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+        echo "Changed files:"
+        printf '%s\n' "$changed"
+        code=$(printf '%s\n' "$changed" \
+          | grep -vE '(^docs/|\.md$|^LICENSE$|^NOTICE$|^\.gitignore$)' || true)
+        if [ -n "$code" ]; then
+          echo 'code=true' >> "$GITHUB_OUTPUT"
+        else
+          echo 'code=false' >> "$GITHUB_OUTPUT"
+          echo '::notice title=Docs-only change::Skipping build, test and coverage jobs.'
+        fi
+
   lint:
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
 
     steps:
     - name: Checkout code
@@ -44,6 +83,8 @@ jobs:
 
   build-check:
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
 
     steps:
     - name: Checkout code
@@ -66,6 +107,8 @@ jobs:
   # exclusions the integration suite would run on every matrix leg.
   test-matrix:
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -101,7 +144,8 @@ jobs:
   # coverage data produced by the JDK 21 matrix leg, so `test` is not re-run.
   coverage:
     runs-on: ubuntu-latest
-    needs: test-matrix
+    needs: [changes, test-matrix]
+    if: needs.changes.outputs.code == 'true'
 
     steps:
     - name: Checkout code
