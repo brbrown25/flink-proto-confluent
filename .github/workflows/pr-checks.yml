@@ -1,5 +1,7 @@
 name: PR Checks
 
+# Owns all pull-request signal. ci.yml is push-only, so nothing here is a
+# repeat of it: each task runs once per JDK per PR.
 on:
   pull_request:
     types: [opened, synchronize, reopened]
@@ -12,17 +14,17 @@ permissions:
 jobs:
   lint:
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v7
 
     - name: Setup build environment
       uses: ./.github/actions/setup-build
-    
+
     - name: Run lint (checkstyle, SpotBugs, Spotless)
-      run: gradle checkstyleMain checkstyleTest checkstyleIntegrationTest spotbugsMain spotbugsTest spotlessCheck
-    
+      run: ./gradlew checkstyleMain checkstyleTest checkstyleIntegrationTest spotbugsMain spotbugsTest spotlessCheck
+
     - name: Annotate Checkstyle issues
       uses: jwgmeligmeyling/checkstyle-github-action@master
       with:
@@ -30,11 +32,11 @@ jobs:
 
   dependency-review:
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v7
-    
+
     - name: Dependency Review
       uses: actions/dependency-review-action@v5
       with:
@@ -42,29 +44,33 @@ jobs:
 
   build-check:
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v7
 
     - name: Setup build environment
       uses: ./.github/actions/setup-build
-    
+
     - name: Build
-      run: gradle build -x test -x integrationTest
-    
+      run: ./gradlew build -x test -x integrationTest
+
     - name: Check JAR contents
       run: |
         echo "JAR contents (proto-confluent):"
         jar tf build/libs/proto-confluent-*.jar | head -50
 
+  # Unit tests only, once per supported JDK. integrationTest and
+  # jacocoTestReport are excluded because `test` is wired to finalize with
+  # jacocoTestReport, which depends on integrationTest -- without the
+  # exclusions the integration suite would run on every matrix leg.
   test-matrix:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         java-version: ['17', '21']
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v7
@@ -73,13 +79,80 @@ jobs:
       uses: ./.github/actions/setup-build
       with:
         java-version: ${{ matrix.java-version }}
-    
-    - name: Run tests on JDK ${{ matrix.java-version }}
-      run: gradle test
-    
+
+    - name: Run unit tests on JDK ${{ matrix.java-version }}
+      run: ./gradlew test -x integrationTest -x jacocoTestReport
+
     - name: Upload test results
       uses: actions/upload-artifact@v7
       if: always()
       with:
         name: test-results-jdk${{ matrix.java-version }}
         path: build/test-results/test/
+
+    - name: Upload unit test coverage data
+      uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: jacoco-exec-jdk${{ matrix.java-version }}
+        path: build/jacoco/test.exec
+
+  # Runs the integration suite once (primary JDK) and reuses the unit-test
+  # coverage data produced by the JDK 21 matrix leg, so `test` is not re-run.
+  coverage:
+    runs-on: ubuntu-latest
+    needs: test-matrix
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v7
+
+    - name: Setup build environment
+      uses: ./.github/actions/setup-build
+
+    - name: Restore unit test coverage data from JDK 21 matrix leg
+      uses: actions/download-artifact@v7
+      with:
+        name: jacoco-exec-jdk21
+        path: build/jacoco
+
+    - name: Run integration tests and verify combined coverage
+      run: ./gradlew integrationTest jacocoTestReport jacocoTestCoverageVerification -x test
+      env:
+        TESTCONTAINERS_RYUK_DISABLED: true
+
+    - name: Generate integration test report
+      uses: dorny/test-reporter@v3
+      if: success() || failure()
+      with:
+        name: Integration Test Results
+        path: build/test-results/integrationTest/*.xml
+        reporter: java-junit
+
+    - name: Upload integration test results
+      uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: integration-test-results
+        path: |
+          build/test-results/integrationTest/
+          build/reports/tests/integrationTest/
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v7
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        files: build/reports/jacoco/test/jacocoTestReport.xml
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false
+
+    - name: Add coverage to PR
+      uses: madrapps/jacoco-report@v1.8.0
+      with:
+        paths: build/reports/jacoco/test/jacocoTestReport.xml
+        token: ${{ secrets.GITHUB_TOKEN }}
+        min-coverage-overall: 80
+        min-coverage-changed-files: 80
+        title: Code Coverage
+        update-comment: true

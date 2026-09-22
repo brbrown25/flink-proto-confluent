@@ -1,7 +1,11 @@
 name: Publish Snapshot
 
+# Gated on a successful CI run for the same commit rather than re-running the
+# full test suite: ci.yml already built and tested this SHA.
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
     branches: [main, master]
   workflow_dispatch:
 
@@ -12,10 +16,13 @@ permissions:
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
 
       - name: Setup build environment
         uses: ./.github/actions/setup-build
@@ -23,19 +30,16 @@ jobs:
       - name: Check snapshot version
         id: version
         run: |
-          V=$(gradle -q printVersion | tail -1)
+          V=$(./gradlew -q printVersion | tail -1)
           echo "version=$V" >> $GITHUB_OUTPUT
           if [[ "$V" == *-SNAPSHOT ]]; then echo "snapshot=true" >> $GITHUB_OUTPUT; else echo "snapshot=false" >> $GITHUB_OUTPUT; fi
           SNAP=$([[ "$V" == *-SNAPSHOT ]] && echo true || echo false)
           echo "Detected version: '$V' → snapshot=$SNAP (publish will $([ "$SNAP" = true ] && echo 'run' || echo 'be skipped'))"
 
-      - name: Run all tests with coverage verification
-        run: gradle test integrationTest jacocoTestReport jacocoTestCoverageVerification
-
       # GPG_SIGNING_KEY: ASCII-armored secret key (paste output of gpg --armor --export-secret-keys KEY_ID).
       - name: Publish to Sonatype (snapshot)
         if: steps.version.outputs.snapshot == 'true'
-        run: gradle publishSonatypePublicationToSonatypeRepository
+        run: ./gradlew publishSonatypePublicationToSonatypeRepository
         env:
           ORG_GRADLE_PROJECT_sonatypeUsername: ${{ secrets.SONATYPE_USERNAME }}
           ORG_GRADLE_PROJECT_sonatypePassword: ${{ secrets.SONATYPE_PASSWORD }}
