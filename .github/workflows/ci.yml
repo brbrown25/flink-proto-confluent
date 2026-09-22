@@ -89,7 +89,7 @@ jobs:
         files: build/reports/jacoco/test/jacocoTestReport.xml
         flags: unittests
         name: codecov-umbrella
-        fail_ci_if_error: false
+        fail_ci_if_error: true
 
   checkstyle:
     name: checkstyle

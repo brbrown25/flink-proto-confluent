@@ -60,3 +60,24 @@ The suites pull `confluentinc/cp-kafka`, `confluentinc/cp-schema-registry` and `
 `ci.yml` and `pr-checks.yml` each declare a `concurrency` group with `cancel-in-progress: true` — keyed on the ref for `ci.yml` and on the pull-request number for `pr-checks.yml` — so pushing several commits in quick succession leaves only the newest pipeline running.
 
 Documentation-only changes skip the heavy jobs. `ci.yml` uses `paths-ignore` on its `push` trigger. `pr-checks.yml` cannot use `paths-ignore` without leaving required checks permanently pending, so it instead runs a cheap `changes` job that diffs the PR against its base and exports `code=true|false`; `lint`, `build-check`, `test-matrix` and `coverage` all gate on it. A docs-only PR therefore reports those checks as skipped rather than absent. Both filters treat `docs/`, any `*.md`, `LICENSE`, `NOTICE` and `.gitignore` as documentation; anything else — including `.github/` itself — counts as code.
+
+## Coverage gates
+
+Three things report on coverage, and only two of them can fail a build. Knowing which is which matters, because the most visible one is the one that cannot.
+
+| Mechanism | Can it fail? | What it covers |
+| --- | --- | --- |
+| Gradle `jacocoTestCoverageVerification` | **Yes** — fails the `coverage` job | 80% line coverage project-wide, plus per-package rules on `…confluent.serialize` and `…confluent.deserialize` |
+| Codecov `project` / `patch` statuses | **Yes**, once required (see below) | Project-wide, and coverage of the lines the PR changed |
+| `madrapps/jacoco-report` PR comment | **No** | Nothing — it is a report only |
+
+The `madrapps/jacoco-report` step's `min-coverage-overall` and `min-coverage-changed-files` inputs only select the pass/fail emoji in the comment it posts; the action has no failure path for a threshold breach, and its `continue-on-error` input governs runtime exceptions rather than coverage. Treat that comment as information, never as a gate.
+
+`codecov.yml` defines the `project` and `patch` statuses with `informational: false`, which is what makes them capable of failing — an informational status always reports success. The `patch` status is the one that matters most, because it is the only gate on *changed-line* coverage: Gradle's project-wide rule will happily stay above 80% while a PR adds uncovered code.
+
+Two of the steps are outside the repository and must be done once, in repository settings:
+
+1. **Install the Codecov GitHub App.** Without it Codecov cannot create statuses at all — uploads still succeed and it will still comment (as `codecov-commenter` rather than `codecov[bot]`), but no check appears, so nothing can block. This is the state the repository was in before this configuration existed.
+2. **List `codecov/project` and `codecov/patch` as required status checks** in the ruleset that protects the default branch. A red status that is not required is advisory only.
+
+Both `codecov/codecov-action` invocations use `fail_ci_if_error: true`, so an upload that fails fails the job rather than passing silently and leaving Codecov to report on stale data.
