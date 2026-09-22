@@ -23,8 +23,12 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v7
 
+    # The canonical post-merge job is the only writer of the Gradle cache; it
+    # warms the entry that every PR job restores read-only.
     - name: Setup build environment
       uses: ./.github/actions/setup-build
+      with:
+        cache-read-only: false
 
     - name: Build with Gradle
       run: ./gradlew build -x test -x integrationTest
