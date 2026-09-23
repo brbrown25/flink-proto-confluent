@@ -21,7 +21,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.bbrownsound:flink-proto-confluent:1.0.0'
+    implementation 'com.bbrownsound:flink-proto-confluent:1.1.0'
 }
 ```
 <!-- x-release-please-end-version -->
@@ -35,7 +35,7 @@ repositories {
 }
 
 dependencies {
-    implementation("com.bbrownsound:flink-proto-confluent:1.0.0")
+    implementation("com.bbrownsound:flink-proto-confluent:1.1.0")
 }
 ```
 <!-- x-release-please-end-version -->
@@ -55,7 +55,7 @@ dependencies {
     <dependency>
         <groupId>com.bbrownsound</groupId>
         <artifactId>flink-proto-confluent</artifactId>
-        <version>1.0.0</version>
+        <version>1.1.0</version>
     </dependency>
 </dependencies>
 ```
@@ -65,12 +65,12 @@ dependencies {
 
 <!-- x-release-please-start-version -->
 ```scala
-libraryDependencies += "com.bbrownsound" % "flink-proto-confluent" % "1.0.0"
+libraryDependencies += "com.bbrownsound" % "flink-proto-confluent" % "1.1.0"
 ```
 <!-- x-release-please-end-version -->
 
 <!-- x-release-please-start-version -->
-Replace `1.0.0` with the [latest release](https://github.com/bbrownsound/flink-proto-confluent/releases) version.
+Replace `1.1.0` with the [latest release](https://github.com/bbrownsound/flink-proto-confluent/releases) version.
 <!-- x-release-please-end-version -->
 
 ### Snapshots
