@@ -106,6 +106,22 @@ dependencies {
     add("integrationTestImplementation", "org.apache.flink:flink-connector-jdbc:3.4.0-1.20")
 }
 
+// clickhouse-jdbc 0.10.0 depends on the at.yawk.lz4:lz4-java fork, which declares the same
+// org.lz4:lz4-java capability as the lz4-java that flink-runtime pulls in. The fork is a
+// drop-in replacement (same net.jpountz packages), so prefer it whenever both are present.
+configurations.all {
+    resolutionStrategy.capabilitiesResolution.withCapability("org.lz4", "lz4-java") {
+        val fork = candidates.firstOrNull {
+            val id = it.id
+            id is ModuleComponentIdentifier && id.group == "at.yawk.lz4"
+        }
+        if (fork != null) {
+            select(fork)
+            because("at.yawk.lz4:lz4-java is a drop-in fork required by clickhouse-jdbc")
+        }
+    }
+}
+
 tasks.test {
     useJUnitPlatform()
     jvmArgs(
