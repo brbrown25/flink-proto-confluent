@@ -88,6 +88,9 @@ import org.apache.flink.table.types.logical.VarCharType;
  * </ul>
  */
 public class ProtoToLogicalType {
+
+  private ProtoToLogicalType() {}
+
   /**
    * Mostly adapted the logic from <a
    * href="https://github.com/confluentinc/schema-registry/blob/610fbed58a3a8d778ec7a9de5b8d2d0c1465c6f9/protobuf-converter/src/main/java/io/confluent/connect/protobuf/ProtobufData.java">ProtobufData</a>

@@ -68,6 +68,8 @@ import org.apache.flink.table.types.logical.RowType.RowField;
  */
 public class RowTypeToProto {
 
+  private RowTypeToProto() {}
+
   /**
    * Converts a Flink's logical type into a Protobuf descriptor. Uses Kafka Connect logic to store
    * types that are not natively supported.

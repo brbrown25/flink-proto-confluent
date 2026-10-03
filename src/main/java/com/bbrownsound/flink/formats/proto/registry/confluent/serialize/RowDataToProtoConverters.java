@@ -46,6 +46,8 @@ import org.apache.flink.table.types.logical.RowType;
  */
 public class RowDataToProtoConverters {
 
+  private RowDataToProtoConverters() {}
+
   /**
    * Runtime converter that converts objects of Flink Table &amp; SQL internal data structures to
    * corresponding Protobuf objects.
