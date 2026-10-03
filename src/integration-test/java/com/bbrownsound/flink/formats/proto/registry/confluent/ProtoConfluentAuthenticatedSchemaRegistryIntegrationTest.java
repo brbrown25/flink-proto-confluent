@@ -398,7 +398,9 @@ class ProtoConfluentAuthenticatedSchemaRegistryIntegrationTest {
           consumer.poll(Duration.ofMillis(5000));
       records.forEach(
           r -> {
-            if (r.value() != null) out.add(r.value());
+            if (r.value() != null) {
+              out.add(r.value());
+            }
           });
     }
     return out;

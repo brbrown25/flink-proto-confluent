@@ -20,7 +20,6 @@ import org.apache.flink.api.common.serialization.DeserializationSchema;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.metrics.MetricGroup;
 import org.apache.flink.metrics.testutils.MetricListener;
-import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.types.logical.RowType;
 import org.apache.flink.util.SimpleUserCodeClassLoader;
 import org.apache.flink.util.UserCodeClassLoader;

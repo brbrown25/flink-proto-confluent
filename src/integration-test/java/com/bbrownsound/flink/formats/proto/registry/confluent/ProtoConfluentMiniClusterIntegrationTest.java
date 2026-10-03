@@ -783,7 +783,9 @@ class ProtoConfluentMiniClusterIntegrationTest {
           consumer.poll(Duration.ofMillis(5000));
       records.forEach(
           r -> {
-            if (r.key() != null) out.add(r.key());
+            if (r.key() != null) {
+              out.add(r.key());
+            }
           });
     }
     return out;
@@ -848,7 +850,9 @@ class ProtoConfluentMiniClusterIntegrationTest {
       ConsumerRecords<String, DynamicMessage> records = consumer.poll(Duration.ofMillis(5000));
       records.forEach(
           r -> {
-            if (r.value() != null) out.add(r.value());
+            if (r.value() != null) {
+              out.add(r.value());
+            }
           });
     }
     return out;
@@ -872,7 +876,9 @@ class ProtoConfluentMiniClusterIntegrationTest {
           consumer.poll(Duration.ofMillis(5000));
       records.forEach(
           r -> {
-            if (r.value() != null) out.add(r.value());
+            if (r.value() != null) {
+              out.add(r.value());
+            }
           });
     }
     return out;
