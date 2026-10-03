@@ -31,6 +31,9 @@ public class RegistryProtoFormatFactory
   /** Format identifier for table options (e.g. 'value.format' = 'proto-confluent'). */
   public static final String IDENTIFIER = "proto-confluent";
 
+  /** Creates the factory; invoked by the Flink service loader. */
+  public RegistryProtoFormatFactory() {}
+
   @Override
   public DecodingFormat<org.apache.flink.api.common.serialization.DeserializationSchema<RowData>>
       createDecodingFormat(DynamicTableFactory.Context context, ReadableConfig formatOptions) {
