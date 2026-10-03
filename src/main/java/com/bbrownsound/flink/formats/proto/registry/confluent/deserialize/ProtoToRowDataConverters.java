@@ -47,6 +47,8 @@ public class ProtoToRowDataConverters {
   private static final String KEY_FIELD = "key";
   private static final String VALUE_FIELD = "value";
 
+  private ProtoToRowDataConverters() {}
+
   /**
    * Records that a table column has no counterpart in the writer's Protobuf descriptor. The column
    * is read as NULL rather than failing the job, so a table declared against a newer schema version
