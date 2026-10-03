@@ -129,18 +129,11 @@ public class ProtoRowDataDeserializationSchema implements DeserializationSchema<
     }
     long n = deserializeCount.incrementAndGet();
     if (n <= 5 || (n % LOG_EVERY_N_MESSAGES == 0)) {
-      LOG.info(
+      LOG.debug(
           "[proto-confluent] deserialize called #{}: messageLength={}, topic={}",
           n,
           message.length,
           formatConfig.topic);
-      LOG.debug(
-          "[proto-confluent] deserialize #"
-              + n
-              + ": messageLength="
-              + message.length
-              + ", topic="
-              + formatConfig.topic);
     }
     try {
       DataInputStream inputStream = new DataInputStream(new ByteArrayInputStream(message));
@@ -171,7 +164,7 @@ public class ProtoRowDataDeserializationSchema implements DeserializationSchema<
                   });
       RowData rowData = (RowData) converter.convert(dynamicMessage);
       if (n <= 5) {
-        LOG.debug("[print-source] message #" + n + " from topic: " + rowData);
+        LOG.debug("[proto-confluent] message #{} from topic: {}", n, rowData);
       }
       return rowData;
     } catch (Exception e) {
@@ -181,13 +174,6 @@ public class ProtoRowDataDeserializationSchema implements DeserializationSchema<
           formatConfig.topic,
           n,
           e);
-      LOG.error(
-          "[proto-confluent] deserialize FAILED #"
-              + n
-              + ": "
-              + e.getClass().getSimpleName()
-              + ": "
-              + e.getMessage());
       if (deserializeErrors != null) {
         deserializeErrors.inc();
       }
