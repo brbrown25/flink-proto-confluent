@@ -7,7 +7,7 @@ plugins {
     checkstyle
     jacoco
     id("com.diffplug.spotless") version "8.10.3"
-    id("com.github.spotbugs") version "6.5.11"
+    id("com.github.spotbugs") version "6.5.12"
 }
 
 group = "com.bbrownsound"
