@@ -2,8 +2,9 @@
 
 ## 1. Get the JAR
 
-Flink loads formats from its `lib/` directory. The JAR is compiled for **Java 17**, so run Flink on JDK 17 or newer (for example the `flink:1.20-java17` image; the default `flink:1.20` image is Java 11 and fails with `UnsupportedClassVersionError`). The JAR is compiled for **Java 17**, so run Flink on JDK 17 or newer (e.g. the `flink:1.20-java17` image; the default `flink:1.20` image is Java 11 and fails with `UnsupportedClassVersionError`). Either build the shadow JAR or resolve it from Maven Central.
+Flink loads formats from its `lib/` directory. The JAR is compiled for **Java 17**, so run Flink on JDK 17 or newer (for example the `flink:1.20-java17` image; the default `flink:1.20` image is Java 11 and fails with `UnsupportedClassVersionError`). Either build the shadow JAR or resolve it from Maven Central.
 
+<!-- x-release-please-start-version -->
 === "Build from source"
 
     ```bash
@@ -46,8 +47,11 @@ Flink loads formats from its `lib/` directory. The JAR is compiled for **Java 17
     ```scala
     libraryDependencies += "com.bbrownsound" % "flink-proto-confluent" % "1.1.0"
     ```
+<!-- x-release-please-end-version -->
 
+<!-- x-release-please-start-version -->
 Replace `1.1.0` with the [latest release](https://github.com/brbrown25/flink-proto-confluent/releases). Unreleased work on `main` is published as SHA-qualified snapshots such as `1.0.1-a1b2c3d-SNAPSHOT` from the [Sonatype snapshot repository](https://central.sonatype.com/repository/maven-snapshots/).
+<!-- x-release-please-end-version -->
 
 !!! note "Flink Kafka connector"
     The format decodes and encodes bytes; you still need the Flink Kafka SQL connector on the classpath to read from or write to Kafka.

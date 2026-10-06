@@ -58,3 +58,4 @@ build
 .idea/
 .vscode/
 site/
+.venv/
