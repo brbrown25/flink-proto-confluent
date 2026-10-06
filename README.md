@@ -190,6 +190,10 @@ To pin an **explicit named** protobuf message class for the key and/or value (in
 
 `message-class` is role-scoped by `is_key` (key vs value). See [the configuration reference](docs/content/reference/configuration.md) for the full option reference and a complete keyed-sink example.
 
+## Documentation
+
+The docs site lives in `docs/` (MkDocs Material) and is published to <https://brbrown25.github.io/flink-proto-confluent/>. Preview with `cd docs && mkdocs serve`; terminal demos are recorded with `docs/demo/record.sh`. See [Contributing](docs/content/contributing.md) for how to edit pages, re-record casts and what to update when options change.
+
 ## Testing
 
 Tests use JUnit 5 and real components (e.g. Testcontainers for Kafka/Schema Registry); **Mockito is not used**. Coverage includes both unit tests and integration tests.

@@ -9,7 +9,8 @@
       "changelog-path": "CHANGELOG.md",
       "extra-files": [
         "gradle.properties",
-        "README.md"
+        "README.md",
+        "docs/content/getting-started.md"
       ],
       "changelog-sections": [
         { "type": "feat", "section": "Features" },
