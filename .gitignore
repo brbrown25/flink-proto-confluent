@@ -57,3 +57,4 @@ build
 .metals/
 .idea/
 .vscode/
+site/

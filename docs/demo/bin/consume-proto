@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# consume-proto TOPIC  — prints Protobuf records decoded through Schema Registry.
+. "$(dirname "$0")/_common.sh"
+docker compose exec -T schema-registry kafka-protobuf-console-consumer \
+  --bootstrap-server $BOOTSTRAP --topic "$1" --from-beginning --timeout-ms 8000 \
+  --property schema.registry.url=$SR_URL 2>&1 | grep '^{'

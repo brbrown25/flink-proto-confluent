@@ -1,0 +1,61 @@
+site_name: flink-proto-confluent
+site_description: Confluent Schema Registry Protobuf format for Apache Flink SQL and the Table API
+site_url: https://brbrown25.github.io/flink-proto-confluent/
+repo_url: https://github.com/brbrown25/flink-proto-confluent
+repo_name: brbrown25/flink-proto-confluent
+edit_uri: edit/main/docs/content/
+docs_dir: content
+strict: true
+
+theme:
+  name: material
+  features:
+    - content.code.copy
+    - content.tabs.link
+    - navigation.sections
+    - navigation.top
+    - search.highlight
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+
+extra_css:
+  - assets/vendor/asciinema-player.min.css
+extra_javascript:
+  - assets/vendor/asciinema-player.min.js
+  - assets/player.js
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Demos: demos.md
+  - How-to Guides:
+      - Pin a message class: how-to/message-class.md
+      - Handle bad records (dead-letter topic): how-to/dead-letter-topic.md
+      - SSL and authentication: how-to/ssl-and-auth.md
+      - Schema evolution and subjects: how-to/schema-evolution.md
+  - Reference:
+      - Configuration: reference/configuration.md
+  - Contributing: contributing.md
+  - Release Notes: release-notes.md

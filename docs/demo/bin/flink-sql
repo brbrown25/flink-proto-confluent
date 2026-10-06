@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# flink-sql FILE.sql  — runs a SQL script on the demo cluster, printing only results.
+. "$(dirname "$0")/_common.sh"
+docker compose cp sql jobmanager:/tmp/ >/dev/null 2>&1
+docker compose exec -T jobmanager ./bin/sql-client.sh -f "/tmp/$1" 2>&1 \
+  | sed $'s/\x1b\\[[0-9;]*m//g' \
+  | sed -e 's/^>.*[^+-]\(+[-+]*+\)$/\1/' -e 's/^Flink SQL> //' \
+  | grep -v -e '^>' -e '^$' -e 'Shutting down' -e '^done\.' -e '^WARNING' -e 'org.jline' \
+      -e 'Command history' -e 'Executing SQL from file' -e 'Execute statement succeeded' -e '^Flink SQL>'

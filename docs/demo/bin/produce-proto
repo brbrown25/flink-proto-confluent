@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# produce-proto TOPIC  — reads JSON Order records on stdin, writes Confluent-framed Protobuf.
+. "$(dirname "$0")/_common.sh"
+docker compose exec -T schema-registry kafka-protobuf-console-producer \
+  --bootstrap-server $BOOTSTRAP --topic "$1" \
+  --property schema.registry.url=$SR_URL --property value.schema="$ORDER_PROTO" 2>&1 \
+  | grep -v -e INFO -e WARN

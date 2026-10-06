@@ -4,10 +4,11 @@
 [![Snapshots](https://img.shields.io/badge/snapshots-Sonatype%20Central-green)](https://central.sonatype.com/repository/maven-snapshots/)
 [![CI](https://github.com/brbrown25/flink-proto-confluent/actions/workflows/ci.yml/badge.svg)](https://github.com/brbrown25/flink-proto-confluent/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/brbrown25/flink-proto-confluent/graph/badge.svg?token=WXE51L52H4)](https://codecov.io/gh/brbrown25/flink-proto-confluent)
+[![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://brbrown25.github.io/flink-proto-confluent/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![GitHub release](https://img.shields.io/github/v/release/brbrown25/flink-proto-confluent)](https://github.com/brbrown25/flink-proto-confluent/releases)
 
-A Confluent Schema Registry Protobuf format for Apache Flink Table API. This project is an improved, standalone derivative of [amstee/flink-proto-confluent](https://github.com/amstee/flink-proto-confluent), repackaged under `com.bbrownsound` with additional features and tests.
+A Confluent Schema Registry Protobuf format for Apache Flink Table API. **Documentation, how-to guides and terminal demos: <https://brbrown25.github.io/flink-proto-confluent/>.** This project is an improved, standalone derivative of [amstee/flink-proto-confluent](https://github.com/amstee/flink-proto-confluent), repackaged under `com.bbrownsound` with additional features and tests.
 
 ## Resolving the dependency
 
@@ -165,7 +166,7 @@ Maintainers: see [docs/RELEASING.md](docs/RELEASING.md) for how to cut a release
 Copy the built JAR into your Flink `lib/` directory:
 
 ```bash
-cp build/libs/proto-confluent.jar /path/to/flink/lib/
+cp build/libs/flink-proto-confluent-*.jar /path/to/flink/lib/
 ```
 
 Then in Flink SQL (e.g. `sql-client.sh`), use the format identifier `proto-confluent`:
@@ -187,7 +188,7 @@ To pin an **explicit named** protobuf message class for the key and/or value (in
 'value.proto-confluent.message-class' = 'com.example.OrderProto$Order'
 ```
 
-`message-class` is role-scoped by `is_key` (key vs value). See [docs/format-options.md](docs/format-options.md) for the full option reference and a complete keyed-sink example.
+`message-class` is role-scoped by `is_key` (key vs value). See [the configuration reference](docs/content/reference/configuration.md) for the full option reference and a complete keyed-sink example.
 
 ## Testing
 

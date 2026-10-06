@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# schema SUBJECT  — prints the latest registered schema for a subject.
+. "$(dirname "$0")/_common.sh"
+docker compose exec -T schema-registry curl -s localhost:8081/subjects/"$1"/versions/latest \
+  | python3 -c 'import json,sys; d=json.load(sys.stdin); print("subject=%s version=%s" % (d["subject"], d["version"])); print(d["schema"])'
