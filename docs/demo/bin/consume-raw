@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# consume-raw TOPIC  — prints raw records with their headers.
+. "$(dirname "$0")/_common.sh"
+docker compose exec -T kafka kafka-console-consumer --bootstrap-server $BOOTSTRAP --topic "$1" \
+  --from-beginning --timeout-ms 8000 --property print.headers=true 2>&1 | grep -e '^error' -e '^NO_HEADERS'

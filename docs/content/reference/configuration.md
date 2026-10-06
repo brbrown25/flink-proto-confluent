@@ -1,4 +1,4 @@
-# proto-confluent format options
+# Configuration
 
 Options for the `proto-confluent` Flink Table format. Prefix each with the role
 namespace in `CREATE TABLE` — e.g. `value.proto-confluent.url` or

@@ -1,0 +1,47 @@
+# Demo stack for the recorded casts: Kafka + Schema Registry + a Flink session cluster
+# with the proto-confluent format and the Kafka SQL connector on the classpath.
+# Run ./setup.sh first to fetch the JARs into ./lib.
+name: proto-confluent-demo
+services:
+  kafka:
+    image: confluentinc/cp-kafka:8.1.1
+    hostname: kafka
+    environment:
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://kafka:9092,CONTROLLER://kafka:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:8.1.1
+    hostname: schema-registry
+    depends_on: [kafka]
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka:9092
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+
+  jobmanager: &flink
+    image: flink:1.20-java17
+    command: jobmanager
+    depends_on: [kafka, schema-registry]
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: jobmanager
+        taskmanager.numberOfTaskSlots: 4
+    volumes:
+      - ./lib:/opt/flink/demo-lib:ro
+    entrypoint: ["/bin/bash", "-c", "cp /opt/flink/demo-lib/*.jar /opt/flink/lib/ && exec /docker-entrypoint.sh \"$$@\"", "--"]
+
+  taskmanager:
+    <<: *flink
+    command: taskmanager
+    depends_on: [jobmanager]

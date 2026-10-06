@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# produce-raw TOPIC  — reads lines on stdin, writes them as-is (no schema, no wire header).
+. "$(dirname "$0")/_common.sh"
+docker compose exec -T kafka kafka-console-producer --bootstrap-server $BOOTSTRAP --topic "$1" 2>&1 | grep -v -e INFO -e WARN

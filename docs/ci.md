@@ -10,6 +10,7 @@ Each workflow owns a distinct slice of the pipeline so that no Gradle task runs 
 | `ci.yml` | `push` to `main`/`master`, `workflow_dispatch` | The canonical post-merge build: one job that builds, runs unit + integration tests, verifies coverage and uploads to Codecov, plus a parallel lint job. |
 | `publish-snapshot.yml` | `workflow_run` after a successful **CI** run on `main`/`master`, `workflow_dispatch` | Publishing SHA-qualified snapshots (`X.Y.Z-<shortsha>-SNAPSHOT`). It does not re-test: it is gated on the CI run for the same SHA. Skips release commits. |
 | `release-please.yml` | `push` to `main`, `workflow_dispatch` | Maintaining the `chore(release): X.Y.Z` pull request, and on its merge creating the tag and the GitHub Release. |
+| `docs.yml` | `pull_request` / `push` to `main`/`master` touching `docs/**`, `workflow_dispatch` | Building the MkDocs site with `--strict` (PRs and pushes) and deploying it to GitHub Pages (pushes only). |
 | `release.yml` | tag `v*` | Release verification, publishing to Maven Central, and attaching the shadow JAR to the GitHub Release. |
 
 `ci.yml` deliberately does **not** trigger on `pull_request`; that is what makes the PR path free of same-JDK repeats.
