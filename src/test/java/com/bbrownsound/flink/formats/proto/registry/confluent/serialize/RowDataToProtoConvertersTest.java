@@ -338,4 +338,58 @@ class RowDataToProtoConvertersTest {
         UnsupportedOperationException.class,
         () -> RowDataToProtoConverters.createConverter(rowType, descriptor));
   }
+
+  @Test
+  void missingColumns_noOneof_throwsDescriptiveErrorListingAll() {
+    Descriptor descriptor = TestSimple.SimpleMessage.getDescriptor();
+    RowType rowType =
+        new RowType(
+            java.util.List.of(
+                new RowType.RowField("content", new VarCharType(true, 100)),
+                new RowType.RowField("extra1", new VarCharType(true, 100)),
+                new RowType.RowField("extra2", new VarCharType(true, 100))));
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> RowDataToProtoConverters.createConverter(rowType, descriptor));
+    String m = e.getMessage();
+    org.junit.jupiter.api.Assertions.assertTrue(m.contains("'extra1'"), m);
+    org.junit.jupiter.api.Assertions.assertTrue(m.contains("'extra2'"), m);
+    org.junit.jupiter.api.Assertions.assertFalse(m.contains("'content'"), m);
+    org.junit.jupiter.api.Assertions.assertTrue(m.contains(descriptor.getFullName()), m);
+    org.junit.jupiter.api.Assertions.assertTrue(m.contains("message-class"), m);
+  }
+
+  @Test
+  void missingColumn_oneofMessage_topLevel_throwsDescriptiveError() {
+    Descriptor descriptor = TestOneof.MessageWithOneof.getDescriptor();
+    RowType base = (RowType) ProtoToLogicalType.toLogicalType(descriptor);
+    java.util.List<RowType.RowField> fields = new java.util.ArrayList<>(base.getFields());
+    fields.add(new RowType.RowField("extra", new VarCharType(true, 100)));
+    RowType rowType = new RowType(fields);
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> RowDataToProtoConverters.createConverter(rowType, descriptor));
+    org.junit.jupiter.api.Assertions.assertTrue(e.getMessage().contains("'extra'"), e.getMessage());
+    org.junit.jupiter.api.Assertions.assertTrue(
+        e.getMessage().contains(descriptor.getFullName()), e.getMessage());
+  }
+
+  @Test
+  void missingColumn_inOneofBranch_throwsDescriptiveError() {
+    Descriptor descriptor = TestOneof.MessageWithOneof.getDescriptor();
+    RowType choice =
+        new RowType(
+            java.util.List.of(
+                new RowType.RowField("a", new org.apache.flink.table.types.logical.IntType()),
+                new RowType.RowField("zzz", new VarCharType(true, 100))));
+    RowType rowType = new RowType(java.util.List.of(new RowType.RowField("choice", choice)));
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> RowDataToProtoConverters.createConverter(rowType, descriptor));
+    org.junit.jupiter.api.Assertions.assertTrue(
+        e.getMessage().contains("'choice.zzz'"), e.getMessage());
+  }
 }
