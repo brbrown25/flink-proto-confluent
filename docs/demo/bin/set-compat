@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# set-compat SUBJECT LEVEL  — sets the subject-level compatibility mode.
+. "$(dirname "$0")/_common.sh"
+exec python3 "$(dirname "$0")/_sr.py" compat "$@"

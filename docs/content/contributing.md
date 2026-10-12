@@ -49,7 +49,7 @@ To add a cast: write `docs/demo/casts/<name>.sh` (copy an existing one; `say` pr
 <div class="cast" data-src="../assets/casts/<name>.cast"></div>
 ```
 
-Keep casts under ~45 seconds. See [`docs/demo/README.md`](https://github.com/brbrown25/flink-proto-confluent/blob/main/docs/demo/README.md) for the stack itself.
+Record just some casts with `CASTS="name1 name2" ./record.sh`, and dry-run a script without the typing delays with `CAST_FAST=1 ./casts/<name>.sh` (against a running stack). Keep casts under ~45 seconds. See [`docs/demo/README.md`](https://github.com/brbrown25/flink-proto-confluent/blob/main/docs/demo/README.md) for the stack itself.
 
 ### Publishing
 
