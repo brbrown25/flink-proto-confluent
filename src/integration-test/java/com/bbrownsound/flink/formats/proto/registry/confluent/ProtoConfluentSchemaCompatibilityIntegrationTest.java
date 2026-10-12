@@ -13,12 +13,17 @@ import com.google.protobuf.Descriptors;
 import com.google.protobuf.DynamicMessage;
 import io.confluent.kafka.schemaregistry.client.CachedSchemaRegistryClient;
 import io.confluent.kafka.schemaregistry.client.SchemaRegistryClient;
+import io.confluent.kafka.schemaregistry.client.rest.entities.requests.RegisterSchemaRequest;
 import io.confluent.kafka.schemaregistry.client.rest.exceptions.RestClientException;
 import io.confluent.kafka.schemaregistry.protobuf.ProtobufSchema;
 import io.confluent.kafka.schemaregistry.protobuf.ProtobufSchemaProvider;
 import io.confluent.kafka.serializers.protobuf.KafkaProtobufSerializer;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -359,7 +364,16 @@ class ProtoConfluentSchemaCompatibilityIntegrationTest {
       registryClient.updateCompatibility(subject, mode);
 
       // The registry's /compatibility check against "latest" never looks past the newest version,
-      // even in transitive modes, so the verdict is read from the registration itself.
+      // even in transitive modes, so it reports v4 compatible under BOTH modes. Only registration
+      // applies the transitive rule. Guard this so a Registry upgrade that changes it is noticed
+      // (see docs/content/how-to/schema-evolution.md).
+      assertTrue(
+          registryClient.testCompatibility(subject, v4),
+          mode + ": the check against latest must pass (it ignores history)");
+      // Checking against the oldest version explicitly is how to get the transitive verdict.
+      assertFalse(
+          testCompatibilityAgainstVersion(subject, v4, "1"),
+          mode + ": the check against v1 must fail (type change relative to v1)");
       if ("BACKWARD".equals(mode)) {
         registryClient.register(subject, v4);
         assertEquals(List.of(1, 2, 3), registryClient.getAllVersions(subject));
@@ -370,6 +384,26 @@ class ProtoConfluentSchemaCompatibilityIntegrationTest {
         assertEquals(List.of(1, 2), registryClient.getAllVersions(subject));
       }
     }
+  }
+
+  /** Calls POST /compatibility/subjects/{subject}/versions/{version} directly. */
+  private static boolean testCompatibilityAgainstVersion(
+      String subject, ProtobufSchema schema, String version) throws Exception {
+    final HttpRequest request =
+        HttpRequest.newBuilder(
+                URI.create(
+                    schemaRegistryUrl
+                        + "/compatibility/subjects/"
+                        + subject
+                        + "/versions/"
+                        + version))
+            .header("Content-Type", "application/vnd.schemaregistry.v1+json")
+            .POST(HttpRequest.BodyPublishers.ofString(new RegisterSchemaRequest(schema).toJson()))
+            .build();
+    final HttpResponse<String> response =
+        HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+    assertEquals(200, response.statusCode(), response.body());
+    return response.body().contains("\"is_compatible\":true");
   }
 
   private static String sourceOptions(String topic, String extra) {

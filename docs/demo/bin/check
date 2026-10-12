@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
-# [SCHEMA=<proto>] check SUBJECT  — asks the registry whether SCHEMA is compatible with the latest version.
+# [SCHEMA=<proto>] check [--all-versions] SUBJECT  — asks the registry whether SCHEMA is compatible with the latest version,
+# or with every registered version (the transitive verdict; the registry's latest-only check ignores history).
 . "$(dirname "$0")/_common.sh"
 exec python3 "$(dirname "$0")/_sr.py" check "$@"

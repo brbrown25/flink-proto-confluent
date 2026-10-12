@@ -22,3 +22,5 @@ docker compose down -v
 Each `casts/<name>.sh` is a script of `say` (comment) and `run` (typed + executed) steps, so a recording is reproducible and diffable. `bin/` holds thin wrappers around the Docker containers; `sql/` holds the Flink SQL the casts run. Preview with `asciinema play ../content/assets/casts/quickstart.cast` or `mkdocs serve`.
 
 Keep casts short (under ~45 seconds) and re-record when option names or output change.
+
+`SCHEMA=... bin/check SUBJECT` asks the registry about the latest version only. Add `--all-versions` (`bin/check --all-versions SUBJECT`) to check every registered version, which is the transitive verdict. The casts have not been re-recorded to show it yet: `casts/compat-modes.sh` still uses the latest-only check (follow-up for #135).
