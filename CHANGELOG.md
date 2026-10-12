@@ -2,6 +2,25 @@
 
 Release notes for `flink-proto-confluent`. This file is maintained by [release-please](https://github.com/googleapis/release-please) from the Conventional Commit messages on `main` — edit the commits, not this file. See [docs/RELEASING.md](docs/RELEASING.md) for how a release is cut.
 
+## [1.2.0](https://github.com/brbrown25/flink-proto-confluent/compare/v1.1.0...v1.2.0) (2026-10-12)
+
+
+### Features
+
+* **docs:** add MkDocs Material docs site with asciinema demos. NOTICKET. ([ad04b39](https://github.com/brbrown25/flink-proto-confluent/commit/ad04b39b850407710d44f0b1ddd536869b877b15))
+* **docs:** clarify transitive compat check limits, add check --all-versions, guard test. NOTICKET. ([f5ee673](https://github.com/brbrown25/flink-proto-confluent/commit/f5ee673fd01f52a84981dd3e3150cd23e61a1b97))
+* **docs:** compat-modes cast demonstrates check --all-versions vs registration. NOTICKET. ([a3aee85](https://github.com/brbrown25/flink-proto-confluent/commit/a3aee8555c9a43d434eb0cc4e18c9d665f705006))
+* **docs:** record.sh accepts cast names and reuses a healthy stack. NOTICKET. ([37787b8](https://github.com/brbrown25/flink-proto-confluent/commit/37787b89d60424d30e3928c29228720d9f20060e)), closes [#129](https://github.com/brbrown25/flink-proto-confluent/issues/129)
+* **docs:** release-please version markers, PR checklist, contributor docs guide. NOTICKET. ([2a60fe9](https://github.com/brbrown25/flink-proto-confluent/commit/2a60fe9f8c0e4f9fe45e89f22eff87131880f6da))
+* **docs:** schema evolution lifecycle docs, compat-mode demos, and integration test. NOTICKET. ([b981972](https://github.com/brbrown25/flink-proto-confluent/commit/b9819724ffec1266dc5fd77097d8dc94dff7fdea)), closes [#133](https://github.com/brbrown25/flink-proto-confluent/issues/133)
+
+
+### Dependencies
+
+* **gradle:** bump com.github.spotbugs from 6.5.11 to 6.5.12 ([aaa754a](https://github.com/brbrown25/flink-proto-confluent/commit/aaa754aa846ebe9325fd800e7950e3bf71639627))
+* **gradle:** bump com.google.api.grpc:proto-google-common-protos ([22ed421](https://github.com/brbrown25/flink-proto-confluent/commit/22ed421a4453d7ce26d88b4cf6fd179756834ce7))
+* **gradle:** bump org.apache.commons:commons-lang3 ([7219d40](https://github.com/brbrown25/flink-proto-confluent/commit/7219d400d34f7d73243c134cc4b03c865f626cdb))
+
 ## [1.1.0](https://github.com/brbrown25/flink-proto-confluent/compare/v1.0.0...v1.1.0) (2026-10-03)
 
 
