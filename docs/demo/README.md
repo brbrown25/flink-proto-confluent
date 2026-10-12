@@ -17,6 +17,7 @@ docker compose down -v
 
 ```bash
 ./record.sh                 # clean stack, records casts/*.sh into ../content/assets/casts/
+./record.sh NAME...         # only the named casts, reusing a healthy stack (--reset for a clean one)
 ```
 
 Each `casts/<name>.sh` is a script of `say` (comment) and `run` (typed + executed) steps, so a recording is reproducible and diffable. `bin/` holds thin wrappers around the Docker containers; `sql/` holds the Flink SQL the casts run. Preview with `asciinema play ../content/assets/casts/quickstart.cast` or `mkdocs serve`.

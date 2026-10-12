@@ -43,13 +43,13 @@ cd docs/demo
 asciinema play ../content/assets/casts/quickstart.cast   # preview one in the terminal
 ```
 
-To add a cast: write `docs/demo/casts/<name>.sh` (copy an existing one; `say` prints a comment, `run` types and executes a command), add any SQL to `docs/demo/sql/`, add `<name>` to the loop in `record.sh`, then embed it in `demos.md`:
+To add a cast: write `docs/demo/casts/<name>.sh` (copy an existing one; `say` prints a comment, `run` types and executes a command), add any SQL to `docs/demo/sql/`, add `<name>` to the `ALL` list in `record.sh`, then embed it in `demos.md`:
 
 ```html
 <div class="cast" data-src="../assets/casts/<name>.cast"></div>
 ```
 
-Record just some casts with `CASTS="name1 name2" ./record.sh`, and dry-run a script without the typing delays with `CAST_FAST=1 ./casts/<name>.sh` (against a running stack). Keep casts under ~45 seconds. See [`docs/demo/README.md`](https://github.com/brbrown25/flink-proto-confluent/blob/main/docs/demo/README.md) for the stack itself.
+Record just some casts with `./record.sh name1 name2`, which reuses the demo stack if it is already healthy (about a minute per cast instead of a full rebuild). Casts reuse state from earlier runs, such as topics and schema ids, so use `./record.sh --reset name1` or a full `./record.sh` before committing a recording. `CASTS="name1 name2" ./record.sh` still works and always resets. You can also dry-run a script without the typing delays with `CAST_FAST=1 ./casts/<name>.sh` (against a running stack). Keep casts under ~45 seconds. See [`docs/demo/README.md`](https://github.com/brbrown25/flink-proto-confluent/blob/main/docs/demo/README.md) for the stack itself.
 
 ### Publishing
 
