@@ -504,6 +504,63 @@ class ProtoConfluentSchemaEvolutionIntegrationTest {
   }
 
   @Test
+  @DisplayName(
+      "sink with a column absent from the registered schema fails with a descriptive error")
+  void sinkColumnMissingFromRegisteredSchema_failsWithDescriptiveError() throws Exception {
+    final String sinkTopic = "evo-it-missing-column";
+    createTopic(sinkTopic);
+    final String subject = sinkTopic + "-value";
+
+    // Registered schema has content and date_time only; the table below adds column c.
+    registryClient.register(subject, new ProtobufSchema(V1_SCHEMA));
+
+    final StreamTableEnvironment tableEnv = newTableEnv();
+    tableEnv.executeSql(
+        "CREATE TABLE missing_column_sink ("
+            + "  `content` STRING,"
+            + "  `date_time` STRING,"
+            + "  `c` STRING"
+            + ") WITH ("
+            + "  'connector' = 'kafka',"
+            + "  'topic' = '"
+            + sinkTopic
+            + "',"
+            + "  'properties.bootstrap.servers' = '"
+            + bootstrapForJob
+            + "',"
+            + "  'value.format' = 'proto-confluent',"
+            + "  'value.proto-confluent.url' = '"
+            + schemaRegistryUrl
+            + "',"
+            + "  'value.proto-confluent.topic' = '"
+            + sinkTopic
+            + "',"
+            + "  'value.proto-confluent.is_key' = 'false'"
+            + ")");
+
+    final Exception failure =
+        assertThrows(
+            Exception.class,
+            () ->
+                tableEnv
+                    .executeSql("INSERT INTO missing_column_sink VALUES ('a', 'b', 'x')")
+                    .await(120, SECONDS));
+
+    final String message = rootMessage(failure);
+    LOG.info("missing column failure: {}", message);
+    assertTrue(message.contains("'c'"), "must name the missing column; got: " + message);
+    assertTrue(
+        message.contains(MESSAGE_NAME)
+            && message.contains("com.bbrownsound.flink.formats.proto.evo"),
+        "must name the message full name; got: " + message);
+    assertTrue(message.contains("message-class"), "must name the remedy; got: " + message);
+    assertTrue(
+        !message.contains("NullPointerException"), "must not be a bare NPE; got: " + message);
+    assertEquals(
+        1, registryClient.getAllVersions(subject).size(), "no new schema version is registered");
+  }
+
+  @Test
   @DisplayName("an incompatible change with auto-register-schemas=true surfaces a clear error")
   void incompatibleSchemaWithAutoRegister_failsWithClearError() throws Exception {
     final String sinkTopic = "evo-it-incompatible";
