@@ -101,9 +101,6 @@ public class RowDataToProtoConverters {
             missing.add(name + "." + branch.getName());
           }
         }
-      } else if (!oneofs.isEmpty() && oneofs.containsKey(name)) {
-        // oneof column that is not a row: let the existing path report it
-        continue;
       } else if (targetSchema.findFieldByName(name) == null) {
         missing.add(name);
       }

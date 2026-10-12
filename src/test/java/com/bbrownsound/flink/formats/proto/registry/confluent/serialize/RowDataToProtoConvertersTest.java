@@ -392,4 +392,39 @@ class RowDataToProtoConvertersTest {
     org.junit.jupiter.api.Assertions.assertTrue(
         e.getMessage().contains("'choice.zzz'"), e.getMessage());
   }
+
+  @Test
+  void oneofColumnDeclaredAsNonRow_reportedAsMissingColumn() {
+    Descriptor descriptor = TestOneof.MessageWithOneof.getDescriptor();
+    RowType rowType =
+        new RowType(
+            java.util.List.of(new RowType.RowField("choice", new VarCharType(true, 100))));
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> RowDataToProtoConverters.createConverter(rowType, descriptor));
+    org.junit.jupiter.api.Assertions.assertTrue(
+        e.getMessage().contains("'choice'"), e.getMessage());
+  }
+
+  @Test
+  void missingColumns_inOneofBranchAndTopLevel_reportedTogether() {
+    Descriptor descriptor = TestOneof.MessageWithOneof.getDescriptor();
+    RowType choice =
+        new RowType(
+            java.util.List.of(
+                new RowType.RowField("a", new org.apache.flink.table.types.logical.IntType()),
+                new RowType.RowField("zzz", new VarCharType(true, 100))));
+    RowType rowType =
+        new RowType(
+            java.util.List.of(
+                new RowType.RowField("choice", choice),
+                new RowType.RowField("extra", new VarCharType(true, 100))));
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> RowDataToProtoConverters.createConverter(rowType, descriptor));
+    org.junit.jupiter.api.Assertions.assertTrue(
+        e.getMessage().contains("'choice.zzz', 'extra'"), e.getMessage());
+  }
 }
