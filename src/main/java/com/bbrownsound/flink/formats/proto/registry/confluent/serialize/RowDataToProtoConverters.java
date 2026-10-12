@@ -72,10 +72,50 @@ public class RowDataToProtoConverters {
    * @return a converter instance
    */
   public static RowDataToProtoConverter createConverter(RowType type, Descriptor targetSchema) {
+    validateColumnsPresent(type, targetSchema);
     if (targetSchema.getRealOneofs().isEmpty()) {
       return createNoOneOfConverter(type, targetSchema);
     } else {
       return createOneOfFieldSetter(type, targetSchema);
+    }
+  }
+
+  /**
+   * Fails fast when the table has columns the target descriptor cannot hold, instead of a bare
+   * {@link NullPointerException} later. Columns named after a real oneof are matched against the
+   * oneof, and the oneof branches are checked against its fields.
+   */
+  private static void validateColumnsPresent(RowType type, Descriptor targetSchema) {
+    final Map<String, OneofDescriptor> oneofs =
+        targetSchema.getRealOneofs().stream()
+            .collect(Collectors.toMap(OneofDescriptor::getName, Function.identity()));
+    final List<String> missing = new ArrayList<>();
+    for (RowType.RowField field : type.getFields()) {
+      final String name = field.getName();
+      if (oneofs.containsKey(name) && field.getType() instanceof RowType) {
+        final OneofDescriptor oneof = oneofs.get(name);
+        for (RowType.RowField branch : ((RowType) field.getType()).getFields()) {
+          final boolean found =
+              oneof.getFields().stream().anyMatch(f -> f.getName().equals(branch.getName()));
+          if (!found) {
+            missing.add(name + "." + branch.getName());
+          }
+        }
+      } else if (!oneofs.isEmpty() && oneofs.containsKey(name)) {
+        // oneof column that is not a row: let the existing path report it
+        continue;
+      } else if (targetSchema.findFieldByName(name) == null) {
+        missing.add(name);
+      }
+    }
+    if (!missing.isEmpty()) {
+      throw new IllegalArgumentException(
+          String.format(
+              "Column(s) %s not found in target Protobuf schema '%s'. The sink is serializing"
+                  + " against the registered schema, which lacks these columns. Register a schema"
+                  + " that includes them, or pin 'message-class'.",
+              missing.stream().map(c -> "'" + c + "'").collect(Collectors.joining(", ")),
+              targetSchema.getFullName()));
     }
   }
 
