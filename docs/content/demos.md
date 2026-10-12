@@ -38,4 +38,6 @@ With compatibility set to `NONE` the registry lets a breaking schema through. A 
 
 The same breaking change checked under `BACKWARD`, `FORWARD`, `FULL` and `NONE`, then the difference between `BACKWARD` and `BACKWARD_TRANSITIVE` when an older version is the one a new schema conflicts with.
 
+The registry's `/compatibility/.../versions/latest` check is not transitive, so it reports the BACKWARD_TRANSITIVE-rejected schema as compatible; only registration (or a check against each older version) catches it. See [the warning](how-to/schema-evolution.md#compatibility-modes). The demo helper `check --all-versions` tests every registered version.
+
 <div class="cast" data-src="../assets/casts/compat-modes.cast" data-rows="32"></div>

@@ -34,8 +34,13 @@ See it in the [schema evolution demo](../demos.md#schema-evolution-compatible-ch
 
 Confluent's Protobuf checker is lenient for additions, removals and renames, so the modes differ mostly on type changes. The `*_TRANSITIVE` variants compare against **every** earlier version instead of only the latest: a schema that only adds a field to a (forced-through) breaking v3 is accepted under `BACKWARD` but rejected under `BACKWARD_TRANSITIVE`, because v1 had the old type.
 
-!!! note "`/compatibility/.../versions/latest` is not transitive"
-    The registry's compatibility *check* endpoint compares against the latest version only, even for a `*_TRANSITIVE` subject. Registering the schema is what applies the transitive rule, so use the registration result (or check against a specific older version) when you need the transitive verdict.
+!!! warning "The compatibility check is not transitive"
+    `POST /compatibility/subjects/{subject}/versions/latest` compares the schema against the **latest version only**, even when the subject is in `BACKWARD_TRANSITIVE`, `FORWARD_TRANSITIVE` or `FULL_TRANSITIVE`. Only **registration** enforces the transitive rule. A check can therefore answer `is_compatible: true` for a schema the registry then rejects with HTTP 409 on registration, so a CI "dry run" through that endpoint gives a false pass.
+
+    To dry-run a transitive mode, do one of:
+
+    - Check against **each prior version** explicitly with `POST /compatibility/subjects/{subject}/versions/{n}` for every registered `n` (list them with `GET /subjects/{subject}/versions`) and require all to pass. The [demo](../demos.md#compatibility-modes) helper does this: `SCHEMA=... check --all-versions SUBJECT`.
+    - Attempt the registration in a **scratch subject** seeded with the same history and the same compatibility mode, then delete the scratch subject.
 
 See the [compatibility modes demo](../demos.md#compatibility-modes).
 
