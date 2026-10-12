@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# [SCHEMA=<proto>] register SUBJECT  — registers SCHEMA under SUBJECT, or prints the registry rejection.
+. "$(dirname "$0")/_common.sh"
+exec python3 "$(dirname "$0")/_sr.py" register "$@"
