@@ -15,18 +15,33 @@ updates:
       prefix: "deps(gradle)"
     groups:
       kafka:
+        update-types:
+          - "minor"
+          - "patch"
         patterns:
           - "org.apache.kafka:*"
       flink:
+        update-types:
+          - "minor"
+          - "patch"
         patterns:
           - "org.apache.flink:*"
       confluent:
+        update-types:
+          - "minor"
+          - "patch"
         patterns:
           - "io.confluent:*"
       protobuf:
+        update-types:
+          - "minor"
+          - "patch"
         patterns:
           - "com.google.protobuf:*"
       testing:
+        update-types:
+          - "minor"
+          - "patch"
         patterns:
           - "org.junit*"
           - "org.testcontainers*"

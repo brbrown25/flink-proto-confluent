@@ -1,0 +1,23 @@
+# Auto-approve and squash-merge Dependabot patch/minor updates once checks pass.
+# Major bumps are left for manual review. dependabot.yml restricts grouped PRs to
+# minor/patch, so a "bump the <name> group" PR never contains a major bump; single
+# PRs are allowed only when the leading version number is unchanged.
+pull_request_rules:
+  - name: auto-merge dependabot patch/minor updates
+    conditions:
+      - author=dependabot[bot]
+      - base=main
+      - -draft
+      - -conflict
+      - or:
+          - title~=bump the .+ group
+          - title~=from v?(\d+)\S* to v?\1(\.|$)
+      - check-success=codecov/patch
+      - "#check-failure=0"
+      - "#check-pending=0"
+    actions:
+      review:
+        type: APPROVE
+        message: Dependabot patch/minor update with passing checks.
+      merge:
+        method: squash
