@@ -2,6 +2,35 @@
 
 Release notes for `flink-proto-confluent`. This file is maintained by [release-please](https://github.com/googleapis/release-please) from the Conventional Commit messages on `main` — edit the commits, not this file. See [docs/RELEASING.md](docs/RELEASING.md) for how a release is cut.
 
+## [1.2.0](https://github.com/brbrown25/flink-proto-confluent/compare/v1.1.0...v1.2.0) (2026-10-26)
+
+
+### Features
+
+* **ci:** mergify auto-merges passing dependabot patch/minor PRs. NOTICKET. ([36a9daf](https://github.com/brbrown25/flink-proto-confluent/commit/36a9daffcbff8df1ef6e8376efa24060ebe5c40a))
+* **docs:** add MkDocs Material docs site with asciinema demos. NOTICKET. ([ad04b39](https://github.com/brbrown25/flink-proto-confluent/commit/ad04b39b850407710d44f0b1ddd536869b877b15))
+* **docs:** clarify transitive compat check limits, add check --all-versions, guard test. NOTICKET. ([f5ee673](https://github.com/brbrown25/flink-proto-confluent/commit/f5ee673fd01f52a84981dd3e3150cd23e61a1b97))
+* **docs:** compat-modes cast demonstrates check --all-versions vs registration. NOTICKET. ([a3aee85](https://github.com/brbrown25/flink-proto-confluent/commit/a3aee8555c9a43d434eb0cc4e18c9d665f705006))
+* **docs:** record.sh accepts cast names and reuses a healthy stack. NOTICKET. ([37787b8](https://github.com/brbrown25/flink-proto-confluent/commit/37787b89d60424d30e3928c29228720d9f20060e)), closes [#129](https://github.com/brbrown25/flink-proto-confluent/issues/129)
+* **docs:** release-please version markers, PR checklist, contributor docs guide. NOTICKET. ([2a60fe9](https://github.com/brbrown25/flink-proto-confluent/commit/2a60fe9f8c0e4f9fe45e89f22eff87131880f6da))
+* **docs:** schema evolution lifecycle docs, compat-mode demos, and integration test. NOTICKET. ([b981972](https://github.com/brbrown25/flink-proto-confluent/commit/b9819724ffec1266dc5fd77097d8dc94dff7fdea)), closes [#133](https://github.com/brbrown25/flink-proto-confluent/issues/133)
+
+
+### Dependencies
+
+* **actions:** bump actions/checkout from 4 to 7 ([5757784](https://github.com/brbrown25/flink-proto-confluent/commit/575778455f396b18491dcd1b9c5f4bbaf8c09f90))
+* **actions:** bump actions/deploy-pages from 4 to 5 ([8a1626b](https://github.com/brbrown25/flink-proto-confluent/commit/8a1626be465864fde34b6997ec135f0fec774064))
+* **actions:** bump actions/setup-python from 5 to 7 ([23c52ea](https://github.com/brbrown25/flink-proto-confluent/commit/23c52ea10fa3dcd189c5ddfe92a9a21cff616b0d))
+* **actions:** bump actions/upload-pages-artifact from 3 to 5 ([203f6d2](https://github.com/brbrown25/flink-proto-confluent/commit/203f6d28c7db013962f46c70a8415bd65ad369d5))
+* **gradle:** bump com.clickhouse:clickhouse-jdbc from 0.10.0 to 0.11.0 ([df898fe](https://github.com/brbrown25/flink-proto-confluent/commit/df898feead77ebeb96c8446c61cb09697285a711))
+* **gradle:** bump com.diffplug.spotless from 8.10.3 to 8.10.4 ([7d64e0a](https://github.com/brbrown25/flink-proto-confluent/commit/7d64e0a9818f218422f55abf5445f8e71af5e196))
+* **gradle:** bump com.github.spotbugs from 6.5.11 to 6.5.12 ([aaa754a](https://github.com/brbrown25/flink-proto-confluent/commit/aaa754aa846ebe9325fd800e7950e3bf71639627))
+* **gradle:** bump com.github.spotbugs from 6.5.12 to 6.5.13 ([8ecda39](https://github.com/brbrown25/flink-proto-confluent/commit/8ecda399719d87ee84f7df8a2eefbff7e111ed3a))
+* **gradle:** bump com.google.api.grpc:proto-google-common-protos ([22ed421](https://github.com/brbrown25/flink-proto-confluent/commit/22ed421a4453d7ce26d88b4cf6fd179756834ce7))
+* **gradle:** bump gradle-wrapper from 9.8.0 to 9.8.1 ([e4945cc](https://github.com/brbrown25/flink-proto-confluent/commit/e4945cce1b6372cdc056b11ed3b7317ebd94c46f))
+* **gradle:** bump gradle-wrapper from 9.8.1 to 9.8.2 ([c2da634](https://github.com/brbrown25/flink-proto-confluent/commit/c2da6341d1c354be49bae373b630df42b0894c5d))
+* **gradle:** bump org.apache.commons:commons-lang3 ([7219d40](https://github.com/brbrown25/flink-proto-confluent/commit/7219d400d34f7d73243c134cc4b03c865f626cdb))
+
 ## [1.1.0](https://github.com/brbrown25/flink-proto-confluent/compare/v1.0.0...v1.1.0) (2026-10-03)
 
 
