@@ -1,6 +1,8 @@
 # Contributing
 
-Issues and pull requests are welcome at [github.com/brbrown25/flink-proto-confluent](https://github.com/brbrown25/flink-proto-confluent). Open an issue first for anything non-trivial.
+Issues and pull requests are welcome at [github.com/brbrown25/flink-proto-confluent](https://github.com/brbrown25/flink-proto-confluent). Open an issue first for anything non-trivial. [CONTRIBUTING.md](https://github.com/brbrown25/flink-proto-confluent/blob/main/CONTRIBUTING.md) in the repository covers the workflow, commit format and pull request expectations; this page covers the build and the docs.
+
+AI-assisted contributions are welcome as long as you disclose the assistance, understand and have verified what you submit, and answer review yourself. Read the [AI usage policy](https://github.com/brbrown25/flink-proto-confluent/blob/main/AI_POLICY.md) before opening an issue or pull request. Report vulnerabilities privately as described in the [security policy](https://github.com/brbrown25/flink-proto-confluent/blob/main/SECURITY.md).
 
 ```bash
 make check      # tests + checkstyle

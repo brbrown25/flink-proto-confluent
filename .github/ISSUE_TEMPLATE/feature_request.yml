@@ -1,0 +1,42 @@
+name: Feature request
+description: Propose a new capability or a change in behaviour.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what stops you today? Describe the problem before the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: The behaviour you would like. Example table options or SQL help.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and workarounds
+      description: What you do today, and other approaches you considered.
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: The flink-proto-confluent and Flink versions you use, if relevant.
+      placeholder: "flink-proto-confluent 1.1.0, Flink 1.20.0"
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contribution
+      options:
+        - label: I would be willing to open a pull request for this.
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Confirmation
+      options:
+        - label: If an AI tool helped write this request, I have reviewed and edited it and say so above, as the [AI usage policy](https://github.com/brbrown25/flink-proto-confluent/blob/main/AI_POLICY.md) asks.
+          required: true

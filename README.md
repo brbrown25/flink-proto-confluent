@@ -219,6 +219,10 @@ To pin an **explicit named** protobuf message class for the key and/or value (in
 
 The docs site lives in `docs/` (MkDocs Material) and is published to <https://brbrown25.github.io/flink-proto-confluent/>. Preview with `cd docs && mkdocs serve`; terminal demos are recorded with `docs/demo/record.sh`. See [Contributing](docs/content/contributing.md) for how to edit pages, re-record casts and what to update when options change.
 
+## Contributing
+
+Issues and pull requests are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md). AI-assisted contributions are welcome when a person has understood, verified and disclosed them; pull requests from unattended agents are closed without review. See the [AI usage policy](AI_POLICY.md). Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
+
 ## Testing
 
 Tests use JUnit 5 and real components (e.g. Testcontainers for Kafka/Schema Registry); **Mockito is not used**. Coverage includes both unit tests and integration tests.
