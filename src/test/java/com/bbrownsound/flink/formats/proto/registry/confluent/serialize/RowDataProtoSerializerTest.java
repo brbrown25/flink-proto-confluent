@@ -26,8 +26,10 @@ import io.confluent.kafka.serializers.subject.RecordNameStrategy;
 
 /**
  * Unit tests for {@link RowDataProtoSerializer}. Uses {@link MockSchemaRegistryClient} so no real
- * Schema Registry is needed. When a subject has no schema, getDescriptor falls back to
- * RowTypeToProto.fromRowType; the parent then registers the schema with the mock client.
+ * Schema Registry is needed. When the subject does not exist, the serializer falls back to
+ * RowTypeToProto.fromRowType; the parent then registers the schema with the mock client. Registry
+ * errors and the schema cache are covered by {@link RowDataProtoSerializerRegistryErrorTest} and
+ * {@link RowDataProtoSerializerSchemaCacheTest}.
  */
 class RowDataProtoSerializerTest {
 

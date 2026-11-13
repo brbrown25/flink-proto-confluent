@@ -1,6 +1,7 @@
 package com.bbrownsound.flink.formats.proto.registry.confluent.config;
 
 import java.io.Serializable;
+import java.time.Duration;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -41,6 +42,12 @@ public class ProtoConfluentFormatConfig implements Serializable {
   private Map<String, String> properties;
 
   /**
+   * How long a sink reuses the latest schema it looked up for its subject before asking the Schema
+   * Registry again; {@code null} (the default) keeps it until the job restarts.
+   */
+  public Duration schemaCacheTtl;
+
+  /**
    * Constructs config from explicit parameters.
    *
    * @param schemaRegistryURL Schema Registry base URL
@@ -78,6 +85,9 @@ public class ProtoConfluentFormatConfig implements Serializable {
     formatOptions
         .getOptional(ProtoConfluentFormatOptions.DEAD_LETTER_PROPERTIES)
         .ifPresent(deadLetterProperties::putAll);
+
+    schemaCacheTtl =
+        formatOptions.getOptional(ProtoConfluentFormatOptions.SCHEMA_CACHE_TTL).orElse(null);
 
     properties = RegistryProtoFormatFactory.buildOptionalPropertiesMap(formatOptions);
     if (properties == null) {

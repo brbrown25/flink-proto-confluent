@@ -1,6 +1,7 @@
 package com.bbrownsound.flink.formats.proto.registry.confluent;
 
 import com.bbrownsound.flink.formats.proto.registry.confluent.config.OnDeserializeError;
+import java.time.Duration;
 import java.util.Map;
 import org.apache.flink.configuration.ConfigOption;
 import org.apache.flink.configuration.ConfigOptions;
@@ -84,6 +85,19 @@ public class ProtoConfluentFormatOptions {
           .defaultValue(true)
           .withFallbackKeys("skip_known_types")
           .withDescription("should the format skip known types");
+
+  /** How long a sink reuses the latest schema it looked up for its subject. */
+  public static final ConfigOption<Duration> SCHEMA_CACHE_TTL =
+      ConfigOptions.key("schema-cache.ttl")
+          .durationType()
+          .noDefaultValue()
+          .withFallbackKeys("schema_cache.ttl")
+          .withDescription(
+              "Sink only. How long the latest schema looked up for the subject is reused before "
+                  + "the Schema Registry is asked again, e.g. '5 min'. Must be positive. When "
+                  + "unset (the default) the sink keeps the schema it resolved at its first write "
+                  + "until the job restarts. If a refresh fails, the previously resolved schema "
+                  + "keeps being used and the refresh is retried.");
 
   /** SSL keystore location. */
   public static final ConfigOption<String> SSL_KEYSTORE_LOCATION =
