@@ -7,7 +7,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import org.apache.flink.table.api.ValidationException;
+import org.apache.flink.util.InstantiationUtil;
 import org.junit.jupiter.api.Test;
 
 import com.bbrownsound.flink.formats.proto.registry.confluent.ProtoConfluentFormatOptions;
@@ -222,30 +225,102 @@ class ProtoConfluentFormatConfigTest {
     options.set(ProtoConfluentFormatOptions.URL, "http://sr:8081");
     options.set(ProtoConfluentFormatOptions.TOPIC, "events");
     ProtoConfluentFormatConfig config = new ProtoConfluentFormatConfig(options);
-    assertEquals("fail", config.onDeserializeError);
+    assertEquals(OnDeserializeError.FAIL, config.onDeserializeError);
   }
 
   @Test
-  void onDeserializeError_invalidValueIsNotRejected_andIsCarriedVerbatim() {
-    // Documented behavior (issue #71): the option is NOT validated. An unrecognized value is
-    // accepted at config time and takes the 'skip' path at runtime, since only "fail" is fatal.
-    // See ProtoRowDataDeserializationSchemaNegativeConfigTest for the runtime assertion.
-    Configuration options = new Configuration();
-    options.set(ProtoConfluentFormatOptions.URL, "http://sr:8081");
-    options.set(ProtoConfluentFormatOptions.TOPIC, "events");
-    options.set(ProtoConfluentFormatOptions.ON_DESERIALIZE_ERROR, "bogus");
-    ProtoConfluentFormatConfig config = new ProtoConfluentFormatConfig(options);
-    assertEquals("bogus", config.onDeserializeError);
+  void onDeserializeError_explicitConstructorDefaultsToFail() {
+    ProtoConfluentFormatConfig config =
+        new ProtoConfluentFormatConfig("http://sr:8081", "events", false, Map.of());
+    assertEquals(OnDeserializeError.FAIL, config.onDeserializeError);
   }
 
   @Test
-  void onDeserializeError_failIsCaseInsensitive() {
+  void onDeserializeError_invalidValueIsRejected() {
+    // Issue #170: an unrecognized value used to be carried verbatim and to take the 'skip' path at
+    // runtime. It is now rejected when the config is built, even without the factory in front.
     Configuration options = new Configuration();
     options.set(ProtoConfluentFormatOptions.URL, "http://sr:8081");
     options.set(ProtoConfluentFormatOptions.TOPIC, "events");
-    options.set(ProtoConfluentFormatOptions.ON_DESERIALIZE_ERROR, "FAIL");
-    ProtoConfluentFormatConfig config = new ProtoConfluentFormatConfig(options);
-    assertEquals("FAIL", config.onDeserializeError);
+    options.setString("on-deserialize-error", "bogus");
+    ValidationException e =
+        assertThrows(ValidationException.class, () -> new ProtoConfluentFormatConfig(options));
+    assertTrue(e.getMessage().contains("on-deserialize-error"), e.getMessage());
+    assertTrue(e.getMessage().contains("'bogus'"), e.getMessage());
+    assertTrue(e.getMessage().contains("fail, skip"), e.getMessage());
+  }
+
+  @Test
+  void onDeserializeError_invalidValueViaFallbackKeyIsRejected() {
+    Configuration options = new Configuration();
+    options.set(ProtoConfluentFormatOptions.URL, "http://sr:8081");
+    options.set(ProtoConfluentFormatOptions.TOPIC, "events");
+    options.setString("on_deserialize_error", "fial");
+    ValidationException e =
+        assertThrows(ValidationException.class, () -> new ProtoConfluentFormatConfig(options));
+    assertTrue(e.getMessage().contains("'fial'"), e.getMessage());
+    assertTrue(e.getMessage().contains("fail, skip"), e.getMessage());
+  }
+
+  @Test
+  void onDeserializeError_textValuesAreCaseInsensitive() {
+    for (String value : new String[] {"fail", "FAIL", "Fail"}) {
+      assertEquals(OnDeserializeError.FAIL, configWithText("on-deserialize-error", value));
+      assertEquals(OnDeserializeError.FAIL, configWithText("on_deserialize_error", value));
+    }
+    for (String value : new String[] {"skip", "SKIP", "Skip"}) {
+      assertEquals(OnDeserializeError.SKIP, configWithText("on-deserialize-error", value));
+      assertEquals(OnDeserializeError.SKIP, configWithText("on_deserialize_error", value));
+    }
+  }
+
+  @Test
+  void onDeserializeError_typedValueIsCarried() {
+    Configuration options = new Configuration();
+    options.set(ProtoConfluentFormatOptions.URL, "http://sr:8081");
+    options.set(ProtoConfluentFormatOptions.TOPIC, "events");
+    options.set(ProtoConfluentFormatOptions.ON_DESERIALIZE_ERROR, OnDeserializeError.SKIP);
+    assertEquals(
+        OnDeserializeError.SKIP, new ProtoConfluentFormatConfig(options).onDeserializeError);
+  }
+
+  @Test
+  void onDeserializeError_primaryKeyWinsOverFallbackKey() {
+    Configuration options = new Configuration();
+    options.set(ProtoConfluentFormatOptions.URL, "http://sr:8081");
+    options.set(ProtoConfluentFormatOptions.TOPIC, "events");
+    options.setString("on-deserialize-error", "skip");
+    options.setString("on_deserialize_error", "fail");
+    assertEquals(
+        OnDeserializeError.SKIP, new ProtoConfluentFormatConfig(options).onDeserializeError);
+  }
+
+  @Test
+  void onDeserializeError_survivesJavaSerialization() throws Exception {
+    // The config is Java-serialized into the job graph inside the (de)serialization schema.
+    Configuration options = new Configuration();
+    options.set(ProtoConfluentFormatOptions.URL, "http://sr:8081");
+    options.set(ProtoConfluentFormatOptions.TOPIC, "events");
+    options.setString("on-deserialize-error", "Skip");
+    options.set(ProtoConfluentFormatOptions.DEAD_LETTER_TOPIC, "dlq");
+    ProtoConfluentFormatConfig copy =
+        InstantiationUtil.clone(new ProtoConfluentFormatConfig(options));
+    assertEquals(OnDeserializeError.SKIP, copy.onDeserializeError);
+    assertEquals("dlq", copy.deadLetterTopic);
+    assertEquals("events", copy.topic);
+
+    ProtoConfluentFormatConfig defaults =
+        InstantiationUtil.clone(
+            new ProtoConfluentFormatConfig("http://sr:8081", "events", false, Map.of()));
+    assertEquals(OnDeserializeError.FAIL, defaults.onDeserializeError);
+  }
+
+  private static OnDeserializeError configWithText(String key, String value) {
+    Configuration options = new Configuration();
+    options.set(ProtoConfluentFormatOptions.URL, "http://sr:8081");
+    options.set(ProtoConfluentFormatOptions.TOPIC, "events");
+    options.setString(key, value);
+    return new ProtoConfluentFormatConfig(options).onDeserializeError;
   }
 
   @Test

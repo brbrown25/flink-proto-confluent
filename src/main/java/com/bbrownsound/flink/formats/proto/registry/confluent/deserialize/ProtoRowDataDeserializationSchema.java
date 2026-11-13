@@ -16,6 +16,7 @@ import org.apache.flink.table.types.logical.RowType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.bbrownsound.flink.formats.proto.registry.confluent.config.OnDeserializeError;
 import com.bbrownsound.flink.formats.proto.registry.confluent.config.ProtoConfluentFormatConfig;
 import com.google.protobuf.DynamicMessage;
 
@@ -194,10 +195,11 @@ public class ProtoRowDataDeserializationSchema implements DeserializationSchema<
               dlqEx);
         }
       }
-      // Default ("skip"): drop the poison record and keep the job running. A single
-      // unparseable record must not crash-loop the source. Opt into the old fatal behavior
-      // with on-deserialize-error=fail.
-      if ("fail".equalsIgnoreCase(formatConfig.onDeserializeError)) {
+      // Default (FAIL): rethrow so the task fails. Only an explicit on-deserialize-error=skip
+      // drops the poison record and keeps the job running, so that a single unparseable record
+      // cannot crash-loop the source. Anything that is not SKIP, including a null assigned to
+      // the public field, is treated as FAIL: dropping records is never the fallback.
+      if (formatConfig.onDeserializeError != OnDeserializeError.SKIP) {
         throw new IOException("Proto-confluent deserialize failed: " + e.getMessage(), e);
       }
       return null;

@@ -3,15 +3,18 @@ package com.bbrownsound.flink.formats.proto.registry.confluent.deserialize;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.bbrownsound.flink.formats.proto.registry.confluent.ProtoConfluentFormatOptions;
+import com.bbrownsound.flink.formats.proto.registry.confluent.config.OnDeserializeError;
 import com.bbrownsound.flink.formats.proto.registry.confluent.config.ProtoConfluentFormatConfig;
 import com.bbrownsound.flink.formats.proto.registry.confluent.util.ProtoToLogicalType;
 import com.bbrownsound.flink.formats.proto.test.v1.TestSimple;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -52,6 +55,7 @@ import org.testcontainers.utility.DockerImageName;
 class ProtoRowDataDeserializationSchemaDeadLetterTest {
 
   private static final String DLQ_TOPIC = "dlq-deserialize-errors";
+  private static final String FAIL_DLQ_TOPIC = "dlq-deserialize-errors-fail";
   private static final String SOURCE_TOPIC = "source-topic";
 
   @Container
@@ -65,7 +69,12 @@ class ProtoRowDataDeserializationSchemaDeadLetterTest {
     bootstrapServers = kafka.getBootstrapServers();
     try (AdminClient admin =
         AdminClient.create(Map.of(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers))) {
-      admin.createTopics(List.of(new NewTopic(DLQ_TOPIC, 1, (short) 1))).all().get(60, SECONDS);
+      admin
+          .createTopics(
+              List.of(
+                  new NewTopic(DLQ_TOPIC, 1, (short) 1), new NewTopic(FAIL_DLQ_TOPIC, 1, (short) 1)))
+          .all()
+          .get(60, SECONDS);
     }
   }
 
@@ -98,7 +107,7 @@ class ProtoRowDataDeserializationSchemaDeadLetterTest {
     formatOptions.set(ProtoConfluentFormatOptions.URL, "http://localhost:8081");
     formatOptions.set(ProtoConfluentFormatOptions.TOPIC, SOURCE_TOPIC);
     formatOptions.set(ProtoConfluentFormatOptions.IS_KEY, false);
-    formatOptions.set(ProtoConfluentFormatOptions.ON_DESERIALIZE_ERROR, "skip");
+    formatOptions.set(ProtoConfluentFormatOptions.ON_DESERIALIZE_ERROR, OnDeserializeError.SKIP);
     formatOptions.set(ProtoConfluentFormatOptions.DEAD_LETTER_TOPIC, DLQ_TOPIC);
     formatOptions.set(
         ProtoConfluentFormatOptions.DEAD_LETTER_PROPERTIES,
@@ -131,7 +140,46 @@ class ProtoRowDataDeserializationSchemaDeadLetterTest {
     assertEquals(SOURCE_TOPIC, new String(sourceTopic.value(), StandardCharsets.UTF_8));
   }
 
+  @Test
+  void deserialize_failStillProducesPoisonRecordToDeadLetterTopicBeforeThrowing() {
+    // Issue #170 made the option an enum; the dead-letter produce is independent of it. With the
+    // default FAIL the record is still routed to the dead-letter topic, and then the task fails.
+    RowType rowType =
+        (RowType) ProtoToLogicalType.toLogicalType(TestSimple.SimpleMessage.getDescriptor());
+
+    Configuration formatOptions = new Configuration();
+    formatOptions.set(ProtoConfluentFormatOptions.URL, "http://localhost:8081");
+    formatOptions.set(ProtoConfluentFormatOptions.TOPIC, SOURCE_TOPIC);
+    formatOptions.set(ProtoConfluentFormatOptions.ON_DESERIALIZE_ERROR, OnDeserializeError.FAIL);
+    formatOptions.set(ProtoConfluentFormatOptions.DEAD_LETTER_TOPIC, FAIL_DLQ_TOPIC);
+    formatOptions.set(
+        ProtoConfluentFormatOptions.DEAD_LETTER_PROPERTIES,
+        Map.of("bootstrap.servers", bootstrapServers));
+
+    MetricListener listener = new MetricListener();
+    var schema =
+        new ProtoRowDataDeserializationSchema(
+            rowType, null, new ProtoConfluentFormatConfig(formatOptions));
+    schema.open(contextFor(listener));
+
+    byte[] poison = new byte[] {9, 8, 7, 6, 5, 4, 3};
+    assertThrows(IOException.class, () -> schema.deserialize(poison));
+    assertEquals(1L, listener.getCounter("numDeserializeErrors").get().getCount());
+
+    List<ConsumerRecord<byte[], byte[]>> records = consumeTopic(FAIL_DLQ_TOPIC);
+    assertEquals(1, records.size(), "The poison record must reach the dead-letter topic");
+    assertTrue(Arrays.equals(poison, records.get(0).value()));
+    assertEquals(
+        SOURCE_TOPIC,
+        new String(
+            records.get(0).headers().lastHeader("source.topic").value(), StandardCharsets.UTF_8));
+  }
+
   private List<ConsumerRecord<byte[], byte[]>> consumeDeadLetterTopic() {
+    return consumeTopic(DLQ_TOPIC);
+  }
+
+  private List<ConsumerRecord<byte[], byte[]>> consumeTopic(String topic) {
     Map<String, Object> consumerProps = new java.util.HashMap<>();
     consumerProps.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
     consumerProps.put(ConsumerConfig.GROUP_ID_CONFIG, "dlq-test-" + UUID.randomUUID());
@@ -140,7 +188,7 @@ class ProtoRowDataDeserializationSchemaDeadLetterTest {
     consumerProps.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
     List<ConsumerRecord<byte[], byte[]>> out = new java.util.ArrayList<>();
     try (KafkaConsumer<byte[], byte[]> consumer = new KafkaConsumer<>(consumerProps)) {
-      consumer.subscribe(Collections.singletonList(DLQ_TOPIC));
+      consumer.subscribe(Collections.singletonList(topic));
       long deadline = System.currentTimeMillis() + 30_000;
       while (out.isEmpty() && System.currentTimeMillis() < deadline) {
         ConsumerRecords<byte[], byte[]> polled = consumer.poll(Duration.ofMillis(2000));

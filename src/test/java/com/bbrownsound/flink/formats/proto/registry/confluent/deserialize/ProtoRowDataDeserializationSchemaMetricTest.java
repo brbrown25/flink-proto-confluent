@@ -3,6 +3,7 @@ package com.bbrownsound.flink.formats.proto.registry.confluent.deserialize;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.bbrownsound.flink.formats.proto.registry.confluent.config.OnDeserializeError;
 import com.bbrownsound.flink.formats.proto.registry.confluent.config.ProtoConfluentFormatConfig;
 import com.bbrownsound.flink.formats.proto.registry.confluent.util.ProtoToLogicalType;
 import com.bbrownsound.flink.formats.proto.test.v1.TestSimple;
@@ -47,7 +48,7 @@ class ProtoRowDataDeserializationSchemaMetricTest {
     Map<String, String> props = Map.of("schema.registry.url", "http://localhost:8081");
     ProtoConfluentFormatConfig config =
         new ProtoConfluentFormatConfig("http://localhost:8081", "test-topic", false, props);
-    config.onDeserializeError = "skip";
+    config.onDeserializeError = OnDeserializeError.SKIP;
 
     MetricListener listener = new MetricListener();
     var schema = new ProtoRowDataDeserializationSchema(rowType, null, config);
@@ -75,7 +76,7 @@ class ProtoRowDataDeserializationSchemaMetricTest {
     Map<String, String> props = Map.of("schema.registry.url", "http://localhost:8081");
     ProtoConfluentFormatConfig config =
         new ProtoConfluentFormatConfig("http://localhost:8081", "test-topic", false, props);
-    config.onDeserializeError = "skip";
+    config.onDeserializeError = OnDeserializeError.SKIP;
 
     MetricListener listener = new MetricListener();
     var schema = new ProtoRowDataDeserializationSchema(rowType, null, config);

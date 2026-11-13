@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import com.bbrownsound.flink.formats.proto.registry.confluent.config.OnDeserializeError;
 import com.bbrownsound.flink.formats.proto.registry.confluent.config.ProtoConfluentFormatConfig;
 import com.bbrownsound.flink.formats.proto.registry.confluent.util.ProtoToLogicalType;
 import com.bbrownsound.flink.formats.proto.test.v1.TestSimple;
@@ -71,7 +72,7 @@ class ProtoRowDataDeserializationSchemaTest {
     Map<String, String> props = Map.of("schema.registry.url", "http://localhost:8081");
     ProtoConfluentFormatConfig config =
         new ProtoConfluentFormatConfig("http://localhost:8081", "test-topic", false, props);
-    config.onDeserializeError = "skip";
+    config.onDeserializeError = OnDeserializeError.SKIP;
     var schema = new ProtoRowDataDeserializationSchema(rowType, null, config);
     schema.open(null);
     byte[] invalid = new byte[] {0, 1, 2, 3, 4};

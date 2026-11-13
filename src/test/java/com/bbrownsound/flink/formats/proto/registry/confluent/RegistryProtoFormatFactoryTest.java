@@ -223,13 +223,24 @@ class RegistryProtoFormatFactoryTest {
   }
 
   @Test
-  void createDecodingFormat_invalidOnDeserializeError_isNotRejectedByValidation() {
-    // Documented behavior (issue #71): 'on-deserialize-error' has no value validator, so an
-    // unrecognized value passes factory validation and degrades to the 'skip' path at runtime.
+  void createDecodingFormat_invalidOnDeserializeError_throwsValidationException() {
+    // Issue #170: the option is an enum, so an unrecognized value no longer passes factory
+    // validation. See OnDeserializeErrorValidationTest for the full matrix.
     Configuration options = new Configuration();
     options.set(ProtoConfluentFormatOptions.URL, "http://localhost:8081");
     options.set(ProtoConfluentFormatOptions.TOPIC, "test-topic");
-    options.set(ProtoConfluentFormatOptions.ON_DESERIALIZE_ERROR, "bogus");
-    assertNotNull(factory.createDecodingFormat(null, options));
+    options.setString("on-deserialize-error", "bogus");
+    ValidationException e =
+        assertThrows(
+            ValidationException.class, () -> factory.createDecodingFormat(null, options));
+    assertTrue(e.getMessage().contains("on-deserialize-error"), e.getMessage());
+    assertTrue(e.getMessage().contains("'bogus'"), e.getMessage());
+    assertTrue(e.getMessage().contains("fail, skip"), e.getMessage());
+  }
+
+  @Test
+  void optionalAndForwardOptions_containOnDeserializeError() {
+    assertTrue(factory.optionalOptions().contains(ProtoConfluentFormatOptions.ON_DESERIALIZE_ERROR));
+    assertTrue(factory.forwardOptions().contains(ProtoConfluentFormatOptions.ON_DESERIALIZE_ERROR));
   }
 }

@@ -28,8 +28,8 @@ public class ProtoConfluentFormatConfig implements Serializable {
   /** Whether this format is used for the key (vs value). */
   public Boolean isKey;
 
-  /** Behavior on deserialize failure: "fail" (default) or "skip". */
-  public String onDeserializeError = "fail";
+  /** Behavior on deserialize failure: {@link OnDeserializeError#FAIL} (default) or SKIP. */
+  public OnDeserializeError onDeserializeError = OnDeserializeError.FAIL;
 
   /** Optional dead-letter topic for records that fail to deserialize (null = disabled). */
   public String deadLetterTopic;
@@ -60,6 +60,8 @@ public class ProtoConfluentFormatConfig implements Serializable {
    * Constructs config from Flink format options.
    *
    * @param formatOptions the format options from the table environment
+   * @throws org.apache.flink.table.api.ValidationException if {@code on-deserialize-error} is set
+   *     to anything other than {@code fail} or {@code skip} (case-insensitive)
    */
   public ProtoConfluentFormatConfig(ReadableConfig formatOptions) {
     Boolean autoRegister = formatOptions.get(ProtoConfluentFormatOptions.AUTO_REGISTER_SCHEMAS);
@@ -69,7 +71,7 @@ public class ProtoConfluentFormatConfig implements Serializable {
     schemaRegistryUrl = formatOptions.get(ProtoConfluentFormatOptions.URL);
     topic = formatOptions.get(ProtoConfluentFormatOptions.TOPIC);
     isKey = formatOptions.get(ProtoConfluentFormatOptions.IS_KEY);
-    onDeserializeError = formatOptions.get(ProtoConfluentFormatOptions.ON_DESERIALIZE_ERROR);
+    onDeserializeError = OnDeserializeError.fromOptions(formatOptions);
     deadLetterTopic =
         formatOptions.getOptional(ProtoConfluentFormatOptions.DEAD_LETTER_TOPIC).orElse(null);
     deadLetterProperties = new HashMap<>();
