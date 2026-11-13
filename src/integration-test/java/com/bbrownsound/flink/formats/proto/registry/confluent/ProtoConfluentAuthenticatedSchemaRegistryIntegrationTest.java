@@ -2,10 +2,15 @@ package com.bbrownsound.flink.formats.proto.registry.confluent;
 
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.awaitility.Awaitility.await;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.bbrownsound.flink.formats.proto.test.v1.TestSimple;
+import io.confluent.kafka.schemaregistry.client.CachedSchemaRegistryClient;
+import io.confluent.kafka.schemaregistry.protobuf.ProtobufSchema;
+import io.confluent.kafka.schemaregistry.protobuf.ProtobufSchemaProvider;
 import io.confluent.kafka.serializers.protobuf.KafkaProtobufDeserializer;
 import io.confluent.kafka.serializers.protobuf.KafkaProtobufDeserializerConfig;
 import java.time.Duration;
@@ -291,14 +296,91 @@ class ProtoConfluentAuthenticatedSchemaRegistryIntegrationTest {
     assertUnauthorized(failure);
   }
 
-  private static void assertUnauthorized(Exception failure) {
+  /**
+   * Issue #172: wrong credentials on a sink whose subject already holds a hand-authored schema,
+   * with {@code auto-register-schemas = true}. The sink asks the registry for the subject's latest
+   * schema first; that lookup is rejected with HTTP 401 and must fail the job right there instead
+   * of being read as "no schema yet" and followed by an attempt to register a Row-derived one. The
+   * subject must be left exactly as it was.
+   */
+  @Test
+  @DisplayName("basic-auth wrong credentials, existing subject: lookup fails, nothing registered")
+  void basicAuth_wrongCredentials_onExistingSubject_failsOnLookupAndRegistersNothing()
+      throws Exception {
+    String sinkTopic = "auth-basic-wrong-creds-existing-subject";
+    String subject = sinkTopic + "-value";
+    createTopic(sinkTopic);
+    try (CachedSchemaRegistryClient registry = authenticatedRegistryClient()) {
+      int handAuthoredId =
+          registry.register(subject, new ProtobufSchema(TestSimple.SimpleMessage.getDescriptor()));
+
+      Exception failure =
+          assertThrows(
+              Exception.class,
+              () -> produceViaFlinkInsert(sinkTopic, "sruser:not-the-right-password"));
+
+      assertUnauthorized(failure);
+      String chain = failureChain(failure);
+      assertTrue(
+          chain.contains("lookup of the latest schema for subject '" + subject + "'"),
+          "Expected the job to fail on the schema lookup, got:\n" + chain);
+      registry.reset();
+      assertEquals(List.of(1), registry.getAllVersions(subject), "no version may be added");
+      assertEquals(handAuthoredId, registry.getLatestSchemaMetadata(subject).getId());
+    }
+  }
+
+  /**
+   * Issue #172, no subject yet: the rejected lookup must not be mistaken for "subject not found",
+   * so the failed job leaves no subject behind.
+   */
+  @Test
+  @DisplayName("basic-auth wrong credentials, no subject: lookup fails, no subject created")
+  void basicAuth_wrongCredentials_onMissingSubject_failsOnLookupAndCreatesNoSubject()
+      throws Exception {
+    String sinkTopic = "auth-basic-wrong-creds-no-subject";
+    String subject = sinkTopic + "-value";
+    createTopic(sinkTopic);
+
+    Exception failure =
+        assertThrows(
+            Exception.class,
+            () -> produceViaFlinkInsert(sinkTopic, "sruser:not-the-right-password"));
+
+    assertUnauthorized(failure);
+    String chain = failureChain(failure);
+    assertTrue(
+        chain.contains("lookup of the latest schema for subject '" + subject + "'"),
+        "Expected the job to fail on the schema lookup, got:\n" + chain);
+    try (CachedSchemaRegistryClient registry = authenticatedRegistryClient()) {
+      assertFalse(registry.getAllSubjects().contains(subject), "no subject may be created");
+    }
+  }
+
+  private static CachedSchemaRegistryClient authenticatedRegistryClient() {
+    return new CachedSchemaRegistryClient(
+        schemaRegistryUrl,
+        100,
+        Collections.singletonList(new ProtobufSchemaProvider()),
+        Map.of(
+            "basic.auth.credentials.source",
+            "USER_INFO",
+            "basic.auth.user.info",
+            VALID_USER + ":" + VALID_PASSWORD));
+  }
+
+  private static String failureChain(Throwable failure) {
     Throwable cause = failure;
     StringBuilder chain = new StringBuilder();
     while (cause != null) {
       chain.append(cause.getClass().getName()).append(": ").append(cause.getMessage()).append('\n');
       cause = cause.getCause();
     }
-    String message = chain.toString();
+    return chain.toString();
+  }
+
+  private static void assertUnauthorized(Exception failure) {
+    String message = failureChain(failure);
     assertTrue(
         message.contains("401")
             || message.toLowerCase(java.util.Locale.ROOT).contains("unauthorized"),
