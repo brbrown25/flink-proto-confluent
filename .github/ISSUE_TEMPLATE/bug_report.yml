@@ -1,0 +1,90 @@
+name: Bug report
+description: Something fails or behaves differently from the documentation.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Most reports can only be acted on with the versions, the table definition and the full stack trace, so please fill those in.
+
+        Report security vulnerabilities privately, as described in [SECURITY.md](https://github.com/brbrown25/flink-proto-confluent/blob/main/SECURITY.md).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: flink-proto-confluent version
+      description: A release version, or the full snapshot coordinate.
+      placeholder: "1.1.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: artifact
+    attributes:
+      label: Which JAR
+      description: See the classpath reference in the docs if unsure.
+      options:
+        - Self-contained JAR in Flink's lib/ directory (-all, or the unclassified JAR up to 1.1.0)
+        - Library JAR as a dependency of a job build (Gradle, Maven, sbt)
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: flink
+    attributes:
+      label: Flink version and how it runs
+      placeholder: "1.20.0, flink:1.20-java17 image, SQL client on a session cluster"
+    validations:
+      required: true
+  - type: input
+    id: confluent
+    attributes:
+      label: Schema Registry / Confluent Platform version
+      placeholder: "Confluent Platform 8.1.1, or Confluent Cloud"
+    validations:
+      required: true
+  - type: input
+    id: protobuf
+    attributes:
+      label: protobuf versions
+      description: Needed when you set message-class - the protoc that generated your classes and the protobuf-java on the classpath.
+      placeholder: "protoc 4.31.1, protobuf-java 4.31.1"
+  - type: input
+    id: java
+    attributes:
+      label: Java version
+      placeholder: "17"
+  - type: textarea
+    id: ddl
+    attributes:
+      label: Table definition
+      description: The CREATE TABLE statement, or the equivalent Table API / DataStream code. Remove credentials.
+      render: sql
+    validations:
+      required: true
+  - type: textarea
+    id: schema
+    attributes:
+      label: Protobuf schema
+      description: The .proto registered under the subject, or the smallest schema that reproduces the problem.
+      render: protobuf
+  - type: textarea
+    id: logs
+    attributes:
+      label: Stack trace or log output
+      description: The full stack trace including every "Caused by". Remove credentials.
+      render: text
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Confirmation
+      options:
+        - label: I observed this behaviour myself with the versions above. It is not an unverified analysis of the code.
+          required: true
+        - label: If an AI tool helped write this report, I have reviewed and edited it and say so above, as the [AI usage policy](https://github.com/brbrown25/flink-proto-confluent/blob/main/AI_POLICY.md) asks.
+          required: true
