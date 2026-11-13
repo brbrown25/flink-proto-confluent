@@ -132,19 +132,18 @@ class ProtoConfluentMiniClusterIntegrationTest {
     await()
         .atMost(120, SECONDS)
         .pollInterval(3, SECONDS)
-        .until(
-            () -> {
-              try (AdminClient a =
-                  AdminClient.create(
-                      Map.of(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapForAdmin))) {
-                a.listTopics().listings().get(5, SECONDS);
-                return true;
-              } catch (InterruptedException
-                  | java.util.concurrent.ExecutionException
-                  | java.util.concurrent.TimeoutException e) {
-                return false;
-              }
-            });
+        .until(() -> {
+          try (AdminClient a =
+              AdminClient.create(
+                  Map.of(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapForAdmin))) {
+            a.listTopics().listings().get(5, SECONDS);
+            return true;
+          } catch (InterruptedException
+              | java.util.concurrent.ExecutionException
+              | java.util.concurrent.TimeoutException e) {
+            return false;
+          }
+        });
     log("setup: Kafka ready, creating topic " + TOPIC);
 
     try (AdminClient admin =
@@ -174,21 +173,20 @@ class ProtoConfluentMiniClusterIntegrationTest {
     await()
         .atMost(35, SECONDS)
         .pollInterval(java.time.Duration.ofSeconds(1))
-        .until(
-            () -> {
-              try {
-                Map<String, TopicDescription> desc =
-                    admin
-                        .describeTopics(Collections.singletonList(topic))
-                        .allTopicNames()
-                        .get(10, SECONDS);
-                return desc != null && desc.containsKey(topic);
-              } catch (InterruptedException
-                  | java.util.concurrent.ExecutionException
-                  | java.util.concurrent.TimeoutException e) {
-                return false;
-              }
-            });
+        .until(() -> {
+          try {
+            Map<String, TopicDescription> desc =
+                admin
+                    .describeTopics(Collections.singletonList(topic))
+                    .allTopicNames()
+                    .get(10, SECONDS);
+            return desc != null && desc.containsKey(topic);
+          } catch (InterruptedException
+              | java.util.concurrent.ExecutionException
+              | java.util.concurrent.TimeoutException e) {
+            return false;
+          }
+        });
   }
 
   @Test
@@ -285,12 +283,11 @@ class ProtoConfluentMiniClusterIntegrationTest {
       await()
           .atMost(90, SECONDS)
           .pollInterval(java.time.Duration.ofSeconds(2))
-          .until(
-              () -> {
-                int n = collectedRows.size();
-                log("test: poll collectedRows.size()=" + n);
-                return n >= 2;
-              });
+          .until(() -> {
+            int n = collectedRows.size();
+            log("test: poll collectedRows.size()=" + n);
+            return n >= 2;
+          });
       int count = collectedRows.size();
       log("test: collected " + count + " rows, cancelling job...");
       jobClient.cancel();
@@ -386,11 +383,10 @@ class ProtoConfluentMiniClusterIntegrationTest {
       await()
           .atMost(90, SECONDS)
           .pollInterval(Duration.ofSeconds(2))
-          .until(
-              () -> {
-                List<DynamicMessage> consumed = consumeAsDynamicMessage(sinkTopic, bootstrapForJob);
-                return consumed.size() >= 2;
-              });
+          .until(() -> {
+            List<DynamicMessage> consumed = consumeAsDynamicMessage(sinkTopic, bootstrapForJob);
+            return consumed.size() >= 2;
+          });
 
       List<DynamicMessage> messages = consumeAsDynamicMessage(sinkTopic, bootstrapForJob);
       assertTrue(messages.size() >= 2, "Expected at least 2 messages; got " + messages.size());
@@ -483,12 +479,11 @@ class ProtoConfluentMiniClusterIntegrationTest {
       await()
           .atMost(90, SECONDS)
           .pollInterval(Duration.ofSeconds(2))
-          .until(
-              () -> {
-                List<TestSimple.SimpleMessage> consumed =
-                    consumeAsSimpleMessage(sinkTopic, bootstrapForJob);
-                return consumed.size() >= 2;
-              });
+          .until(() -> {
+            List<TestSimple.SimpleMessage> consumed =
+                consumeAsSimpleMessage(sinkTopic, bootstrapForJob);
+            return consumed.size() >= 2;
+          });
 
       List<TestSimple.SimpleMessage> messages = consumeAsSimpleMessage(sinkTopic, bootstrapForJob);
       assertTrue(messages.size() >= 2, "Expected at least 2 messages; got " + messages.size());
@@ -707,16 +702,15 @@ class ProtoConfluentMiniClusterIntegrationTest {
   private static void cancelQuietly(org.apache.flink.table.api.TableResult result) {
     result
         .getJobClient()
-        .ifPresent(
-            jc -> {
-              try {
-                jc.cancel().get(30, TimeUnit.SECONDS);
-              } catch (InterruptedException
-                  | ExecutionException
-                  | java.util.concurrent.TimeoutException e) {
-                LOG.warn("[MiniClusterIT] failed to cancel job cleanly", e);
-              }
-            });
+        .ifPresent(jc -> {
+          try {
+            jc.cancel().get(30, TimeUnit.SECONDS);
+          } catch (InterruptedException
+              | ExecutionException
+              | java.util.concurrent.TimeoutException e) {
+            LOG.warn("[MiniClusterIT] failed to cancel job cleanly", e);
+          }
+        });
   }
 
   private void produceKeyedMessages(String topic, String bootstrapForJob) throws Exception {
@@ -781,12 +775,11 @@ class ProtoConfluentMiniClusterIntegrationTest {
       consumer.subscribe(Collections.singletonList(topic));
       ConsumerRecords<TestSimple.SimpleMessage, DynamicMessage> records =
           consumer.poll(Duration.ofMillis(5000));
-      records.forEach(
-          r -> {
-            if (r.key() != null) {
-              out.add(r.key());
-            }
-          });
+      records.forEach(r -> {
+        if (r.key() != null) {
+          out.add(r.key());
+        }
+      });
     }
     return out;
   }
@@ -848,12 +841,11 @@ class ProtoConfluentMiniClusterIntegrationTest {
     try (KafkaConsumer<String, DynamicMessage> consumer = new KafkaConsumer<>(props)) {
       consumer.subscribe(Collections.singletonList(topic));
       ConsumerRecords<String, DynamicMessage> records = consumer.poll(Duration.ofMillis(5000));
-      records.forEach(
-          r -> {
-            if (r.value() != null) {
-              out.add(r.value());
-            }
-          });
+      records.forEach(r -> {
+        if (r.value() != null) {
+          out.add(r.value());
+        }
+      });
     }
     return out;
   }
@@ -874,12 +866,11 @@ class ProtoConfluentMiniClusterIntegrationTest {
       consumer.subscribe(Collections.singletonList(topic));
       ConsumerRecords<String, TestSimple.SimpleMessage> records =
           consumer.poll(Duration.ofMillis(5000));
-      records.forEach(
-          r -> {
-            if (r.value() != null) {
-              out.add(r.value());
-            }
-          });
+      records.forEach(r -> {
+        if (r.value() != null) {
+          out.add(r.value());
+        }
+      });
     }
     return out;
   }

@@ -137,19 +137,18 @@ class ProtoConfluentClickHouseIntegrationTest {
     await()
         .atMost(120, SECONDS)
         .pollInterval(3, SECONDS)
-        .until(
-            () -> {
-              try (AdminClient a =
-                  AdminClient.create(
-                      Map.of(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapForAdmin))) {
-                a.listTopics().listings().get(5, SECONDS);
-                return true;
-              } catch (InterruptedException
-                  | java.util.concurrent.ExecutionException
-                  | java.util.concurrent.TimeoutException e) {
-                return false;
-              }
-            });
+        .until(() -> {
+          try (AdminClient a =
+              AdminClient.create(
+                  Map.of(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapForAdmin))) {
+            a.listTopics().listings().get(5, SECONDS);
+            return true;
+          } catch (InterruptedException
+              | java.util.concurrent.ExecutionException
+              | java.util.concurrent.TimeoutException e) {
+            return false;
+          }
+        });
     log("setup: Kafka ready, creating topic " + TOPIC);
 
     try (AdminClient admin =
@@ -201,21 +200,20 @@ class ProtoConfluentClickHouseIntegrationTest {
     await()
         .atMost(35, SECONDS)
         .pollInterval(java.time.Duration.ofSeconds(1))
-        .until(
-            () -> {
-              try {
-                Map<String, TopicDescription> desc =
-                    admin
-                        .describeTopics(Collections.singletonList(topic))
-                        .allTopicNames()
-                        .get(10, SECONDS);
-                return desc != null && desc.containsKey(topic);
-              } catch (InterruptedException
-                  | java.util.concurrent.ExecutionException
-                  | java.util.concurrent.TimeoutException e) {
-                return false;
-              }
-            });
+        .until(() -> {
+          try {
+            Map<String, TopicDescription> desc =
+                admin
+                    .describeTopics(Collections.singletonList(topic))
+                    .allTopicNames()
+                    .get(10, SECONDS);
+            return desc != null && desc.containsKey(topic);
+          } catch (InterruptedException
+              | java.util.concurrent.ExecutionException
+              | java.util.concurrent.TimeoutException e) {
+            return false;
+          }
+        });
   }
 
   @Test
@@ -323,12 +321,11 @@ class ProtoConfluentClickHouseIntegrationTest {
     await()
         .atMost(90, SECONDS)
         .pollInterval(java.time.Duration.ofSeconds(2))
-        .until(
-            () -> {
-              int n = getClickHouseRowCount();
-              log("test: poll ClickHouse row count=" + n);
-              return n >= 3;
-            });
+        .until(() -> {
+          int n = getClickHouseRowCount();
+          log("test: poll ClickHouse row count=" + n);
+          return n >= 3;
+        });
     int rowCount = getClickHouseRowCount();
     log("test: reached " + rowCount + " rows, cancelling job...");
     jobClient.cancel();

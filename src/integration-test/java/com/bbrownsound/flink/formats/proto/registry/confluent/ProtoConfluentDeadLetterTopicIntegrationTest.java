@@ -111,19 +111,18 @@ class ProtoConfluentDeadLetterTopicIntegrationTest {
     await()
         .atMost(120, SECONDS)
         .pollInterval(3, SECONDS)
-        .until(
-            () -> {
-              try (AdminClient a =
-                  AdminClient.create(
-                      Map.of(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapForJob))) {
-                a.listTopics().listings().get(5, SECONDS);
-                return true;
-              } catch (InterruptedException
-                  | ExecutionException
-                  | java.util.concurrent.TimeoutException e) {
-                return false;
-              }
-            });
+        .until(() -> {
+          try (AdminClient a =
+              AdminClient.create(
+                  Map.of(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapForJob))) {
+            a.listTopics().listings().get(5, SECONDS);
+            return true;
+          } catch (InterruptedException
+              | ExecutionException
+              | java.util.concurrent.TimeoutException e) {
+            return false;
+          }
+        });
 
     try (AdminClient admin =
         AdminClient.create(Map.of(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapForJob))) {
@@ -157,21 +156,20 @@ class ProtoConfluentDeadLetterTopicIntegrationTest {
     await()
         .atMost(35, SECONDS)
         .pollInterval(Duration.ofSeconds(1))
-        .until(
-            () -> {
-              try {
-                Map<String, TopicDescription> desc =
-                    admin
-                        .describeTopics(Collections.singletonList(topic))
-                        .allTopicNames()
-                        .get(10, SECONDS);
-                return desc != null && desc.containsKey(topic);
-              } catch (InterruptedException
-                  | ExecutionException
-                  | java.util.concurrent.TimeoutException e) {
-                return false;
-              }
-            });
+        .until(() -> {
+          try {
+            Map<String, TopicDescription> desc =
+                admin
+                    .describeTopics(Collections.singletonList(topic))
+                    .allTopicNames()
+                    .get(10, SECONDS);
+            return desc != null && desc.containsKey(topic);
+          } catch (InterruptedException
+              | ExecutionException
+              | java.util.concurrent.TimeoutException e) {
+            return false;
+          }
+        });
   }
 
   @Test
@@ -324,16 +322,15 @@ class ProtoConfluentDeadLetterTopicIntegrationTest {
   private static void cancelQuietly(TableResult result) {
     result
         .getJobClient()
-        .ifPresent(
-            jc -> {
-              try {
-                jc.cancel().get(30, TimeUnit.SECONDS);
-              } catch (InterruptedException
-                  | ExecutionException
-                  | java.util.concurrent.TimeoutException e) {
-                LOG.warn("[DeadLetterIT] failed to cancel job cleanly", e);
-              }
-            });
+        .ifPresent(jc -> {
+          try {
+            jc.cancel().get(30, TimeUnit.SECONDS);
+          } catch (InterruptedException
+              | ExecutionException
+              | java.util.concurrent.TimeoutException e) {
+            LOG.warn("[DeadLetterIT] failed to cancel job cleanly", e);
+          }
+        });
   }
 
   private void createTopic(String topic) throws Exception {
@@ -355,12 +352,11 @@ class ProtoConfluentDeadLetterTopicIntegrationTest {
     try (KafkaConsumer<byte[], byte[]> consumer = new KafkaConsumer<>(props)) {
       consumer.subscribe(Collections.singletonList(topic));
       ConsumerRecords<byte[], byte[]> records = consumer.poll(Duration.ofMillis(5000));
-      records.forEach(
-          r -> {
-            if (r.value() != null) {
-              out.add(r.value());
-            }
-          });
+      records.forEach(r -> {
+        if (r.value() != null) {
+          out.add(r.value());
+        }
+      });
     }
     return out;
   }
