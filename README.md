@@ -178,6 +178,8 @@ This produces both JARs in `build/libs/`: the library JAR and the self-contained
 - `make checkstyle` — checkstyle only
 - `make coverage` — unit tests + integration tests + JaCoCo report (HTML in `build/reports/jacoco/test/html/`). Full `make check` enforces ≥80% line coverage overall and for packages `serialize` and `deserialize` (`jacocoTestCoverageVerification`). Tests do not use Mockito.
 - `make clean` — `./gradlew clean`
+- `make docs` — strict MkDocs build of the docs site into `build/docs-site/` (creates `.venv` from `docs/requirements.txt` on first use)
+- `make docs-serve` — live docs preview at <http://127.0.0.1:8000>
 
 ## Releasing
 
@@ -217,7 +219,7 @@ To pin an **explicit named** protobuf message class for the key and/or value (in
 
 ## Documentation
 
-The docs site lives in `docs/` (MkDocs Material) and is published to <https://brbrown25.github.io/flink-proto-confluent/>. Preview with `cd docs && mkdocs serve`; terminal demos are recorded with `docs/demo/record.sh`. See [Contributing](docs/content/contributing.md) for how to edit pages, re-record casts and what to update when options change.
+The docs site lives in `docs/` (MkDocs Material) and is published to <https://brbrown25.github.io/flink-proto-confluent/>. Preview with `make docs-serve` and run the strict build CI uses with `make docs`; both use a virtualenv with the pinned `docs/requirements.txt`, because a globally installed `mkdocs` lacks the Material theme and fails with `Unrecognised theme name: 'material'`. The terminal demos are recorded with `docs/demo/record.sh`. See [Contributing](docs/content/contributing.md) for how to edit pages, re-record casts and what to update when options change.
 
 ## Contributing
 

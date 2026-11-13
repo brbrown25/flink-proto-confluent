@@ -15,4 +15,4 @@ AI tools are welcome here; unreviewed AI output is not, and neither are pull req
 - [ ] Commit messages follow Conventional Commits and reference the issue (`feat(scope): summary. #123`)
 - [ ] **Docs:** if this adds or changes an option, default, error message or user-visible output, I updated `docs/content/` (see [Contributing](https://brbrown25.github.io/flink-proto-confluent/contributing/))
 - [ ] **Casts:** if the change alters output shown in a demo (`docs/content/assets/casts/`), I re-recorded it with `docs/demo/record.sh` — or N/A
-- [ ] `mkdocs build --strict` passes locally if I touched `docs/`
+- [ ] `make docs` (the strict MkDocs build) passes locally if I touched `docs/` — use the make target, a globally installed `mkdocs` lacks the theme
