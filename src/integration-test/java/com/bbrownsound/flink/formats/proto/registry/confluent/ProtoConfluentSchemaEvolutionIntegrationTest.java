@@ -153,19 +153,18 @@ class ProtoConfluentSchemaEvolutionIntegrationTest {
     await()
         .atMost(120, SECONDS)
         .pollInterval(3, SECONDS)
-        .until(
-            () -> {
-              try (AdminClient a =
-                  AdminClient.create(
-                      Map.of(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapForJob))) {
-                a.listTopics().listings().get(5, SECONDS);
-                return true;
-              } catch (InterruptedException
-                  | ExecutionException
-                  | java.util.concurrent.TimeoutException e) {
-                return false;
-              }
-            });
+        .until(() -> {
+          try (AdminClient a =
+              AdminClient.create(
+                  Map.of(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapForJob))) {
+            a.listTopics().listings().get(5, SECONDS);
+            return true;
+          } catch (InterruptedException
+              | ExecutionException
+              | java.util.concurrent.TimeoutException e) {
+            return false;
+          }
+        });
 
     registryClient =
         new CachedSchemaRegistryClient(
@@ -759,18 +758,15 @@ class ProtoConfluentSchemaEvolutionIntegrationTest {
       await()
           .atMost(60, SECONDS)
           .pollInterval(Duration.ofSeconds(1))
-          .until(
-              () -> {
-                final ConsumerRecords<byte[], byte[]> records =
-                    consumer.poll(Duration.ofMillis(1000));
-                records.forEach(
-                    r -> {
-                      if (r.value() != null) {
-                        out.add(r.value());
-                      }
-                    });
-                return out.size() >= expected;
-              });
+          .until(() -> {
+            final ConsumerRecords<byte[], byte[]> records = consumer.poll(Duration.ofMillis(1000));
+            records.forEach(r -> {
+              if (r.value() != null) {
+                out.add(r.value());
+              }
+            });
+            return out.size() >= expected;
+          });
     }
     return out;
   }
@@ -782,21 +778,20 @@ class ProtoConfluentSchemaEvolutionIntegrationTest {
       await()
           .atMost(35, SECONDS)
           .pollInterval(Duration.ofSeconds(1))
-          .until(
-              () -> {
-                try {
-                  final Map<String, TopicDescription> desc =
-                      admin
-                          .describeTopics(Collections.singletonList(topic))
-                          .allTopicNames()
-                          .get(10, SECONDS);
-                  return desc != null && desc.containsKey(topic);
-                } catch (InterruptedException
-                    | ExecutionException
-                    | java.util.concurrent.TimeoutException e) {
-                  return false;
-                }
-              });
+          .until(() -> {
+            try {
+              final Map<String, TopicDescription> desc =
+                  admin
+                      .describeTopics(Collections.singletonList(topic))
+                      .allTopicNames()
+                      .get(10, SECONDS);
+              return desc != null && desc.containsKey(topic);
+            } catch (InterruptedException
+                | ExecutionException
+                | java.util.concurrent.TimeoutException e) {
+              return false;
+            }
+          });
     }
   }
 }
