@@ -12,7 +12,12 @@ A Confluent Schema Registry Protobuf format for Apache Flink Table API. **Docume
 
 ## Resolving the dependency
 
-Releases are published to [Maven Central](https://search.maven.org/artifact/com.bbrownsound/flink-proto-confluent). Add the dependency as follows.
+Releases are published to [Maven Central](https://search.maven.org/artifact/com.bbrownsound/flink-proto-confluent) as two JARs:
+
+- `flink-proto-confluent-<version>.jar` — the library JAR, for a job you build with Gradle, Maven or sbt. Its dependencies are resolved by your build; Flink itself is expected to be provided.
+- `flink-proto-confluent-<version>-all.jar` — the self-contained JAR to drop into Flink's `lib/` directory (see [Usage](#usage)).
+
+The library JAR depends on Confluent's serializers, which are hosted on Confluent's Maven repository rather than Maven Central, so **add `https://packages.confluent.io/maven/` next to `mavenCentral()`** or the build cannot resolve them. Add the dependency as follows.
 
 **Gradle (Groovy):**
 
@@ -20,6 +25,7 @@ Releases are published to [Maven Central](https://search.maven.org/artifact/com.
 ```groovy
 repositories {
     mavenCentral()
+    maven { url 'https://packages.confluent.io/maven/' }
 }
 
 dependencies {
@@ -34,6 +40,7 @@ dependencies {
 ```kotlin
 repositories {
     mavenCentral()
+    maven { url = uri("https://packages.confluent.io/maven/") }
 }
 
 dependencies {
@@ -51,6 +58,10 @@ dependencies {
         <id>central</id>
         <url>https://repo.maven.apache.org/maven2</url>
     </repository>
+    <repository>
+        <id>confluent</id>
+        <url>https://packages.confluent.io/maven/</url>
+    </repository>
 </repositories>
 
 <dependencies>
@@ -67,12 +78,14 @@ dependencies {
 
 <!-- x-release-please-start-version -->
 ```scala
+resolvers += "Confluent" at "https://packages.confluent.io/maven/"
+
 libraryDependencies += "com.bbrownsound" % "flink-proto-confluent" % "1.1.0"
 ```
 <!-- x-release-please-end-version -->
 
 <!-- x-release-please-start-version -->
-Replace `1.1.0` with the [latest release](https://github.com/bbrownsound/flink-proto-confluent/releases) version.
+Replace `1.1.0` with the [latest release](https://github.com/brbrown25/flink-proto-confluent/releases) version.
 <!-- x-release-please-end-version -->
 
 ### Snapshots
@@ -86,6 +99,7 @@ Browse [the published snapshots](https://central.sonatype.com/repository/maven-s
 ```groovy
 repositories {
     mavenCentral()
+    maven { url 'https://packages.confluent.io/maven/' }
     maven { url 'https://central.sonatype.com/repository/maven-snapshots/' }
 }
 
@@ -99,6 +113,7 @@ dependencies {
 ```kotlin
 repositories {
     mavenCentral()
+    maven { url = uri("https://packages.confluent.io/maven/") }
     maven { url = uri("https://central.sonatype.com/repository/maven-snapshots/") }
 }
 
@@ -114,6 +129,10 @@ dependencies {
     <repository>
         <id>central</id>
         <url>https://repo.maven.apache.org/maven2</url>
+    </repository>
+    <repository>
+        <id>confluent</id>
+        <url>https://packages.confluent.io/maven/</url>
     </repository>
     <repository>
         <id>sonatype-snapshots</id>
@@ -134,6 +153,7 @@ dependencies {
 **sbt:**
 
 ```scala
+resolvers += "Confluent" at "https://packages.confluent.io/maven/"
 resolvers += "Sonatype Snapshots" at "https://central.sonatype.com/repository/maven-snapshots/"
 
 libraryDependencies += "com.bbrownsound" % "flink-proto-confluent" % "1.0.1-a1b2c3d-SNAPSHOT"
@@ -149,6 +169,8 @@ Substitute the SHA of the commit you want. Prefer a release version for stable b
 
 Or use the Makefile:
 
+This produces both JARs in `build/libs/`: the library JAR and the self-contained `-all` JAR. `./gradlew check` also runs `verifyJars`, which fails the build if the library JAR bundles dependencies or the `-all` JAR contains Flink or unrelocated libraries.
+
 - `make` / `make all` — full build (check + shadow JAR)
 - `make build` — `./gradlew build shadowJar`
 - `make test` — run tests
@@ -163,11 +185,14 @@ Maintainers: see [docs/RELEASING.md](docs/RELEASING.md) for how to cut a release
 
 ## Usage
 
-Copy the built JAR into your Flink `lib/` directory:
+Copy the self-contained `-all` JAR into your Flink `lib/` directory. Download it from Maven Central or the [GitHub Release](https://github.com/brbrown25/flink-proto-confluent/releases), or build it:
 
 ```bash
-cp build/libs/flink-proto-confluent-*.jar /path/to/flink/lib/
+./gradlew shadowJar
+cp build/libs/flink-proto-confluent-*-all.jar /path/to/flink/lib/
 ```
+
+Releases up to and including 1.1.0 published the self-contained JAR under the unclassified name (`flink-proto-confluent-1.1.0.jar`); the `-all` classifier starts with the release after that. See [Classpath and dependency conflicts](docs/content/reference/classpath.md) for what the JAR bundles and relocates, and which protobuf version your generated classes need.
 
 Then in Flink SQL (e.g. `sql-client.sh`), use the format identifier `proto-confluent`:
 

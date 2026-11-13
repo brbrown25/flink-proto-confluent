@@ -77,9 +77,9 @@ Release-As: 2.0.0"
 ## Verifying the release
 
 - **Workflow:** `gh run watch` (or the Actions tab) — both `release.yml` jobs green.
-- **GitHub Release:** appears at `releases/tag/vX.Y.Z` with the changelog entry as the body and `flink-proto-confluent-X.Y.Z.jar` attached.
+- **GitHub Release:** appears at `releases/tag/vX.Y.Z` with the changelog entry as the body and four JARs attached: the library JAR `flink-proto-confluent-X.Y.Z.jar` (about 100 KB — if it is tens of megabytes the shadow JAR has overwritten it), the self-contained `flink-proto-confluent-X.Y.Z-all.jar`, and the `-sources` and `-javadoc` JARs.
 - **Maven Central:** the sync from Sonatype takes ~15–30 min (search indexing can take longer). Check `https://repo1.maven.org/maven2/com/bbrownsound/flink-proto-confluent/X.Y.Z/`.
-- **Smoke test:** in a scratch project, resolve `com.bbrownsound:flink-proto-confluent:X.Y.Z` from `mavenCentral()` and confirm it downloads.
+- **Smoke test:** in a scratch project, resolve `com.bbrownsound:flink-proto-confluent:X.Y.Z` from `mavenCentral()` plus `https://packages.confluent.io/maven/` and confirm it downloads, and check that `flink-proto-confluent-X.Y.Z-all.jar` is listed in the Maven Central directory above.
 
 ## Snapshots (automatic)
 

@@ -1,3 +1,5 @@
+import java.util.zip.ZipFile
+
 plugins {
     java
     `maven-publish`
@@ -55,8 +57,10 @@ repositories {
 }
 
 dependencies {
-    implementation("org.apache.flink:flink-core:$flinkVersion")
-    implementation("org.apache.flink:flink-table-common:$flinkVersion")
+    // Flink is provided by the cluster (or by the consuming job), so it must not leak into the
+    // published POM or the shadow JAR. Tests get it back through testImplementation below.
+    compileOnly("org.apache.flink:flink-core:$flinkVersion")
+    compileOnly("org.apache.flink:flink-table-common:$flinkVersion")
     implementation("io.confluent:kafka-protobuf-serializer:$confluentVersion")
     implementation("io.confluent:kafka-protobuf-provider:$confluentVersion")
     implementation("io.confluent:kafka-schema-registry-client:$confluentVersion")
@@ -70,6 +74,7 @@ dependencies {
     testImplementation("org.apache.flink:flink-test-utils-junit:$flinkVersion")
     testImplementation("org.apache.flink:flink-test-utils:$flinkVersion")
     testImplementation("org.apache.flink:flink-runtime:$flinkVersion:tests")
+    testImplementation("org.apache.flink:flink-core:$flinkVersion")
     testImplementation("org.apache.flink:flink-table-common:$flinkVersion")
     testImplementation("org.testcontainers:testcontainers:2.0.5")
     testImplementation("org.testcontainers:testcontainers-kafka:2.0.5")
@@ -138,13 +143,71 @@ tasks.named<Test>("test").configure {
 
 tasks.shadowJar {
     archiveBaseName.set("flink-proto-confluent")
-    archiveClassifier.set("")
+    archiveClassifier.set("all")
     mergeServiceFiles()
     dependencies {
         exclude(dependency("org.apache.flink:.*:.*"))
         exclude(dependency("org.slf4j:.*:.*"))
     }
     relocate("com.google.type", "shadowed.google.type")
+    // Libraries that commonly sit on a Flink classpath at other versions are moved out of the way.
+    // Deliberately NOT relocated (see docs/content/reference/classpath.md):
+    //  - com.google.protobuf: user-generated message classes (message-class) link against it.
+    //  - io.confluent, org.apache.kafka: users name these classes in option strings (subject name
+    //    strategies, sasl.jaas.config login modules), which a relocation would silently break.
+    //  - JNI-backed codecs (zstd-jni, snappy-java, lz4-java): native symbols are bound to the
+    //    original package names.
+    //  - kotlin, okio, com.squareup.wire: Kotlin metadata and kotlin-reflect do not survive it.
+    listOf(
+        "com.fasterxml.jackson",
+        "com.google.common",
+        "com.google.thirdparty",
+        "com.google.gson",
+        "org.apache.commons",
+        "org.apache.hc",
+        "org.apache.avro",
+        "org.yaml.snakeyaml",
+        "io.swagger",
+    ).forEach { relocate(it, "com.bbrownsound.flink.formats.proto.shaded.$it") }
+}
+
+// Guards the packaging contract: the unclassified JAR is the thin library JAR and the "all" JAR is
+// self-contained with the relocations above applied. Both used to be written to the same file name,
+// so the shadow JAR silently replaced the thin one in every published artifact.
+val verifyJars = tasks.register("verifyJars") {
+    description = "Checks the contents of the thin JAR and the shadow (all) JAR."
+    group = "verification"
+    val thinJar = tasks.jar.flatMap { it.archiveFile }
+    val allJar = tasks.shadowJar.flatMap { it.archiveFile }
+    inputs.file(thinJar)
+    inputs.file(allJar)
+    doLast {
+        fun classes(jar: File) = ZipFile(jar).use { zip ->
+            zip.entries().asSequence().map { it.name }.filter { it.endsWith(".class") }.toList()
+        }
+        val own = "com/bbrownsound/"
+        val foreign = classes(thinJar.get().asFile).filterNot { it.startsWith(own) }
+        check(foreign.isEmpty()) {
+            "Thin JAR must contain only this project's classes, found e.g. ${foreign.take(5)}"
+        }
+        val all = classes(allJar.get().asFile)
+        val mustBeAbsent = listOf(
+            "org/apache/flink/", "org/slf4j/",
+            "com/fasterxml/jackson/", "com/google/common/", "com/google/thirdparty/",
+            "com/google/gson/", "org/apache/commons/", "org/apache/hc/", "org/apache/avro/",
+            "org/yaml/snakeyaml/", "io/swagger/",
+        )
+        val leaked = all.filter { name -> mustBeAbsent.any { name.startsWith(it) } }
+        check(leaked.isEmpty()) {
+            "Shadow JAR has provided or unrelocated classes, e.g. ${leaked.take(5)}"
+        }
+        val mustBePresent = listOf(
+            own, "com/google/protobuf/", "io/confluent/kafka/", "org/apache/kafka/",
+            "com/bbrownsound/flink/formats/proto/shaded/com/fasterxml/jackson/",
+        )
+        val missing = mustBePresent.filter { prefix -> all.none { it.startsWith(prefix) } }
+        check(missing.isEmpty()) { "Shadow JAR is missing expected packages: $missing" }
+    }
 }
 
 spotless {
@@ -165,6 +228,7 @@ tasks.check {
         tasks.spotbugsTest,
         tasks.spotlessCheck,
         tasks.jacocoTestCoverageVerification,
+        verifyJars,
         tasks.named("integrationTest")
     )
 }
@@ -256,7 +320,7 @@ publishing {
         maven {
             name = "GitHubPackages"
             url = uri(
-                "https://maven.pkg.github.com/${System.getenv("GITHUB_REPOSITORY") ?: "bbrownsound/flink-proto-confluent"}"
+                "https://maven.pkg.github.com/${System.getenv("GITHUB_REPOSITORY") ?: "brbrown25/flink-proto-confluent"}"
             )
             credentials {
                 username = System.getenv("GITHUB_ACTOR") ?: project.findProperty("gpr.user") as String? ?: ""
@@ -266,10 +330,9 @@ publishing {
     }
     publications {
         create<MavenPublication>("gpr") {
+            // components["java"] already carries the shadow JAR (classifier "all") as the
+            // shadowRuntimeElements variant, so it is not attached again here.
             from(components["java"])
-            artifact(tasks.shadowJar.get()) {
-                classifier = "all"
-            }
             groupId = project.group.toString()
             artifactId = "flink-proto-confluent"
             version = project.version.toString()
@@ -282,7 +345,7 @@ publishing {
             pom {
                 name.set(artifactId)
                 description.set("Flink table format for Protobuf with Confluent Schema Registry")
-                url.set("https://github.com/bbrownsound/flink-proto-confluent")
+                url.set("https://github.com/brbrown25/flink-proto-confluent")
                 licenses {
                     license {
                         name.set("The Apache License, Version 2.0")
@@ -293,13 +356,13 @@ publishing {
                     developer {
                         name.set("Brandon Brown")
                         organization.set("bbrownsound")
-                        organizationUrl.set("https://github.com/bbrownsound")
+                        organizationUrl.set("https://github.com/brbrown25")
                     }
                 }
                 scm {
-                    connection.set("scm:git:git://github.com/bbrownsound/flink-proto-confluent-bb.git")
-                    developerConnection.set("scm:git:ssh://github.com:bbrownsound/flink-proto-confluent-bb.git")
-                    url.set("https://github.com/bbrownsound/flink-proto-confluent-bb")
+                    connection.set("scm:git:git://github.com/brbrown25/flink-proto-confluent.git")
+                    developerConnection.set("scm:git:ssh://github.com:brbrown25/flink-proto-confluent.git")
+                    url.set("https://github.com/brbrown25/flink-proto-confluent")
                 }
             }
         }

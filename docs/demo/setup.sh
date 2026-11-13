@@ -5,8 +5,8 @@ cd "$(dirname "$0")"
 mkdir -p lib
 (cd ../.. && ./gradlew -q shadowJar)
 rm -f lib/flink-proto-confluent-*.jar
-# The shadow jar has an empty classifier: newest jar that is not javadoc/sources.
-JAR=$(ls -t ../../build/libs/flink-proto-confluent-*.jar | grep -v -e -javadoc -e -sources | head -1)
+# The shadow jar carries the "all" classifier; the unclassified jar is the thin library jar.
+JAR=$(ls -t ../../build/libs/flink-proto-confluent-*-all.jar | head -1)
 cp "$JAR" lib/
 CONN=flink-sql-connector-kafka-3.4.0-1.20.jar
 [ -f "lib/$CONN" ] || curl -fL -o "lib/$CONN" \

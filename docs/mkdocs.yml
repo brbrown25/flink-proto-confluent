@@ -57,5 +57,6 @@ nav:
       - Schema evolution and subjects: how-to/schema-evolution.md
   - Reference:
       - Configuration: reference/configuration.md
+      - Classpath and dependency conflicts: reference/classpath.md
   - Contributing: contributing.md
   - Release Notes: release-notes.md
