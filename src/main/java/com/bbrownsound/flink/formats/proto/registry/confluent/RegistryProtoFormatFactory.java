@@ -1,5 +1,6 @@
 package com.bbrownsound.flink.formats.proto.registry.confluent;
 
+import com.bbrownsound.flink.formats.proto.registry.confluent.config.OnDeserializeError;
 import com.bbrownsound.flink.formats.proto.registry.confluent.config.ProtoConfluentFormatConfig;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -37,6 +38,9 @@ public class RegistryProtoFormatFactory
   @Override
   public DecodingFormat<org.apache.flink.api.common.serialization.DeserializationSchema<RowData>>
       createDecodingFormat(DynamicTableFactory.Context context, ReadableConfig formatOptions) {
+    // Checked first so that a bad value is reported with the allowed values, rather than as the
+    // generic "Invalid value for option" that validateFactoryOptions raises for it.
+    OnDeserializeError.fromOptions(formatOptions);
     FactoryUtil.validateFactoryOptions(this, formatOptions);
     String url = formatOptions.get(ProtoConfluentFormatOptions.URL);
     String topic = formatOptions.get(ProtoConfluentFormatOptions.TOPIC);
@@ -47,6 +51,9 @@ public class RegistryProtoFormatFactory
   @Override
   public EncodingFormat<org.apache.flink.api.common.serialization.SerializationSchema<RowData>>
       createEncodingFormat(DynamicTableFactory.Context context, ReadableConfig formatOptions) {
+    // The option only affects the source, but it is a declared option of this factory, so a bad
+    // value is rejected on a sink too; report it with the allowed values there as well.
+    OnDeserializeError.fromOptions(formatOptions);
     FactoryUtil.validateFactoryOptions(this, formatOptions);
 
     return new ProtoEncodingFormat(new ProtoConfluentFormatConfig(formatOptions));

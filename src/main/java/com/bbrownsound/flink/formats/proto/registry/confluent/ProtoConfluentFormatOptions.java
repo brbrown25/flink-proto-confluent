@@ -1,5 +1,6 @@
 package com.bbrownsound.flink.formats.proto.registry.confluent;
 
+import com.bbrownsound.flink.formats.proto.registry.confluent.config.OnDeserializeError;
 import java.util.Map;
 import org.apache.flink.configuration.ConfigOption;
 import org.apache.flink.configuration.ConfigOptions;
@@ -151,18 +152,23 @@ public class ProtoConfluentFormatOptions {
                   + "via Flink config options. However, note that Flink options "
                   + "have higher precedence.");
 
-  /** What to do when a record fails to deserialize: "skip" (drop + count) or "fail" (throw). */
-  public static final ConfigOption<String> ON_DESERIALIZE_ERROR =
+  /**
+   * What to do when a record fails to deserialize: {@code skip} (drop + count) or {@code fail}
+   * (throw). An enum option, so any other value is rejected when a query using the table is planned; values are
+   * matched case-insensitively.
+   */
+  public static final ConfigOption<OnDeserializeError> ON_DESERIALIZE_ERROR =
       ConfigOptions.key("on-deserialize-error")
-          .stringType()
-          .defaultValue("fail")
+          .enumType(OnDeserializeError.class)
+          .defaultValue(OnDeserializeError.FAIL)
           .withFallbackKeys("on_deserialize_error")
           .withDescription(
               "Behavior when a record cannot be deserialized: 'fail' (throw and fail the task — "
                   + "the default, preserving existing semantics) or 'skip' (log, increment the "
                   + "numDeserializeErrors metric, optionally route to the dead-letter topic, and "
                   + "return null so a single poison record cannot crash-loop the job). Set 'skip' "
-                  + "(ideally with 'dead-letter-topic') for resilient pipelines.");
+                  + "(ideally with 'dead-letter-topic') for resilient pipelines. Values are "
+                  + "case-insensitive; any other value is rejected with a ValidationException.");
 
   /** Optional dead-letter topic for records that fail to deserialize. */
   public static final ConfigOption<String> DEAD_LETTER_TOPIC =

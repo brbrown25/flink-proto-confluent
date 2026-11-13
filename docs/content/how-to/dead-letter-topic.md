@@ -28,7 +28,7 @@ Each dead-letter record carries the original bytes plus `error.class`, `error.me
 !!! warning "Quote values that contain a colon"
     Map options split each pair on `:`, so a `host:port` value must be quoted with doubled single quotes inside the SQL string, as in the example above. Unquoted, table creation fails with `Map item is not a key-value pair (missing ':'?)`.
 
-!!! warning "Only `fail` is fatal"
-    `on-deserialize-error` is matched case-insensitively and **any value other than `fail`** — including a typo — takes the skip path.
+!!! note "Only `fail` and `skip` are accepted"
+    `on-deserialize-error` is matched case-insensitively, and any value other than `fail` or `skip` (including a typo such as `fial`) is rejected with a `ValidationException` when the query is planned. It no longer falls back to the skip path.
 
 Watch it happen in the [dead-letter demo](../demos.md#dead-letter-topic).
