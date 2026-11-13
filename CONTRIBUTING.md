@@ -32,7 +32,16 @@ make test       # unit tests only
 
 ## Documentation
 
-If your change adds or alters a format option, a default, an error message or any other user-visible behaviour, update `docs/content/` in the same pull request. The [docs contributing guide](https://brbrown25.github.io/flink-proto-confluent/contributing/) lists what to update for each kind of change and how to re-record a demo cast.
+If your change adds or alters a format option, a default, an error message or any other user-visible behaviour, update `docs/content/` in the same pull request.
+
+```bash
+make docs-serve   # live preview at http://127.0.0.1:8000
+make docs         # strict build, the same check CI runs
+```
+
+Use these targets rather than a globally installed `mkdocs`. They run MkDocs from a virtualenv built from `docs/requirements.txt`; a bare install lacks the Material theme and fails with `Unrecognised theme name: 'material'`.
+
+The [docs contributing guide](https://brbrown25.github.io/flink-proto-confluent/contributing/) lists what to update for each kind of change and how to re-record a demo cast.
 
 ## Commits and pull requests
 

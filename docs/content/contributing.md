@@ -18,10 +18,22 @@ The site is [MkDocs Material](https://squidfunk.github.io/mkdocs-material/). Sou
 ### Preview locally
 
 ```bash
+make docs-serve   # http://127.0.0.1:8000, live reload
+make docs         # strict build, exactly what CI runs; fails on broken links/nav
+```
+
+Both targets create a virtualenv in `.venv` from `docs/requirements.txt` on first use and run the `mkdocs` inside it. Use them rather than a `mkdocs` installed globally (Homebrew, `pip install mkdocs`): the site needs the `mkdocs-material` theme, which a bare install does not have.
+
+!!! failure "Unrecognised theme name: 'material'"
+    This error means the wrong `mkdocs` ran, not that the docs are broken. Run `make docs`, or call the virtualenv's binary directly.
+
+The same thing without `make`:
+
+```bash
 python3 -m venv .venv && .venv/bin/pip install -r docs/requirements.txt
 cd docs
-../.venv/bin/mkdocs serve      # http://127.0.0.1:8000, live reload
-../.venv/bin/mkdocs build --strict   # exactly what CI runs; fails on broken links/nav
+../.venv/bin/mkdocs serve
+../.venv/bin/mkdocs build --strict
 ```
 
 ### When to update what
