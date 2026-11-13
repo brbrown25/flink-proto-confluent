@@ -96,10 +96,12 @@ jobs:
     - name: Build
       run: ./gradlew build -x test -x integrationTest
 
+    # `build` already runs verifyJars through `check`; this runs it by name so the packaging
+    # contract (thin library JAR, relocated self-contained -all JAR) shows up as its own step.
     - name: Check JAR contents
       run: |
-        echo "JAR contents (proto-confluent):"
-        jar tf build/libs/proto-confluent-*.jar | head -50
+        ./gradlew verifyJars
+        ls -l build/libs
 
   # Unit tests only, once per supported JDK. integrationTest and
   # jacocoTestReport are excluded because `test` is wired to finalize with
