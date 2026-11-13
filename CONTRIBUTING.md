@@ -45,7 +45,7 @@ The [docs contributing guide](https://brbrown25.github.io/flink-proto-confluent/
 
 ## Commits and pull requests
 
-- Commits follow [Conventional Commits](https://www.conventionalcommits.org/) with a scope, and reference the issue: `feat(serialize): support enum-as-int. #123`. The commit type drives the changelog and the next version number through release-please, so choose it deliberately (`feat` for user-visible additions, `fix` for bug fixes, `docs`, `test`, `chore`, `deps`).
+- Commits follow [Conventional Commits](https://www.conventionalcommits.org/) with a scope, and reference the issue: `feat(serialize): support enum-as-int. #123`. The commit type drives the changelog and the next version number through release-please, so choose it deliberately (`feat` for user-visible additions, `fix` or `bug` for bug fixes, both listed under "Bug Fixes", `docs`, `test`, `chore`, `deps`).
 - Use the body to say why the change is being made. The diff already shows what changed.
 - Pull requests are rebase-merged, so each commit lands on `main` as written. Keep them few and meaningful.
 - Fill in the [pull request template](.github/pull_request_template.md), including the authorship confirmation.
