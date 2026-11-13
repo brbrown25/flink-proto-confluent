@@ -11,6 +11,7 @@ import java.util.stream.Stream;
 import javax.annotation.Nullable;
 import org.apache.flink.configuration.ConfigOption;
 import org.apache.flink.configuration.ReadableConfig;
+import org.apache.flink.table.api.ValidationException;
 import org.apache.flink.table.connector.format.DecodingFormat;
 import org.apache.flink.table.connector.format.EncodingFormat;
 import org.apache.flink.table.data.RowData;
@@ -42,6 +43,9 @@ public class RegistryProtoFormatFactory
     // generic "Invalid value for option" that validateFactoryOptions raises for it.
     OnDeserializeError.fromOptions(formatOptions);
     FactoryUtil.validateFactoryOptions(this, formatOptions);
+    // Sink-only, but a declared option of this factory: reject a bad value on a source table too,
+    // rather than only once the same table is written to.
+    validateSchemaCacheTtl(formatOptions);
     String url = formatOptions.get(ProtoConfluentFormatOptions.URL);
     String topic = formatOptions.get(ProtoConfluentFormatOptions.TOPIC);
     LOG.debug("[proto-confluent] Creating decoding format: url={}, topic={}", url, topic);
@@ -55,8 +59,24 @@ public class RegistryProtoFormatFactory
     // value is rejected on a sink too; report it with the allowed values there as well.
     OnDeserializeError.fromOptions(formatOptions);
     FactoryUtil.validateFactoryOptions(this, formatOptions);
+    validateSchemaCacheTtl(formatOptions);
 
     return new ProtoEncodingFormat(new ProtoConfluentFormatConfig(formatOptions));
+  }
+
+  private static void validateSchemaCacheTtl(ReadableConfig formatOptions) {
+    formatOptions
+        .getOptional(ProtoConfluentFormatOptions.SCHEMA_CACHE_TTL)
+        .filter(ttl -> ttl.isZero() || ttl.isNegative())
+        .ifPresent(
+            ttl -> {
+              throw new ValidationException(
+                  "'"
+                      + ProtoConfluentFormatOptions.SCHEMA_CACHE_TTL.key()
+                      + "' must be a positive duration, got "
+                      + ttl
+                      + ". Leave it unset to keep the schema resolved at the first write.");
+            });
   }
 
   @Override
@@ -71,6 +91,7 @@ public class RegistryProtoFormatFactory
             ProtoConfluentFormatOptions.TOPIC,
             ProtoConfluentFormatOptions.IS_KEY,
             ProtoConfluentFormatOptions.MESSAGE_CLASS,
+            ProtoConfluentFormatOptions.SCHEMA_CACHE_TTL,
             ProtoConfluentFormatOptions.PROPERTIES,
             ProtoConfluentFormatOptions.SSL_KEYSTORE_LOCATION,
             ProtoConfluentFormatOptions.SSL_KEYSTORE_PASSWORD,
@@ -104,6 +125,7 @@ public class RegistryProtoFormatFactory
     options.add(ProtoConfluentFormatOptions.NORMALIZE_SCHEMAS);
     options.add(ProtoConfluentFormatOptions.USE_SCHEMA_ID);
     options.add(ProtoConfluentFormatOptions.SKIP_KNOWN_TYPES);
+    options.add(ProtoConfluentFormatOptions.SCHEMA_CACHE_TTL);
     options.add(ProtoConfluentFormatOptions.SSL_KEYSTORE_LOCATION);
     options.add(ProtoConfluentFormatOptions.SSL_KEYSTORE_PASSWORD);
     options.add(ProtoConfluentFormatOptions.SSL_TRUSTSTORE_LOCATION);
