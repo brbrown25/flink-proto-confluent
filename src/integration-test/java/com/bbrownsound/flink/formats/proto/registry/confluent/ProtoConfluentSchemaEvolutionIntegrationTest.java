@@ -16,6 +16,7 @@ import io.confluent.kafka.schemaregistry.client.CachedSchemaRegistryClient;
 import io.confluent.kafka.schemaregistry.client.SchemaRegistryClient;
 import io.confluent.kafka.schemaregistry.protobuf.ProtobufSchema;
 import io.confluent.kafka.schemaregistry.protobuf.ProtobufSchemaProvider;
+import io.confluent.kafka.serializers.protobuf.KafkaProtobufDeserializer;
 import io.confluent.kafka.serializers.protobuf.KafkaProtobufSerializer;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
@@ -27,6 +28,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
+import org.apache.flink.core.execution.JobClient;
 import org.apache.flink.runtime.testutils.MiniClusterResourceConfiguration;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.table.api.TableResult;
@@ -622,6 +624,160 @@ class ProtoConfluentSchemaEvolutionIntegrationTest {
         1,
         registryClient.getAllVersions(subject).size(),
         "the incompatible schema must not have been registered");
+  }
+
+  /** A Kafka sink table over {@code topic} whose schema cache expires after {@code ttl}. */
+  private static void createTtlSink(
+      StreamTableEnvironment tableEnv, String table, String columns, String topic, String ttl) {
+    tableEnv.executeSql(
+        "CREATE TABLE "
+            + table
+            + " ("
+            + columns
+            + ") WITH ("
+            + "  'connector' = 'kafka',"
+            + "  'topic' = '"
+            + topic
+            + "',"
+            + "  'properties.bootstrap.servers' = '"
+            + bootstrapForJob
+            + "',"
+            + "  'value.format' = 'proto-confluent',"
+            + "  'value.proto-confluent.url' = '"
+            + schemaRegistryUrl
+            + "',"
+            + "  'value.proto-confluent.topic' = '"
+            + topic
+            + "',"
+            + "  'value.proto-confluent.auto-register-schemas' = 'false',"
+            + "  'value.proto-confluent.schema-cache.ttl' = '"
+            + ttl
+            + "',"
+            + "  'value.proto-confluent.is_key' = 'false'"
+            + ")");
+  }
+
+  /** A datagen table that emits {@code rowsPerSecond} rows a second, bounded when rows > 0. */
+  private static void createDatagenSource(
+      StreamTableEnvironment tableEnv, String table, String columns, int rowsPerSecond, int rows) {
+    tableEnv.executeSql(
+        "CREATE TABLE "
+            + table
+            + " ("
+            + columns
+            + ") WITH ("
+            + "  'connector' = 'datagen',"
+            + "  'rows-per-second' = '"
+            + rowsPerSecond
+            + "'"
+            + (rows > 0 ? ", 'number-of-rows' = '" + rows + "'" : "")
+            + ")");
+  }
+
+  @Test
+  @DisplayName("schema-cache.ttl: a running INSERT picks up a new schema version mid-stream")
+  void schemaCacheTtl_runningSinkSwitchesToNewSchemaVersion() throws Exception {
+    final String sinkTopic = "evo-it-ttl-new-version";
+    createTopic(sinkTopic);
+    final String subject = sinkTopic + "-value";
+    final int v1Id = registryClient.register(subject, new ProtobufSchema(V1_SCHEMA));
+
+    final int rows = 200;
+    final StreamTableEnvironment tableEnv = newTableEnv();
+    final String columns = "`content` STRING, `date_time` STRING";
+    createDatagenSource(tableEnv, "ttl_new_version_source", columns, 10, rows);
+    createTtlSink(tableEnv, "ttl_new_version_sink", columns, sinkTopic, "2 s");
+
+    // About 20 seconds of rows. Version 2 is registered once the job is demonstrably writing with
+    // version 1; the sink must switch within two TTLs, long before the rows run out.
+    final TableResult insert =
+        tableEnv.executeSql(
+            "INSERT INTO ttl_new_version_sink SELECT * FROM ttl_new_version_source");
+    assertEquals(v1Id, wireSchemaId(consume(sinkTopic, 1).get(0)), "the job starts on version 1");
+    final int v2Id = registryClient.register(subject, new ProtobufSchema(V2_SCHEMA));
+    insert.await(180, SECONDS);
+
+    final List<byte[]> written = consume(sinkTopic, rows);
+    assertEquals(rows, written.size(), "every row is written exactly once across the switch");
+    final List<Integer> ids = new ArrayList<>();
+    for (byte[] record : written) {
+      ids.add(wireSchemaId(record));
+    }
+    assertEquals(v1Id, ids.get(0));
+    assertEquals(v2Id, ids.get(rows - 1), "the running job ends on version 2; ids: " + ids);
+    final int firstV2 = ids.indexOf(v2Id);
+    assertTrue(
+        ids.subList(0, firstV2).stream().allMatch(id -> id == v1Id)
+            && ids.subList(firstV2, rows).stream().allMatch(id -> id == v2Id),
+        "one switch from version 1 to version 2, never back; ids: " + ids);
+
+    // Records on both sides of the switch decode with their own writer schema.
+    final KafkaProtobufDeserializer<DynamicMessage> deserializer =
+        new KafkaProtobufDeserializer<>(registryClient);
+    deserializer.configure(Map.of("schema.registry.url", schemaRegistryUrl), false);
+    final DynamicMessage beforeSwitch = deserializer.deserialize(sinkTopic, written.get(0));
+    final DynamicMessage afterSwitch = deserializer.deserialize(sinkTopic, written.get(rows - 1));
+    assertTrue(beforeSwitch.getDescriptorForType().findFieldByName("extra") == null);
+    assertTrue(afterSwitch.getDescriptorForType().findFieldByName("extra") != null);
+    for (DynamicMessage message : List.of(beforeSwitch, afterSwitch)) {
+      final Object content =
+          message.getField(message.getDescriptorForType().findFieldByName("content"));
+      assertTrue(!String.valueOf(content).isEmpty(), "the row's columns are written");
+    }
+    assertEquals(
+        2, registryClient.getAllVersions(subject).size(), "the sink itself registers nothing");
+  }
+
+  @Test
+  @DisplayName(
+      "schema-cache.ttl: a new version lacking a table column fails the running INSERT clearly")
+  void schemaCacheTtl_newVersionLackingATableColumn_failsTheRunningJob() throws Exception {
+    final String sinkTopic = "evo-it-ttl-incompatible";
+    createTopic(sinkTopic);
+    final String subject = sinkTopic + "-value";
+    // The table writes `extra`, which the first version has and the second one drops.
+    final int withExtraId = registryClient.register(subject, new ProtobufSchema(V2_SCHEMA));
+
+    final StreamTableEnvironment tableEnv = newTableEnv();
+    final String columns = "`content` STRING, `date_time` STRING, `extra` STRING";
+    createDatagenSource(tableEnv, "ttl_incompatible_source", columns, 10, 0);
+    createTtlSink(tableEnv, "ttl_incompatible_sink", columns, sinkTopic, "2 s");
+
+    final TableResult insert =
+        tableEnv.executeSql(
+            "INSERT INTO ttl_incompatible_sink SELECT * FROM ttl_incompatible_source");
+    try {
+      assertEquals(
+          withExtraId, wireSchemaId(consume(sinkTopic, 1).get(0)), "the job starts healthy");
+      registryClient.register(subject, new ProtobufSchema(V1_SCHEMA));
+
+      // The source is unbounded, so the only way out of await is the failure.
+      final Exception failure = assertThrows(Exception.class, () -> insert.await(120, SECONDS));
+      final String message = rootMessage(failure);
+      LOG.info("incompatible version failure: {}", message);
+      assertTrue(
+          message.contains("not found in target Protobuf schema"),
+          "must be the missing-column error; got: " + message);
+      assertTrue(message.contains("'extra'"), "must name the missing column; got: " + message);
+      assertTrue(message.contains(MESSAGE_NAME), "must name the message; got: " + message);
+    } finally {
+      insert.getJobClient().ifPresent(JobClient::cancel);
+    }
+
+    assertEquals(
+        2, registryClient.getAllVersions(subject).size(), "the sink itself registers nothing");
+    final List<byte[]> written = consume(sinkTopic, 1);
+    assertTrue(
+        written.stream().allMatch(record -> idOf(record) == withExtraId),
+        "nothing was written with the version that lacks the column");
+  }
+
+  private static int idOf(byte[] record) {
+    try {
+      return wireSchemaId(record);
+    } catch (Exception e) {
+      throw new IllegalStateException(e);
+    }
   }
 
   private void insertOneRepeatedRow(String topic, boolean normalize) throws Exception {

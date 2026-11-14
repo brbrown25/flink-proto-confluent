@@ -203,6 +203,64 @@ class RowDataProtoSerializerSchemaCacheTest {
     assertEquals(List.of(1, 2), registry.versions(SUBJECT));
   }
 
+  /**
+   * A new version that lacks a column the table writes is picked up like any other, and from then
+   * on the write fails with the same descriptive error a restart would give. The sink does not
+   * quietly keep version 1 or drop the column, and it registers nothing.
+   */
+  @Test
+  void withTtl_newVersionLackingATableColumn_failsWithTheMissingColumnError() throws Exception {
+    RowType withCurrency = rowType("content", "date_time", "currency");
+    int v1Id = registry.seed(SUBJECT, orderSchema("currency"));
+    RowDataProtoSerializer serializer = serializer(registry, false, TTL, clock);
+    assertEquals(
+        v1Id, schemaIdOf(serializer.serializeRowData(TOPIC, withCurrency, row("a", "b", "EUR"))));
+
+    registry.seed(SUBJECT, orderSchema());
+    advance(TTL.minusNanos(1));
+    assertEquals(
+        v1Id,
+        schemaIdOf(serializer.serializeRowData(TOPIC, withCurrency, row("a", "b", "EUR"))),
+        "before expiry the sink still writes version 1");
+
+    advance(Duration.ofNanos(1));
+    for (int i = 0; i < 3; i++) {
+      IllegalArgumentException thrown =
+          assertThrows(
+              IllegalArgumentException.class,
+              () -> serializer.serializeRowData(TOPIC, withCurrency, row("a", "b", "EUR")));
+      assertTrue(thrown.getMessage().contains("'currency'"), thrown.getMessage());
+      assertTrue(
+          thrown.getMessage().contains("not found in target Protobuf schema"),
+          thrown.getMessage());
+      assertTrue(thrown.getMessage().contains(ORDER_FULL_NAME), thrown.getMessage());
+    }
+    assertEquals(2, registry.latestLookups(), "the new version is cached; no lookup per failure");
+    assertEquals(0, registry.registerCalls());
+    assertEquals(List.of(1, 2), registry.versions(SUBJECT));
+  }
+
+  /** Once a version that has the column again is registered, the next refresh recovers. */
+  @Test
+  void withTtl_afterAnIncompatibleVersionIsSuperseded_theSinkRecovers() throws Exception {
+    RowType withCurrency = rowType("content", "date_time", "currency");
+    registry.seed(SUBJECT, orderSchema("currency"));
+    RowDataProtoSerializer serializer = serializer(registry, false, TTL, clock);
+    serializer.serializeRowData(TOPIC, withCurrency, row("a", "b", "EUR"));
+
+    registry.seed(SUBJECT, orderSchema());
+    advance(TTL);
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> serializer.serializeRowData(TOPIC, withCurrency, row("a", "b", "EUR")));
+
+    int v3Id = registry.seed(SUBJECT, orderSchema("currency", "note"));
+    advance(TTL);
+    byte[] recovered = serializer.serializeRowData(TOPIC, withCurrency, row("a", "b", "EUR"));
+    assertEquals(v3Id, schemaIdOf(recovered));
+    assertEquals("EUR", field(decode(registry, recovered), "currency"));
+  }
+
   @Test
   void withTtl_lookupRepeatsOncePerTtl() throws Exception {
     registry.seed(SUBJECT, orderSchema());
