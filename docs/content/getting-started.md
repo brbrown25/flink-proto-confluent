@@ -13,8 +13,8 @@ Flink loads formats from its `lib/` directory. The JAR is compiled for **Java 17
 === "Download"
 
     ```bash
-    curl -fLO https://repo1.maven.org/maven2/com/bbrownsound/flink-proto-confluent/1.1.0/flink-proto-confluent-1.1.0-all.jar
-    cp flink-proto-confluent-1.1.0-all.jar /path/to/flink/lib/
+    curl -fLO https://repo1.maven.org/maven2/com/bbrownsound/flink-proto-confluent/1.2.0/flink-proto-confluent-1.1.0-all.jar
+    cp flink-proto-confluent-1.2.0 /path/to/flink/lib/
     ```
 
 === "Build from source"
@@ -42,7 +42,7 @@ The library depends on Confluent's serializers, which are hosted on Confluent's 
     }
 
     dependencies {
-        implementation("com.bbrownsound:flink-proto-confluent:1.1.0")
+        implementation("com.bbrownsound:flink-proto-confluent:1.2.0")
     }
     ```
 
@@ -55,7 +55,7 @@ The library depends on Confluent's serializers, which are hosted on Confluent's 
     }
 
     dependencies {
-        implementation 'com.bbrownsound:flink-proto-confluent:1.1.0'
+        implementation 'com.bbrownsound:flink-proto-confluent:1.2.0'
     }
     ```
 
@@ -73,7 +73,7 @@ The library depends on Confluent's serializers, which are hosted on Confluent's 
         <dependency>
             <groupId>com.bbrownsound</groupId>
             <artifactId>flink-proto-confluent</artifactId>
-            <version>1.1.0</version>
+            <version>1.2.0</version>
         </dependency>
     </dependencies>
     ```
@@ -83,12 +83,12 @@ The library depends on Confluent's serializers, which are hosted on Confluent's 
     ```scala
     resolvers += "Confluent" at "https://packages.confluent.io/maven/"
 
-    libraryDependencies += "com.bbrownsound" % "flink-proto-confluent" % "1.1.0"
+    libraryDependencies += "com.bbrownsound" % "flink-proto-confluent" % "1.2.0"
     ```
 <!-- x-release-please-end-version -->
 
 <!-- x-release-please-start-version -->
-Replace `1.1.0` with the [latest release](https://github.com/brbrown25/flink-proto-confluent/releases). Unreleased work on `main` is published as SHA-qualified snapshots such as `1.0.1-a1b2c3d-SNAPSHOT` from the [Sonatype snapshot repository](https://central.sonatype.com/repository/maven-snapshots/).
+Replace `1.2.0` with the [latest release](https://github.com/brbrown25/flink-proto-confluent/releases). Unreleased work on `main` is published as SHA-qualified snapshots such as `1.0.1-a1b2c3d-SNAPSHOT` from the [Sonatype snapshot repository](https://central.sonatype.com/repository/maven-snapshots/).
 <!-- x-release-please-end-version -->
 
 !!! note "Flink Kafka connector"
