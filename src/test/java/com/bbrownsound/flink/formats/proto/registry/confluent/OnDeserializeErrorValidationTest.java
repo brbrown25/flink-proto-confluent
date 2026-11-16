@@ -208,7 +208,9 @@ class OnDeserializeErrorValidationTest {
   void skipWithDeadLetterTopic_isAccepted_throughFactoryUtil() {
     Map<String, String> extra = new HashMap<>();
     extra.put("proto-confluent.dead-letter-topic", "dlq");
-    extra.put("proto-confluent.dead-letter.properties", "security.protocol:SSL");
+    extra.put(
+        "proto-confluent.dead-letter.properties",
+        "bootstrap.servers:'localhost:9092',security.protocol:SSL");
     assertNotNull(discoverDecodingFormat(PRIMARY_KEY, "skip", extra));
   }
 

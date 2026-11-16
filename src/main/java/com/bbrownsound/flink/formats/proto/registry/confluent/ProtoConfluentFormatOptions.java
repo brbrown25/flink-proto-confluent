@@ -1,5 +1,6 @@
 package com.bbrownsound.flink.formats.proto.registry.confluent;
 
+import com.bbrownsound.flink.formats.proto.registry.confluent.config.DeadLetterDelivery;
 import com.bbrownsound.flink.formats.proto.registry.confluent.config.OnDeserializeError;
 import java.time.Duration;
 import java.util.Map;
@@ -193,8 +194,10 @@ public class ProtoConfluentFormatOptions {
           .withDescription(
               "Optional Kafka topic to which the raw bytes of records that fail to deserialize "
                   + "are produced (with error metadata in headers). Requires "
-                  + "'dead-letter.properties' to contain at least 'bootstrap.servers'. When unset, "
-                  + "failed records are only logged and counted.");
+                  + "'dead-letter.properties' to contain at least 'bootstrap.servers'; when it "
+                  + "does not, the table's own 'properties.bootstrap.servers' is used, and if "
+                  + "that is absent too the table is rejected with a ValidationException. When "
+                  + "unset, failed records are only logged and counted.");
 
   /**
    * Producer properties for the dead-letter topic (bootstrap.servers + security). Forwarded
@@ -208,6 +211,24 @@ public class ProtoConfluentFormatOptions {
               "Properties forwarded verbatim to the dead-letter KafkaProducer (e.g. "
                   + "bootstrap.servers, security.protocol, sasl.mechanism, sasl.jaas.config). "
                   + "Only used when 'dead-letter-topic' is set.");
+
+  /**
+   * Whether a dead-letter record is acknowledged by the broker before the source moves on ({@code
+   * sync}) or merely handed to the producer ({@code async}). An enum option, so any other value is
+   * rejected when a query using the table is planned; values are matched case-insensitively.
+   */
+  public static final ConfigOption<DeadLetterDelivery> DEAD_LETTER_DELIVERY =
+      ConfigOptions.key("dead-letter.delivery")
+          .enumType(DeadLetterDelivery.class)
+          .defaultValue(DeadLetterDelivery.ASYNC)
+          .withFallbackKeys("dead_letter.delivery")
+          .withDescription(
+              "How a record is delivered to the dead-letter topic: 'async' (the default: hand "
+                  + "it to the producer and continue; a failed send is logged and counted in "
+                  + "numDeadLetterErrors, but the record may be lost) or 'sync' (wait for the "
+                  + "broker to acknowledge it before the source moves on; a failed send fails "
+                  + "the task instead of dropping the record). Values are case-insensitive; any "
+                  + "other value is rejected with a ValidationException.");
 
   private ProtoConfluentFormatOptions() {}
 }

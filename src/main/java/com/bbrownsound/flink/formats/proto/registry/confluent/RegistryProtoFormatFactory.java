@@ -1,5 +1,6 @@
 package com.bbrownsound.flink.formats.proto.registry.confluent;
 
+import com.bbrownsound.flink.formats.proto.registry.confluent.config.DeadLetterDelivery;
 import com.bbrownsound.flink.formats.proto.registry.confluent.config.OnDeserializeError;
 import com.bbrownsound.flink.formats.proto.registry.confluent.config.ProtoConfluentFormatConfig;
 import java.util.HashMap;
@@ -33,6 +34,12 @@ public class RegistryProtoFormatFactory
   /** Format identifier for table options (e.g. 'value.format' = 'proto-confluent'). */
   public static final String IDENTIFIER = "proto-confluent";
 
+  /** Producer property naming the brokers of the dead-letter topic. */
+  private static final String DEAD_LETTER_BOOTSTRAP_SERVERS = "bootstrap.servers";
+
+  /** The Kafka connector's table option naming the brokers of the table's own topic. */
+  private static final String TABLE_BOOTSTRAP_SERVERS = "properties.bootstrap.servers";
+
   /** Creates the factory; invoked by the Flink service loader. */
   public RegistryProtoFormatFactory() {}
 
@@ -42,6 +49,7 @@ public class RegistryProtoFormatFactory
     // Checked first so that a bad value is reported with the allowed values, rather than as the
     // generic "Invalid value for option" that validateFactoryOptions raises for it.
     OnDeserializeError.fromOptions(formatOptions);
+    DeadLetterDelivery.fromOptions(formatOptions);
     FactoryUtil.validateFactoryOptions(this, formatOptions);
     // Sink-only, but a declared option of this factory: reject a bad value on a source table too,
     // rather than only once the same table is written to.
@@ -49,7 +57,7 @@ public class RegistryProtoFormatFactory
     String url = formatOptions.get(ProtoConfluentFormatOptions.URL);
     String topic = formatOptions.get(ProtoConfluentFormatOptions.TOPIC);
     LOG.debug("[proto-confluent] Creating decoding format: url={}, topic={}", url, topic);
-    return new ProtoDecodingFormat(new ProtoConfluentFormatConfig(formatOptions));
+    return new ProtoDecodingFormat(createConfig(context, formatOptions));
   }
 
   @Override
@@ -58,10 +66,46 @@ public class RegistryProtoFormatFactory
     // The option only affects the source, but it is a declared option of this factory, so a bad
     // value is rejected on a sink too; report it with the allowed values there as well.
     OnDeserializeError.fromOptions(formatOptions);
+    DeadLetterDelivery.fromOptions(formatOptions);
     FactoryUtil.validateFactoryOptions(this, formatOptions);
     validateSchemaCacheTtl(formatOptions);
 
-    return new ProtoEncodingFormat(new ProtoConfluentFormatConfig(formatOptions));
+    return new ProtoEncodingFormat(createConfig(context, formatOptions));
+  }
+
+  /**
+   * Builds the format config and makes sure a configured dead-letter topic has a broker to write
+   * to. A missing {@code bootstrap.servers} in {@code dead-letter.properties} is filled in from
+   * the table's own {@code properties.bootstrap.servers} (the Kafka connector's option) when the
+   * table has one, and is rejected otherwise: it used to degrade to a WARN at open, which dropped
+   * poison records without dead-lettering them.
+   */
+  private static ProtoConfluentFormatConfig createConfig(
+      @Nullable DynamicTableFactory.Context context, ReadableConfig formatOptions) {
+    String tableBootstrapServers =
+        context == null
+            ? null
+            : context.getCatalogTable().getOptions().get(TABLE_BOOTSTRAP_SERVERS);
+    ProtoConfluentFormatConfig config =
+        new ProtoConfluentFormatConfig(formatOptions, tableBootstrapServers);
+    if (config.deadLetterTopic != null
+        && !config.getDeadLetterProperties().containsKey(DEAD_LETTER_BOOTSTRAP_SERVERS)) {
+      throw new ValidationException(
+          "'"
+              + ProtoConfluentFormatOptions.DEAD_LETTER_TOPIC.key()
+              + "' is set to '"
+              + config.deadLetterTopic
+              + "' but '"
+              + ProtoConfluentFormatOptions.DEAD_LETTER_PROPERTIES.key()
+              + "' has no '"
+              + DEAD_LETTER_BOOTSTRAP_SERVERS
+              + "' and the table has no '"
+              + TABLE_BOOTSTRAP_SERVERS
+              + "' to fall back to. Set the brokers of the dead-letter topic, or remove '"
+              + ProtoConfluentFormatOptions.DEAD_LETTER_TOPIC.key()
+              + "'.");
+    }
+    return config;
   }
 
   private static void validateSchemaCacheTtl(ReadableConfig formatOptions) {
@@ -103,7 +147,8 @@ public class RegistryProtoFormatFactory
             ProtoConfluentFormatOptions.BEARER_AUTH_TOKEN,
             ProtoConfluentFormatOptions.ON_DESERIALIZE_ERROR,
             ProtoConfluentFormatOptions.DEAD_LETTER_TOPIC,
-            ProtoConfluentFormatOptions.DEAD_LETTER_PROPERTIES)
+            ProtoConfluentFormatOptions.DEAD_LETTER_PROPERTIES,
+            ProtoConfluentFormatOptions.DEAD_LETTER_DELIVERY)
         .collect(Collectors.toSet());
   }
 
@@ -137,6 +182,7 @@ public class RegistryProtoFormatFactory
     options.add(ProtoConfluentFormatOptions.ON_DESERIALIZE_ERROR);
     options.add(ProtoConfluentFormatOptions.DEAD_LETTER_TOPIC);
     options.add(ProtoConfluentFormatOptions.DEAD_LETTER_PROPERTIES);
+    options.add(ProtoConfluentFormatOptions.DEAD_LETTER_DELIVERY);
     return options;
   }
 

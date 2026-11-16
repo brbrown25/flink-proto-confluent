@@ -1,6 +1,7 @@
 package com.bbrownsound.flink.formats.proto.registry.confluent.deserialize;
 
 import static java.util.concurrent.TimeUnit.SECONDS;
+import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -56,6 +57,7 @@ class ProtoRowDataDeserializationSchemaDeadLetterTest {
 
   private static final String DLQ_TOPIC = "dlq-deserialize-errors";
   private static final String FAIL_DLQ_TOPIC = "dlq-deserialize-errors-fail";
+  private static final String SYNC_DLQ_TOPIC = "dlq-deserialize-errors-sync";
   private static final String SOURCE_TOPIC = "source-topic";
 
   @Container
@@ -72,7 +74,9 @@ class ProtoRowDataDeserializationSchemaDeadLetterTest {
       admin
           .createTopics(
               List.of(
-                  new NewTopic(DLQ_TOPIC, 1, (short) 1), new NewTopic(FAIL_DLQ_TOPIC, 1, (short) 1)))
+                  new NewTopic(DLQ_TOPIC, 1, (short) 1),
+                  new NewTopic(FAIL_DLQ_TOPIC, 1, (short) 1),
+                  new NewTopic(SYNC_DLQ_TOPIC, 1, (short) 1)))
           .all()
           .get(60, SECONDS);
     }
@@ -138,6 +142,99 @@ class ProtoRowDataDeserializationSchemaDeadLetterTest {
     assertTrue(errorMessage != null, "error.message header must be present");
     assertTrue(sourceTopic != null, "source.topic header must be present");
     assertEquals(SOURCE_TOPIC, new String(sourceTopic.value(), StandardCharsets.UTF_8));
+
+    // Issue #171: the broker's acknowledgement is counted by the send callback.
+    await()
+        .atMost(30, SECONDS)
+        .until(() -> listener.getCounter("numDeadLetterRecords").get().getCount() == 1L);
+    assertEquals(0L, listener.getCounter("numDeadLetterErrors").get().getCount());
+    schema.close();
+  }
+
+  @Test
+  void deserialize_syncDelivery_recordIsOnTheTopicBeforeDeserializeReturns() throws IOException {
+    Configuration formatOptions = new Configuration();
+    formatOptions.set(ProtoConfluentFormatOptions.URL, "http://localhost:8081");
+    formatOptions.set(ProtoConfluentFormatOptions.TOPIC, SOURCE_TOPIC);
+    formatOptions.set(ProtoConfluentFormatOptions.ON_DESERIALIZE_ERROR, OnDeserializeError.SKIP);
+    formatOptions.set(ProtoConfluentFormatOptions.DEAD_LETTER_TOPIC, SYNC_DLQ_TOPIC);
+    formatOptions.set(
+        ProtoConfluentFormatOptions.DEAD_LETTER_PROPERTIES,
+        Map.of("bootstrap.servers", bootstrapServers));
+    formatOptions.setString("dead-letter.delivery", "sync");
+
+    MetricListener listener = new MetricListener();
+    try (var schema =
+        new ProtoRowDataDeserializationSchema(
+            rowType(), null, new ProtoConfluentFormatConfig(formatOptions))) {
+      schema.open(contextFor(listener));
+
+      byte[] poison = new byte[] {5, 4, 3, 2, 1};
+      assertNull(schema.deserialize(poison));
+      // Acknowledged by the time deserialize() returned: no waiting for the counter.
+      assertEquals(1L, listener.getCounter("numDeadLetterRecords").get().getCount());
+      assertEquals(0L, listener.getCounter("numDeadLetterErrors").get().getCount());
+
+      List<ConsumerRecord<byte[], byte[]>> records = consumeTopic(SYNC_DLQ_TOPIC);
+      assertEquals(1, records.size());
+      assertTrue(Arrays.equals(poison, records.get(0).value()));
+    }
+  }
+
+  @Test
+  void deserialize_syncDelivery_unreachableBroker_failsInsteadOfDroppingTheRecord() {
+    Configuration formatOptions = new Configuration();
+    formatOptions.set(ProtoConfluentFormatOptions.URL, "http://localhost:8081");
+    formatOptions.set(ProtoConfluentFormatOptions.TOPIC, SOURCE_TOPIC);
+    formatOptions.set(ProtoConfluentFormatOptions.ON_DESERIALIZE_ERROR, OnDeserializeError.SKIP);
+    formatOptions.set(ProtoConfluentFormatOptions.DEAD_LETTER_TOPIC, SYNC_DLQ_TOPIC);
+    // Nothing listens on port 1; keep the real producer from blocking for its default minute.
+    formatOptions.set(
+        ProtoConfluentFormatOptions.DEAD_LETTER_PROPERTIES,
+        Map.of("bootstrap.servers", "localhost:1", "max.block.ms", "1000"));
+    formatOptions.setString("dead-letter.delivery", "sync");
+
+    MetricListener listener = new MetricListener();
+    var schema =
+        new ProtoRowDataDeserializationSchema(
+            rowType(), null, new ProtoConfluentFormatConfig(formatOptions));
+    schema.open(contextFor(listener));
+
+    IOException e =
+        assertThrows(IOException.class, () -> schema.deserialize(new byte[] {0, 1, 2, 3, 4}));
+    assertTrue(e.getMessage().contains("dead-letter delivery"), e.getMessage());
+    assertEquals(1L, listener.getCounter("numDeadLetterErrors").get().getCount());
+    assertEquals(0L, listener.getCounter("numDeadLetterRecords").get().getCount());
+  }
+
+  @Test
+  void deserialize_asyncDelivery_unreachableBroker_skipsButCountsTheFailure() throws IOException {
+    Configuration formatOptions = new Configuration();
+    formatOptions.set(ProtoConfluentFormatOptions.URL, "http://localhost:8081");
+    formatOptions.set(ProtoConfluentFormatOptions.TOPIC, SOURCE_TOPIC);
+    formatOptions.set(ProtoConfluentFormatOptions.ON_DESERIALIZE_ERROR, OnDeserializeError.SKIP);
+    formatOptions.set(ProtoConfluentFormatOptions.DEAD_LETTER_TOPIC, SYNC_DLQ_TOPIC);
+    formatOptions.set(
+        ProtoConfluentFormatOptions.DEAD_LETTER_PROPERTIES,
+        Map.of("bootstrap.servers", "localhost:1", "max.block.ms", "1000"));
+
+    MetricListener listener = new MetricListener();
+    try (var schema =
+        new ProtoRowDataDeserializationSchema(
+            rowType(), null, new ProtoConfluentFormatConfig(formatOptions))) {
+      schema.open(contextFor(listener));
+
+      // Best effort: the record is dropped, but the lost dead letter is visible in the metric.
+      assertNull(schema.deserialize(new byte[] {0, 1, 2, 3, 4}));
+      await()
+          .atMost(30, SECONDS)
+          .until(() -> listener.getCounter("numDeadLetterErrors").get().getCount() == 1L);
+      assertEquals(0L, listener.getCounter("numDeadLetterRecords").get().getCount());
+    }
+  }
+
+  private static RowType rowType() {
+    return (RowType) ProtoToLogicalType.toLogicalType(TestSimple.SimpleMessage.getDescriptor());
   }
 
   @Test

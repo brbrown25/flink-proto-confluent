@@ -325,8 +325,9 @@ class ProtoConfluentFormatConfigTest {
 
   @Test
   void deadLetter_topicWithoutBootstrapServers_isAcceptedWithEmptyProperties() {
-    // Config construction stays lenient: the misconfiguration is only detected in open(), where
-    // the producer is skipped (asserted in ProtoRowDataDeserializationSchemaNegativeConfigTest).
+    // Config construction stays lenient: the format factory rejects the table (or fills the
+    // brokers in from it, see DeadLetterValidationTest), and open() fails for a config built
+    // without the factory (asserted in ProtoRowDataDeserializationSchemaNegativeConfigTest).
     Configuration options = new Configuration();
     options.set(ProtoConfluentFormatOptions.URL, "http://sr:8081");
     options.set(ProtoConfluentFormatOptions.TOPIC, "events");
