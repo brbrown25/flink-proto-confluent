@@ -107,7 +107,7 @@ dependencies {
     add("integrationTestImplementation", "org.apache.flink:flink-test-utils:$flinkVersion")
     add("integrationTestImplementation", "org.apache.flink:flink-test-utils-junit:$flinkVersion")
     add("integrationTestImplementation", "org.apache.flink:flink-runtime:$flinkVersion:tests")
-    add("integrationTestImplementation", "com.clickhouse:clickhouse-jdbc:0.11.0")
+    add("integrationTestImplementation", "com.clickhouse:clickhouse-jdbc:0.11.1")
     add("integrationTestImplementation", "org.apache.flink:flink-connector-jdbc:3.4.0-1.20")
 }
 
