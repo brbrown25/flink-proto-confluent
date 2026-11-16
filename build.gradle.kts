@@ -210,6 +210,84 @@ val verifyJars = tasks.register("verifyJars") {
     }
 }
 
+// Guards the published protobuf version (issue #189). `protoVersion` is what the POM advertises and
+// what the classpath reference tells users to pin. If a transitive dependency asks for a newer
+// protobuf-java, Gradle quietly resolves the newer one here, the tests pass against it, and the
+// POM keeps naming a version the library no longer works with.
+val protobufModules = listOf("protobuf-java", "protobuf-java-util")
+val verifyProtobufVersion = tasks.register("verifyProtobufVersion") {
+    description = "Checks that protoVersion is the protobuf version runtimeClasspath resolves."
+    group = "verification"
+    val declared = protoVersion
+    val modules = protobufModules
+    val resolved = configurations.runtimeClasspath.flatMap { classpath ->
+        classpath.incoming.artifacts.resolvedArtifacts.map { artifacts ->
+            artifacts.mapNotNull { it.id.componentIdentifier as? ModuleComponentIdentifier }
+                .filter { it.group == "com.google.protobuf" && it.module in modules }
+                .associate { it.module to it.version }
+        }
+    }
+    inputs.property("declared", declared)
+    inputs.property("resolved", resolved)
+    doLast {
+        val versions = resolved.get()
+        val absent = modules.filterNot { it in versions }
+        check(absent.isEmpty()) { "runtimeClasspath has no com.google.protobuf:$absent" }
+        val drifted = versions.filterValues { it != declared }
+        check(drifted.isEmpty()) {
+            "gradle.properties declares protoVersion=$declared, but runtimeClasspath resolves " +
+                drifted.map { (module, version) -> "$module:$version" }.joinToString() +
+                ". The POM would advertise a protobuf version the library is not built and " +
+                "tested with. Raise protoVersion to the resolved version (the highest one if " +
+                "they differ) and update the pin examples in " +
+                "docs/content/reference/classpath.md. To see what pulls the version up: " +
+                "./gradlew dependencyInsight --dependency protobuf-java " +
+                "--configuration runtimeClasspath"
+        }
+    }
+}
+
+// The test classpath with protobuf pinned to exactly `protoVersion`, the way the classpath
+// reference tells a job build to pin it. `declaredProtobufTest` runs the format on it, so a
+// declared version that the format's dependencies cannot initialise against fails here with the
+// error a user would get, rather than only as a version mismatch in verifyProtobufVersion.
+val declaredProtobufRuntimeClasspath by configurations.creating {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+    extendsFrom(configurations.testImplementation.get(), configurations.testRuntimeOnly.get())
+    attributes {
+        attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage.JAVA_RUNTIME))
+        attribute(Category.CATEGORY_ATTRIBUTE, objects.named(Category.LIBRARY))
+        attribute(Bundling.BUNDLING_ATTRIBUTE, objects.named(Bundling.EXTERNAL))
+        attribute(
+            LibraryElements.LIBRARY_ELEMENTS_ATTRIBUTE,
+            objects.named(LibraryElements.JAR)
+        )
+    }
+    resolutionStrategy.force(protobufModules.map { "com.google.protobuf:$it:$protoVersion" })
+}
+
+val declaredProtobufTest = tasks.register<Test>("declaredProtobufTest") {
+    description = "Runs the format against exactly the declared protobuf-java version."
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.main.get().output + sourceSets.test.get().output +
+        declaredProtobufRuntimeClasspath
+    useJUnitPlatform()
+    filter { includeTestsMatching("*DeclaredProtobufRuntimeTest") }
+    systemProperty("declaredProtoVersion", protoVersion)
+    jvmArgs(
+        "--add-opens=java.base/java.util=ALL-UNNAMED",
+        "--add-opens=java.base/java.lang=ALL-UNNAMED",
+        "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED"
+    )
+    // Same classes as `test`, on a different classpath: it must not add a second set of
+    // execution data to the coverage report.
+    extensions.configure<org.gradle.testing.jacoco.plugins.JacocoTaskExtension> {
+        isEnabled = false
+    }
+}
+
 spotless {
     java {
         googleJavaFormat()
@@ -229,6 +307,8 @@ tasks.check {
         tasks.spotlessCheck,
         tasks.jacocoTestCoverageVerification,
         verifyJars,
+        verifyProtobufVersion,
+        declaredProtobufTest,
         tasks.named("integrationTest")
     )
 }

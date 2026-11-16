@@ -29,6 +29,7 @@ make test       # unit tests only
 - Cover behaviour changes with tests. A bug fix starts with a test that fails without the fix.
 - `make check` enforces at least 80% line coverage overall and for the `serialize` and `deserialize` packages.
 - `verifyJars` (part of `check`) fails if the library JAR bundles dependencies or the `-all` JAR contains Flink or unrelocated libraries. If you add a dependency, read the [classpath reference](docs/content/reference/classpath.md) first.
+- `verifyProtobufVersion` (part of `check`) fails if a dependency pulls protobuf-java above `protoVersion` in `gradle.properties`. Raise `protoVersion` to the resolved version and update the pin examples in the classpath reference; `declaredProtobufTest` then runs the format against exactly that version.
 
 ## Documentation
 
