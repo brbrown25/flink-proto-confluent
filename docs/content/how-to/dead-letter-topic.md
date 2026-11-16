@@ -20,7 +20,7 @@ CREATE TABLE orders (
 );
 ```
 
-Each dead-letter record carries the original bytes plus `error.class`, `error.message` and `source.topic` headers. The `numDeserializeErrors` metric counts every record that failed to deserialize, `numDeadLetterRecords` counts the dead letters the broker acknowledged, and `numDeadLetterErrors` counts the ones that could not be written.
+Each dead-letter record carries the original bytes plus `error.class`, `error.message` and `source.topic` headers. The `numDeserializeErrors` metric counts every record that failed to deserialize, `numDeadLetterRecords` counts the dead letters the broker acknowledged, and `numDeadLetterErrors` counts the ones that could not be written; the [metrics reference](../reference/metrics.md) lists every metric the format exposes.
 
 !!! warning "The dead-letter topic needs brokers"
     Put `bootstrap.servers` in `dead-letter.properties`. When it is missing, the format falls back to the table's own `properties.bootstrap.servers`, which is right when the dead-letter topic lives on the same cluster as the source topic. Only the broker list is inherited, so a secured cluster still needs its `security.protocol`, `sasl.*` or `ssl.*` settings in `dead-letter.properties`. With no brokers from either place the table is rejected with a `ValidationException` when the query is planned; it no longer degrades to a `WARN` and silently dropped records.

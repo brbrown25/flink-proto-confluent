@@ -1,15 +1,15 @@
 package com.bbrownsound.flink.formats.proto.registry.confluent.serialize;
 
 import com.bbrownsound.flink.formats.proto.registry.confluent.config.ProtoConfluentFormatConfig;
-import io.confluent.kafka.schemaregistry.client.CachedSchemaRegistryClient;
+import com.bbrownsound.flink.formats.proto.registry.confluent.metrics.SchemaRegistryMetrics;
 import io.confluent.kafka.schemaregistry.client.SchemaRegistryClient;
 import io.confluent.kafka.schemaregistry.client.SchemaRegistryClientConfig;
-import io.confluent.kafka.schemaregistry.protobuf.ProtobufSchemaProvider;
 import java.time.Duration;
-import java.util.Collections;
 import java.util.Map;
 import java.util.function.LongSupplier;
 import org.apache.flink.api.common.serialization.SerializationSchema;
+import org.apache.flink.metrics.Counter;
+import org.apache.flink.metrics.MetricGroup;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.types.logical.RowType;
 
@@ -20,6 +20,9 @@ import org.apache.flink.table.types.logical.RowType;
 public class ProtoRowDataSerializationSchema implements SerializationSchema<RowData> {
   private static final long serialVersionUID = 1L;
 
+  /** Counter: rows the sink failed to serialize. */
+  static final String NUM_SERIALIZE_ERRORS = "numSerializeErrors";
+
   /** Flink row type for the serialized data. */
   private final RowType rowType;
 
@@ -28,6 +31,12 @@ public class ProtoRowDataSerializationSchema implements SerializationSchema<RowD
 
   private transient SchemaRegistryClient client;
   private transient RowDataProtoSerializer serializer;
+
+  /** The format's metric group; null when the schema was opened without a context. */
+  private transient MetricGroup metricGroup;
+
+  /** Counts rows that failed to serialize; null when there is no metric group. */
+  private transient Counter serializeErrors;
 
   /**
    * Creates a serialization schema for the given row type and config.
@@ -43,6 +52,10 @@ public class ProtoRowDataSerializationSchema implements SerializationSchema<RowD
   @Override
   public void open(InitializationContext context) {
     if (this.client == null) {
+      if (context != null) {
+        this.metricGroup = context.getMetricGroup();
+        this.serializeErrors = metricGroup.counter(NUM_SERIALIZE_ERRORS);
+      }
       this.client = createSchemaRegistryClient(clientProperties(formatConfig));
       this.serializer =
           new RowDataProtoSerializer(client, formatConfig.schemaCacheTtl, nanoClock());
@@ -52,11 +65,19 @@ public class ProtoRowDataSerializationSchema implements SerializationSchema<RowD
 
   /**
    * Serializes one row. A Schema Registry failure surfaces as an unchecked Kafka {@code
-   * SerializationException} whose cause is the registry's exception, which fails the task.
+   * SerializationException} whose cause is the registry's exception, which fails the task. Every
+   * row that fails, for that or any other reason, is counted in {@value #NUM_SERIALIZE_ERRORS}.
    */
   @Override
   public byte[] serialize(RowData element) {
-    return this.serializer.serializeRowData(formatConfig.topic, rowType, element);
+    try {
+      return this.serializer.serializeRowData(formatConfig.topic, rowType, element);
+    } catch (RuntimeException e) {
+      if (serializeErrors != null) {
+        serializeErrors.inc();
+      }
+      throw e;
+    }
   }
 
   /**
@@ -82,11 +103,8 @@ public class ProtoRowDataSerializationSchema implements SerializationSchema<RowD
 
   /** Creates the Schema Registry client; a seam for tests, which substitute an in-memory one. */
   SchemaRegistryClient createSchemaRegistryClient(Map<String, String> clientProperties) {
-    return new CachedSchemaRegistryClient(
-        formatConfig.schemaRegistryUrl,
-        100,
-        Collections.singletonList(new ProtobufSchemaProvider()),
-        clientProperties);
+    return SchemaRegistryMetrics.createClient(
+        formatConfig.schemaRegistryUrl, clientProperties, metricGroup);
   }
 
   /** Clock that times the schema cache; a seam for tests, which move time by hand. */
