@@ -20,5 +20,6 @@ This project is an improved, standalone derivative of [amstee/flink-proto-conflu
 - **[Demos](demos.md)** — terminal recordings of the format in action.
 - **[How-to Guides](how-to/message-class.md)** — task-oriented recipes.
 - **[Configuration reference](reference/configuration.md)** — every option, default and precedence rule.
+- **[Metrics reference](reference/metrics.md)** — every metric the format exposes, with its type and meaning.
 
 </div>

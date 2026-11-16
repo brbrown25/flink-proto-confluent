@@ -3,7 +3,6 @@ package com.bbrownsound.flink.formats.proto.registry.confluent.deserialize;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
-import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -22,10 +21,10 @@ import org.slf4j.LoggerFactory;
 import com.bbrownsound.flink.formats.proto.registry.confluent.config.DeadLetterDelivery;
 import com.bbrownsound.flink.formats.proto.registry.confluent.config.OnDeserializeError;
 import com.bbrownsound.flink.formats.proto.registry.confluent.config.ProtoConfluentFormatConfig;
+import com.bbrownsound.flink.formats.proto.registry.confluent.metrics.SchemaRegistryMetrics;
 import com.google.protobuf.DynamicMessage;
 
 import io.confluent.kafka.schemaregistry.client.CachedSchemaRegistryClient;
-import io.confluent.kafka.schemaregistry.protobuf.ProtobufSchemaProvider;
 import io.confluent.kafka.serializers.protobuf.KafkaProtobufDeserializer;
 
 import java.nio.charset.StandardCharsets;
@@ -33,6 +32,7 @@ import java.time.Duration;
 import java.util.Properties;
 
 import org.apache.flink.metrics.Counter;
+import org.apache.flink.metrics.Gauge;
 import org.apache.flink.metrics.ThreadSafeSimpleCounter;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.Producer;
@@ -53,6 +53,9 @@ public class ProtoRowDataDeserializationSchema
   private static final int LOG_EVERY_N_MESSAGES = 100;
   /** How long {@link #close()} waits for dead-letter records that are still in flight. */
   private static final Duration DEAD_LETTER_CLOSE_TIMEOUT = Duration.ofSeconds(10);
+
+  /** Gauge: number of writer schemas (schema IDs) this source holds a converter for. */
+  static final String NUM_CACHED_SCHEMAS = "numCachedSchemas";
 
   /** Type information for the produced RowData. */
   private final TypeInformation<RowData> resultTypeInfo;
@@ -98,11 +101,10 @@ public class ProtoRowDataDeserializationSchema
           formatConfig.isKey);
 
       this.client =
-          new CachedSchemaRegistryClient(
+          SchemaRegistryMetrics.createClient(
               formatConfig.schemaRegistryUrl,
-              100,
-              Collections.singletonList(new ProtobufSchemaProvider()),
-              formatConfig.getProperties());
+              formatConfig.getProperties(),
+              context != null ? context.getMetricGroup() : null);
       this.deserializer = new KafkaProtobufDeserializer<>(client);
       this.deserializer.configure(formatConfig.getProperties(), formatConfig.isKey);
       this.converters = new ConcurrentHashMap<>();
@@ -114,6 +116,8 @@ public class ProtoRowDataDeserializationSchema
         this.deserializeErrors = context.getMetricGroup().counter("numDeserializeErrors");
         context.getMetricGroup().counter("numDeadLetterRecords", deadLetterRecords);
         context.getMetricGroup().counter("numDeadLetterErrors", deadLetterErrors);
+        final Map<Integer, ?> converterCache = this.converters;
+        context.getMetricGroup().gauge(NUM_CACHED_SCHEMAS, (Gauge<Integer>) converterCache::size);
       }
 
       if (formatConfig.deadLetterTopic != null) {
