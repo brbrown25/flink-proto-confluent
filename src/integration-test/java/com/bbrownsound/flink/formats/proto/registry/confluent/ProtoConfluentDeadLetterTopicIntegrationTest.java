@@ -3,6 +3,8 @@ package com.bbrownsound.flink.formats.proto.registry.confluent;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.bbrownsound.flink.formats.proto.test.v1.TestSimple;
@@ -17,9 +19,12 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import org.apache.flink.api.common.JobStatus;
+import org.apache.flink.core.execution.JobClient;
 import org.apache.flink.runtime.testutils.MiniClusterResourceConfiguration;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.table.api.TableResult;
+import org.apache.flink.table.api.ValidationException;
 import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
 import org.apache.flink.test.util.MiniClusterWithClientResource;
 import org.apache.kafka.clients.admin.AdminClient;
@@ -58,6 +63,10 @@ import org.testcontainers.utility.DockerImageName;
  * crashing the job; a well-formed record on the same topic still flows through end to end; and the
  * poison record's raw bytes land on the dead-letter topic with the {@code error.class}, {@code
  * error.message} and {@code source.topic} headers. Covers GitHub issue #69.
+ *
+ * <p>Issue #171 adds: the dead-letter producer is closed once the job is gone; with {@code
+ * dead-letter.delivery=sync}, killing the dead-letter broker fails the job instead of silently
+ * dropping the poison record; and a dead-letter topic without its own brokers uses the table's.
  */
 @Testcontainers
 @DisplayName("Proto-confluent dead-letter topic + skip-keeps-job-alive integration")
@@ -69,6 +78,8 @@ class ProtoConfluentDeadLetterTopicIntegrationTest {
 
   private static final String SOURCE_TOPIC = "dlq-it-source";
   private static final String DLQ_TOPIC = "dlq-it-dead-letter";
+  private static final String ASYNC_CLIENT_ID = "dlq-it-async-producer";
+  private static final String SYNC_CLIENT_ID = "dlq-it-sync-producer";
   private static final Network network = Network.newNetwork();
 
   @Container
@@ -251,9 +262,13 @@ class ProtoConfluentDeadLetterTopicIntegrationTest {
             // "host:port", the value must be quoted (per Flink's StructuredOptionsSplitter) so
             // the extra colon isn't mistaken for another key/value separator. The single quotes
             // are doubled here because the whole thing is itself a SQL string literal.
+            // 'client.id' names the producer's I/O thread, which is how this test can tell
+            // whether the producer is still alive.
             + "  'value.proto-confluent.dead-letter.properties' = 'bootstrap.servers:''"
             + bootstrapForJob
-            + "'''"
+            + "'',client.id:"
+            + ASYNC_CLIENT_ID
+            + "'"
             + ")";
     tableEnv.executeSql(createSrc);
 
@@ -313,10 +328,212 @@ class ProtoConfluentDeadLetterTopicIntegrationTest {
       assertTrue(errorMessage != null, "error.message header must be present");
       assertTrue(sourceTopicHeader != null, "source.topic header must be present");
       assertEquals(SOURCE_TOPIC, new String(sourceTopicHeader.value(), StandardCharsets.UTF_8));
+      assertTrue(
+          producerThreadAlive(ASYNC_CLIENT_ID),
+          "The dead-letter producer must be running while the job is");
       LOG.info("test: done - job stayed alive, well-formed record delivered, poison dead-lettered");
     } finally {
       cancelQuietly(insertResult);
     }
+
+    // Issue #171: DeserializationSchema has no close(), so the producer is closed by the release
+    // hook on the job's user-code class loader once the cancelled job has left the TaskManager.
+    await()
+        .atMost(60, SECONDS)
+        .pollInterval(Duration.ofMillis(500))
+        .until(() -> !producerThreadAlive(ASYNC_CLIENT_ID));
+  }
+
+  @Test
+  void syncDelivery_deadLetterBrokerKilled_failsTheJobInsteadOfDroppingTheRecord()
+      throws Exception {
+    String sourceTopic = "dlq-sync-it-source";
+    String dlqTopic = "dlq-sync-it-dead-letter";
+    createTopic(sourceTopic);
+
+    // The dead-letter topic lives on its own broker so that it can be killed while the source
+    // topic (and therefore the job's Kafka source) stays healthy.
+    KafkaContainer dlqKafka =
+        new KafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.5.0"));
+    dlqKafka.start();
+    try {
+      String dlqBootstrap = dlqKafka.getBootstrapServers().replace("PLAINTEXT://", "");
+      try (AdminClient admin =
+          AdminClient.create(Map.of(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, dlqBootstrap))) {
+        admin.createTopics(List.of(new NewTopic(dlqTopic, 1, (short) 1))).all().get(60, SECONDS);
+        awaitKafkaTopicReady(admin, dlqTopic);
+      }
+
+      StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+      env.setParallelism(1);
+      StreamTableEnvironment tableEnv = StreamTableEnvironment.create(env);
+      tableEnv.executeSql(
+          "CREATE TABLE dlq_sync_src ("
+              + "  `content` STRING,"
+              + "  `date_time` STRING"
+              + ") WITH ("
+              + "  'connector' = 'kafka',"
+              + "  'topic' = '"
+              + sourceTopic
+              + "',"
+              + "  'properties.bootstrap.servers' = '"
+              + bootstrapForJob
+              + "',"
+              + "  'scan.startup.mode' = 'earliest-offset',"
+              + "  'value.format' = 'proto-confluent',"
+              + "  'value.proto-confluent.url' = '"
+              + schemaRegistryUrl
+              + "',"
+              + "  'value.proto-confluent.topic' = '"
+              + sourceTopic
+              + "',"
+              + "  'value.proto-confluent.on-deserialize-error' = 'skip',"
+              + "  'value.proto-confluent.dead-letter-topic' = '"
+              + dlqTopic
+              + "',"
+              + "  'value.proto-confluent.dead-letter.delivery' = 'sync',"
+              // Short producer timeouts, so a dead broker is noticed in seconds, not minutes.
+              + "  'value.proto-confluent.dead-letter.properties' = 'bootstrap.servers:''"
+              + dlqBootstrap
+              + "'',client.id:"
+              + SYNC_CLIENT_ID
+              + ",max.block.ms:5000,delivery.timeout.ms:5000,request.timeout.ms:2000'"
+              + ")");
+      tableEnv.executeSql(
+          "CREATE TABLE dlq_sync_sink (`content` STRING, `date_time` STRING)"
+              + " WITH ('connector' = 'blackhole')");
+
+      TableResult insertResult =
+          tableEnv.executeSql("INSERT INTO dlq_sync_sink SELECT * FROM dlq_sync_src");
+      JobClient jobClient = insertResult.getJobClient().orElseThrow();
+      try {
+        // While the dead-letter broker is up, a poison record is dead-lettered and skipped.
+        producePoison(sourceTopic, new byte[] {0, 1, 2, 3, 4});
+        await()
+            .atMost(90, SECONDS)
+            .pollInterval(Duration.ofSeconds(2))
+            .until(() -> consumeRecords(dlqBootstrap, dlqTopic).size() == 1);
+        assertEquals(JobStatus.RUNNING, jobClient.getJobStatus().get(30, SECONDS));
+
+        // Kill the dead-letter broker, then send another poison record. It can be neither
+        // emitted nor dead-lettered, so the job must fail rather than skip it.
+        dlqKafka.stop();
+        producePoison(sourceTopic, new byte[] {9, 8, 7, 6, 5});
+
+        await()
+            .atMost(120, SECONDS)
+            .pollInterval(Duration.ofSeconds(1))
+            .until(() -> jobClient.getJobStatus().get(30, SECONDS) == JobStatus.FAILED);
+
+        ExecutionException failure =
+            assertThrows(
+                ExecutionException.class, () -> jobClient.getJobExecutionResult().get(60, SECONDS));
+        String message = findMessageInCauseChain(failure, "dead-letter delivery");
+        assertNotNull(message, "The job must fail because of the dead-letter send: " + failure);
+        assertTrue(message.contains("'" + dlqTopic + "'"), message);
+        assertTrue(message.contains("'dead-letter.delivery' = 'sync'"), message);
+      } finally {
+        cancelQuietly(insertResult);
+      }
+
+      // The failing task closes its producer itself.
+      await()
+          .atMost(60, SECONDS)
+          .pollInterval(Duration.ofMillis(500))
+          .until(() -> !producerThreadAlive(SYNC_CLIENT_ID));
+    } finally {
+      dlqKafka.stop();
+    }
+  }
+
+  @Test
+  void deadLetterTopicWithoutItsOwnBrokers_usesTheTablesBootstrapServers() {
+    StreamTableEnvironment tableEnv =
+        StreamTableEnvironment.create(StreamExecutionEnvironment.getExecutionEnvironment());
+    String common =
+        " (`content` STRING, `date_time` STRING) WITH ("
+            + "  'connector' = 'kafka',"
+            + "  'topic' = '"
+            + SOURCE_TOPIC
+            + "',"
+            + "  'properties.bootstrap.servers' = '"
+            + bootstrapForJob
+            + "',"
+            + "  'scan.startup.mode' = 'earliest-offset',"
+            + "  'value.format' = 'proto-confluent',"
+            + "  'value.proto-confluent.url' = '"
+            + schemaRegistryUrl
+            + "',"
+            + "  'value.proto-confluent.topic' = '"
+            + SOURCE_TOPIC
+            + "',"
+            + "  'value.proto-confluent.on-deserialize-error' = 'skip',"
+            + "  'value.proto-confluent.dead-letter-topic' = '"
+            + DLQ_TOPIC
+            + "'";
+
+    // No 'dead-letter.properties' at all: accepted, because the Kafka table names its brokers.
+    tableEnv.executeSql("CREATE TABLE dlq_inherits" + common + ")");
+    assertNotNull(tableEnv.explainSql("SELECT * FROM dlq_inherits"));
+
+    // An unknown delivery mode is rejected when the query is planned, never treated as async.
+    tableEnv.executeSql(
+        "CREATE TABLE dlq_bad_delivery"
+            + common
+            + ", 'value.proto-confluent.dead-letter.delivery' = 'sink')");
+    ValidationException e =
+        assertThrows(
+            ValidationException.class, () -> tableEnv.explainSql("SELECT * FROM dlq_bad_delivery"));
+    String message = findMessageInCauseChain(e, "Allowed values");
+    assertNotNull(message, "No cause lists the allowed values: " + e);
+    assertTrue(message.contains("'dead-letter.delivery'"), message);
+    assertTrue(message.contains("async, sync"), message);
+  }
+
+  private static String findMessageInCauseChain(Throwable error, String fragment) {
+    for (Throwable t = error; t != null; t = t.getCause()) {
+      if (t.getMessage() != null && t.getMessage().contains(fragment)) {
+        return t.getMessage();
+      }
+    }
+    return null;
+  }
+
+  /** Whether a Kafka producer created with the given {@code client.id} is still running. */
+  private static boolean producerThreadAlive(String clientId) {
+    String threadName = "kafka-producer-network-thread | " + clientId;
+    return Thread.getAllStackTraces().keySet().stream()
+        .anyMatch(t -> t.getName().equals(threadName));
+  }
+
+  private static void producePoison(String topic, byte[] poison) throws Exception {
+    Map<String, Object> rawProducerConfig =
+        Map.of(
+            "bootstrap.servers",
+            bootstrapForJob,
+            "key.serializer",
+            ByteArraySerializer.class.getName(),
+            "value.serializer",
+            ByteArraySerializer.class.getName());
+    try (KafkaProducer<byte[], byte[]> producer = new KafkaProducer<>(rawProducerConfig)) {
+      producer.send(new ProducerRecord<>(topic, null, poison)).get(10, SECONDS);
+    }
+  }
+
+  private static List<ConsumerRecord<byte[], byte[]>> consumeRecords(
+      String bootstrap, String topic) {
+    Map<String, Object> props = new HashMap<>();
+    props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap);
+    props.put(ConsumerConfig.GROUP_ID_CONFIG, "dlq-sync-" + UUID.randomUUID());
+    props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class);
+    props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class);
+    props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+    List<ConsumerRecord<byte[], byte[]>> out = new ArrayList<>();
+    try (KafkaConsumer<byte[], byte[]> consumer = new KafkaConsumer<>(props)) {
+      consumer.subscribe(Collections.singletonList(topic));
+      consumer.poll(Duration.ofMillis(5000)).forEach(out::add);
+    }
+    return out;
   }
 
   private static void cancelQuietly(TableResult result) {

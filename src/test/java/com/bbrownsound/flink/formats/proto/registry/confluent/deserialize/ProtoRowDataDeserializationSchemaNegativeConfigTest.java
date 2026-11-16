@@ -28,9 +28,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * Covers GitHub issue #71: negative-path behavior of the error-handling options. Asserts the
- * (previously silent) contract that a {@code dead-letter-topic} without {@code bootstrap.servers}
- * creates no producer. Since issue #170 an unrecognized {@code on-deserialize-error} value no
+ * Covers GitHub issue #71: negative-path behavior of the error-handling options. Since issue #171
+ * a {@code dead-letter-topic} without {@code bootstrap.servers} no longer degrades to "no
+ * producer, log and count": {@code open()} fails instead. Since issue #170 an unrecognized {@code on-deserialize-error} value no
  * longer degrades to the {@code skip} path: it is rejected with a {@code ValidationException}
  * before a schema can be built, which is asserted here as well.
  */
@@ -79,43 +79,37 @@ class ProtoRowDataDeserializationSchemaNegativeConfigTest {
   }
 
   @Test
-  void deadLetterTopicWithoutBootstrapServers_doesNotCreateProducer()
-      throws IOException, ReflectiveOperationException {
+  void deadLetterTopicWithoutBootstrapServers_failsOpen() throws ReflectiveOperationException {
     Configuration options = baseOptions("skip");
     options.set(ProtoConfluentFormatOptions.DEAD_LETTER_TOPIC, "dlq");
     // Deliberately no 'dead-letter.properties' at all.
     ProtoConfluentFormatConfig config = new ProtoConfluentFormatConfig(options);
 
-    MetricListener listener = new MetricListener();
     var schema = new ProtoRowDataDeserializationSchema(rowType(), null, config);
-    schema.open(contextFor(listener));
-
+    IllegalStateException e =
+        assertThrows(
+            IllegalStateException.class, () -> schema.open(contextFor(new MetricListener())));
+    assertTrue(e.getMessage().contains("'dlq'"), e.getMessage());
+    assertTrue(e.getMessage().contains("bootstrap.servers"), e.getMessage());
     assertNull(
         deadLetterProducerOf(schema),
         "No dead-letter producer may be created without 'bootstrap.servers'");
-
-    // The record is still dropped and counted: the misconfiguration degrades the DLQ only.
-    assertNull(schema.deserialize(POISON));
-    assertEquals(1L, listener.getCounter("numDeserializeErrors").get().getCount());
   }
 
   @Test
-  void deadLetterPropertiesWithoutBootstrapServers_doesNotCreateProducer()
-      throws IOException, ReflectiveOperationException {
+  void deadLetterPropertiesWithoutBootstrapServers_failsOpen()
+      throws ReflectiveOperationException {
     Configuration options = baseOptions("skip");
     options.set(ProtoConfluentFormatOptions.DEAD_LETTER_TOPIC, "dlq");
-    // Properties are present but 'bootstrap.servers' is missing — same degraded outcome.
+    // Properties are present but 'bootstrap.servers' is missing: same outcome.
     options.set(
         ProtoConfluentFormatOptions.DEAD_LETTER_PROPERTIES, Map.of("security.protocol", "SSL"));
     ProtoConfluentFormatConfig config = new ProtoConfluentFormatConfig(options);
 
-    MetricListener listener = new MetricListener();
     var schema = new ProtoRowDataDeserializationSchema(rowType(), null, config);
-    schema.open(contextFor(listener));
-
+    // Also without an InitializationContext, the way a caller outside Flink opens the schema.
+    assertThrows(IllegalStateException.class, () -> schema.open(null));
     assertNull(deadLetterProducerOf(schema));
-    assertNull(schema.deserialize(POISON));
-    assertEquals(1L, listener.getCounter("numDeserializeErrors").get().getCount());
   }
 
   @Test
@@ -233,10 +227,9 @@ class ProtoRowDataDeserializationSchemaNegativeConfigTest {
   }
 
   @Test
-  void skipWithDeadLetterTopicButNoBootstrapServers_viaFallbackKey_stillSkips()
-      throws IOException, ReflectiveOperationException {
-    // The interaction with 'dead-letter-topic' is unchanged by the enum: a topic without
-    // 'bootstrap.servers' is still accepted, creates no producer, and the record is skipped.
+  void skipWithDeadLetterTopicButNoBootstrapServers_viaFallbackKey_failsOpen() {
+    // The fallback keys reach the same check: a topic without 'bootstrap.servers' is accepted by
+    // the config (the format factory is what validates a table) but can no longer be opened.
     Configuration options = new Configuration();
     options.set(ProtoConfluentFormatOptions.URL, "http://localhost:8081");
     options.set(ProtoConfluentFormatOptions.TOPIC, "source-topic");
@@ -246,12 +239,9 @@ class ProtoRowDataDeserializationSchemaNegativeConfigTest {
     assertEquals(OnDeserializeError.SKIP, config.onDeserializeError);
     assertEquals("dlq", config.deadLetterTopic);
 
-    MetricListener listener = new MetricListener();
     var schema = new ProtoRowDataDeserializationSchema(rowType(), null, config);
-    schema.open(contextFor(listener));
-    assertNull(deadLetterProducerOf(schema));
-    assertNull(schema.deserialize(POISON));
-    assertEquals(1L, listener.getCounter("numDeserializeErrors").get().getCount());
+    assertThrows(
+        IllegalStateException.class, () -> schema.open(contextFor(new MetricListener())));
   }
 
   @Test

@@ -35,6 +35,11 @@ public class ProtoConfluentFormatConfig implements Serializable {
   /** Optional dead-letter topic for records that fail to deserialize (null = disabled). */
   public String deadLetterTopic;
 
+  /**
+   * How dead-letter records are delivered: {@link DeadLetterDelivery#ASYNC} (default) or SYNC.
+   */
+  public DeadLetterDelivery deadLetterDelivery = DeadLetterDelivery.ASYNC;
+
   /** Producer properties for the dead-letter topic (bootstrap.servers + security). */
   private Map<String, String> deadLetterProperties = new HashMap<>();
 
@@ -68,9 +73,26 @@ public class ProtoConfluentFormatConfig implements Serializable {
    *
    * @param formatOptions the format options from the table environment
    * @throws org.apache.flink.table.api.ValidationException if {@code on-deserialize-error} is set
-   *     to anything other than {@code fail} or {@code skip} (case-insensitive)
+   *     to anything other than {@code fail} or {@code skip}, or {@code dead-letter.delivery} to
+   *     anything other than {@code async} or {@code sync} (both case-insensitive)
    */
   public ProtoConfluentFormatConfig(ReadableConfig formatOptions) {
+    this(formatOptions, null);
+  }
+
+  /**
+   * Constructs config from Flink format options, with a broker list for the dead-letter topic to
+   * fall back to.
+   *
+   * @param formatOptions the format options from the table environment
+   * @param defaultDeadLetterBootstrapServers {@code bootstrap.servers} to use for the dead-letter
+   *     producer when a dead-letter topic is set and {@code dead-letter.properties} does not name
+   *     any; {@code null} for no fallback
+   * @throws org.apache.flink.table.api.ValidationException as for {@link
+   *     #ProtoConfluentFormatConfig(ReadableConfig)}
+   */
+  public ProtoConfluentFormatConfig(
+      ReadableConfig formatOptions, String defaultDeadLetterBootstrapServers) {
     Boolean autoRegister = formatOptions.get(ProtoConfluentFormatOptions.AUTO_REGISTER_SCHEMAS);
     Boolean normalize = formatOptions.get(ProtoConfluentFormatOptions.NORMALIZE_SCHEMAS);
     Integer schemaId = formatOptions.get(ProtoConfluentFormatOptions.USE_SCHEMA_ID);
@@ -81,10 +103,14 @@ public class ProtoConfluentFormatConfig implements Serializable {
     onDeserializeError = OnDeserializeError.fromOptions(formatOptions);
     deadLetterTopic =
         formatOptions.getOptional(ProtoConfluentFormatOptions.DEAD_LETTER_TOPIC).orElse(null);
+    deadLetterDelivery = DeadLetterDelivery.fromOptions(formatOptions);
     deadLetterProperties = new HashMap<>();
     formatOptions
         .getOptional(ProtoConfluentFormatOptions.DEAD_LETTER_PROPERTIES)
         .ifPresent(deadLetterProperties::putAll);
+    if (deadLetterTopic != null && defaultDeadLetterBootstrapServers != null) {
+      deadLetterProperties.putIfAbsent("bootstrap.servers", defaultDeadLetterBootstrapServers);
+    }
 
     schemaCacheTtl =
         formatOptions.getOptional(ProtoConfluentFormatOptions.SCHEMA_CACHE_TTL).orElse(null);
