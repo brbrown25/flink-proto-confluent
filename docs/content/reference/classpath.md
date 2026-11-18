@@ -101,3 +101,67 @@ Other Flink modules, `flink-protobuf` among them, bring protobuf-java 3.x. A job
     ```
 
 Use the version this library declares, or newer; never an older one. If you build a fat job JAR, shade this library's dependencies the same way you shade your other connectors; the library JAR does not relocate anything itself.
+
+### lz4-java on Flink 2.x
+
+Flink 2.x depends on `at.yawk.lz4:lz4-java` (1.10.3 with Flink 2.2.1), a maintained fork of lz4-java that declares the `org.lz4:lz4-java` capability. This library reaches the original `org.lz4:lz4-java` (1.8.0) through Confluent's `kafka-clients`. Both provide the same `net.jpountz` classes, so the two must not end up on one classpath. Flink 1.20 uses `org.lz4:lz4-java` itself and is not affected.
+
+Gradle sees the shared capability and refuses to pick one, so a job that depends on `flink-proto-confluent-flink2` and on `flink-clients` or `flink-runtime` 2.x fails to resolve:
+
+```text
+> Could not resolve at.yawk.lz4:lz4-java:1.10.3.
+     Required by: root project > org.apache.flink:flink-clients:2.2.1 > org.apache.flink:flink-runtime:2.2.1
+   > Module 'at.yawk.lz4:lz4-java' has been rejected:
+        Cannot select module because of conflict with org.lz4:lz4-java:1.8.0 (runtime). Both provide capability 'org.lz4:lz4-java:1.10.3'.
+```
+
+Select Flink's fork. Maven has no notion of capabilities and silently puts both JARs on the classpath, so exclude the original there instead.
+
+=== "Gradle (Kotlin)"
+
+    ```kotlin
+    configurations.configureEach {
+        resolutionStrategy.capabilitiesResolution.withCapability("org.lz4", "lz4-java") {
+            val fork = candidates.firstOrNull {
+                val id = it.id
+                id is ModuleComponentIdentifier && id.group == "at.yawk.lz4"
+            }
+            if (fork != null) {
+                select(fork)
+                because("Flink 2.x uses the at.yawk.lz4 fork of lz4-java")
+            }
+        }
+    }
+    ```
+
+=== "Gradle (Groovy)"
+
+    ```groovy
+    configurations.configureEach {
+        resolutionStrategy.capabilitiesResolution.withCapability('org.lz4', 'lz4-java') {
+            def fork = candidates.find { it.id instanceof ModuleComponentIdentifier && it.id.group == 'at.yawk.lz4' }
+            if (fork != null) {
+                select(fork)
+                because('Flink 2.x uses the at.yawk.lz4 fork of lz4-java')
+            }
+        }
+    }
+    ```
+
+=== "Maven"
+
+    ```xml
+    <dependency>
+        <groupId>com.bbrownsound</groupId>
+        <artifactId>flink-proto-confluent-flink2</artifactId>
+        <version>${flink-proto-confluent.version}</version>
+        <exclusions>
+            <exclusion>
+                <groupId>org.lz4</groupId>
+                <artifactId>lz4-java</artifactId>
+            </exclusion>
+        </exclusions>
+    </dependency>
+    ```
+
+The rule only acts when the fork is present, so it is safe to keep in a build that also compiles against Flink 1.20.

@@ -194,6 +194,9 @@ Replace `1.2.0` with the [latest release](https://github.com/brbrown25/flink-pro
 !!! note "Flink Kafka connector"
     The format decodes and encodes bytes; you still need the Flink Kafka SQL connector for your Flink line on the classpath to read from or write to Kafka: `flink-sql-connector-kafka-3.4.0-1.20.jar` on Flink 1.20, `flink-sql-connector-kafka-5.0.0-2.2.jar` on Flink 2.x.
 
+!!! warning "Gradle builds on Flink 2.x"
+    Flink 2.x and this library bring two different lz4-java modules that Gradle refuses to resolve side by side (`Both provide capability 'org.lz4:lz4-java'`). Add the capability rule from [lz4-java on Flink 2.x](reference/classpath.md#lz4-java-on-flink-2x); on Maven, exclude `org.lz4:lz4-java` from this dependency.
+
 ## 2. Declare a table
 
 Use the format identifier `proto-confluent`. `url` and `topic` are required; `topic` is used to derive the subject (`<topic>-value`).
