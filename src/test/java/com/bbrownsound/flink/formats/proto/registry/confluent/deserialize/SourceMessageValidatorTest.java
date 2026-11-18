@@ -431,7 +431,12 @@ class SourceMessageValidatorTest {
             SourceMessageValidator.validateRowType(
                 d, row(ROW(FIELD("type", STRING()), FIELD("status", ARRAY(STRING())))),
                 CLASS_NAME));
-    String message = validationError(d, ROW(FIELD("type", INT())));
+    // INT reads the enum's number (#174).
+    assertDoesNotThrow(
+        () ->
+            SourceMessageValidator.validateRowType(
+                d, row(ROW(FIELD("type", INT()), FIELD("status", ARRAY(INT())))), CLASS_NAME));
+    String message = validationError(d, ROW(FIELD("type", BIGINT())));
     assertTrue(message.contains("(enum) reads as STRING"), message);
   }
 }

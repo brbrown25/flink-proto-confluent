@@ -13,6 +13,7 @@ import com.bbrownsound.flink.formats.proto.registry.confluent.util.ProtoToLogica
 import com.bbrownsound.flink.formats.proto.registry.confluent.util.RowTypeToProto;
 import com.google.protobuf.Any;
 import com.google.protobuf.Descriptors.Descriptor;
+import com.google.protobuf.Descriptors.EnumValueDescriptor;
 import com.google.protobuf.Descriptors.FieldDescriptor;
 import com.google.protobuf.DynamicMessage;
 import com.google.protobuf.Message;
@@ -23,9 +24,11 @@ import io.confluent.kafka.schemaregistry.protobuf.ProtobufSchema;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import org.apache.flink.table.api.ValidationException;
 import org.apache.flink.table.data.DecimalData;
 import org.apache.flink.table.data.GenericArrayData;
+import org.apache.flink.table.data.GenericMapData;
 import org.apache.flink.table.data.GenericRowData;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.data.StringData;
@@ -33,8 +36,10 @@ import org.apache.flink.table.data.TimestampData;
 import org.apache.flink.table.types.logical.ArrayType;
 import org.apache.flink.table.types.logical.BigIntType;
 import org.apache.flink.table.types.logical.DecimalType;
+import org.apache.flink.table.types.logical.IntType;
 import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.LogicalTypeRoot;
+import org.apache.flink.table.types.logical.MapType;
 import org.apache.flink.table.types.logical.RowType;
 import org.apache.flink.table.types.logical.RowType.RowField;
 import org.apache.flink.table.types.logical.TimestampType;
@@ -61,6 +66,10 @@ class TypeCoverageTest {
                       "import \"google/protobuf/wrappers.proto\";",
                       "import \"google/protobuf/struct.proto\";",
                       "import \"google/protobuf/any.proto\";",
+                      "enum Color {",
+                      "  RED = 0;",
+                      "  GREEN = 1;",
+                      "}",
                       "message Coverage {",
                       "  google.protobuf.Timestamp ts = 1;",
                       "  repeated google.protobuf.Timestamp ts_list = 2;",
@@ -75,6 +84,9 @@ class TypeCoverageTest {
                       "  repeated google.protobuf.Struct structs = 11;",
                       "  google.protobuf.Any any = 12;",
                       "  Inner inner = 13;",
+                      "  Color color = 14;",
+                      "  repeated Color colors = 15;",
+                      "  map<string, Color> color_map = 16;",
                       "  message Inner {",
                       "    string inner_name = 1;",
                       "    int32 count = 2;",
@@ -372,5 +384,70 @@ class TypeCoverageTest {
     final RowData out = read(type, message).getRow(0, 2);
     assertEquals("type.googleapis.com/google.protobuf.Timestamp", out.getString(0).toString());
     assertArrayEquals(packed, out.getBinary(1));
+  }
+
+  // ---- enum as INT ---------------------------------------------------------------------------
+
+  @Test
+  void enumRoundTripsAsItsNumber() throws Exception {
+    final RowType type =
+        row(
+            field("color", new IntType()),
+            field("colors", new ArrayType(new IntType())),
+            field("color_map", new MapType(VarCharType.STRING_TYPE, new IntType())));
+    final GenericRowData in =
+        GenericRowData.of(
+            1,
+            new GenericArrayData(new Object[] {0, 1, 7}),
+            new GenericMapData(Map.of(str("k"), 1)));
+
+    final Message message = write(type, in);
+    assertEquals("GREEN", ((EnumValueDescriptor) protoField(message, "color")).getName());
+
+    final RowData out = read(type, message);
+    assertEquals(1, out.getInt(0));
+    assertArrayEquals(new int[] {0, 1, 7}, out.getArray(1).toIntArray());
+    assertEquals(1, out.getMap(2).valueArray().getInt(0));
+  }
+
+  @Test
+  void anUnknownEnumNumberRoundTripsInAnOpenEnum() throws Exception {
+    final RowType type = row(field("color", new IntType()));
+    final Message message = write(type, GenericRowData.of(42));
+    assertEquals(42, ((EnumValueDescriptor) protoField(message, "color")).getNumber());
+    assertEquals(42, read(type, message).getInt(0));
+    // Reading it as STRING still gives a name, as it always has.
+    assertTrue(
+        read(row(field("color", VarCharType.STRING_TYPE)), message)
+            .getString(0)
+            .toString()
+            .contains("42"));
+  }
+
+  @Test
+  void writingAnUnknownNumberToAClosedEnumFails() {
+    final Descriptor closed =
+        (Descriptor)
+            new ProtobufSchema(
+                    "syntax = \"proto2\"; package closed; enum Shade { LIGHT = 1; DARK = 2; }"
+                        + " message C { optional Shade shade = 1; }")
+                .toDescriptor();
+    final RowType type = row(field("shade", new IntType()));
+    final RowDataToProtoConverters.RowDataToProtoConverter converter =
+        RowDataToProtoConverters.createConverter(type, closed);
+    final Message known = (Message) converter.convert(GenericRowData.of(2));
+    assertEquals(
+        "DARK", ((EnumValueDescriptor) known.getField(closed.findFieldByName("shade"))).getName());
+    final IllegalArgumentException e =
+        assertThrows(IllegalArgumentException.class, () -> converter.convert(GenericRowData.of(3)));
+    assertTrue(e.getMessage().contains("closed.Shade"), e.getMessage());
+  }
+
+  @Test
+  void intPassesTheMessageClassCheckForAnEnum() {
+    SourceMessageValidator.validateRowType(
+        COVERAGE,
+        row(field("color", new IntType()), field("colors", new ArrayType(new IntType()))),
+        CLASS_NAME);
   }
 }

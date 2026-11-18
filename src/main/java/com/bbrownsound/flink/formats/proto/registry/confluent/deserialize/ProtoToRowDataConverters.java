@@ -4,6 +4,7 @@ import com.bbrownsound.flink.formats.proto.registry.confluent.util.DeclaredTypes
 import com.bbrownsound.flink.formats.proto.registry.confluent.util.ProtoJson;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.Descriptors.Descriptor;
+import com.google.protobuf.Descriptors.EnumValueDescriptor;
 import com.google.protobuf.Descriptors.FieldDescriptor;
 import com.google.protobuf.Descriptors.FieldDescriptor.Type;
 import com.google.protobuf.Descriptors.OneofDescriptor;
@@ -504,6 +505,9 @@ public class ProtoToRowDataConverters {
       LogicalType targetType, Type schemaType) {
     return switch (schemaType) {
       case INT32, SINT32, SFIXED32 -> object -> ((Number) object).intValue();
+      // The enum's number. A number the reader's enum does not define (an open enum's unknown
+      // value) reads as that number too.
+      case ENUM -> object -> ((EnumValueDescriptor) object).getNumber();
       case MESSAGE -> object -> ((Number) extractValueField(object)).intValue();
       default -> throw unexpectedTypeForSchema(schemaType, targetType.getTypeRoot());
     };

@@ -20,6 +20,9 @@ import org.apache.flink.table.types.logical.LogicalType;
  *       #isSerializedMessage}) as {@code STRING}: the message's proto3 JSON, see {@link ProtoJson}.
  *       Derived DDL does this for {@code google.protobuf.Struct}, {@code Value} and {@code
  *       ListValue}.
+ *   <li>An {@code enum} as {@code INT}: the value's number. A number the enum does not define reads
+ *       as itself; writing one keeps it in an open (proto3) enum and fails for a closed (proto2)
+ *       one.
  * </ul>
  */
 public final class DeclaredTypes {
@@ -42,6 +45,8 @@ public final class DeclaredTypes {
         return field.getType() == FieldDescriptor.Type.UINT64
             || field.getType() == FieldDescriptor.Type.FIXED64
             || isMessage(field, CommonConstants.PROTOBUF_UINT64_WRAPPER_TYPE);
+      case INTEGER:
+        return field.getType() == FieldDescriptor.Type.ENUM;
       case CHAR:
       case VARCHAR:
         return isSerializedMessage(field) && !isMessage(field, CommonConstants.PROTOBUF_ANY_TYPE);

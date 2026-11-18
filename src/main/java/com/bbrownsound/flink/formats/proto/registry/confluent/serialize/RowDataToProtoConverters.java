@@ -6,6 +6,8 @@ import com.google.protobuf.BoolValue;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.BytesValue;
 import com.google.protobuf.Descriptors.Descriptor;
+import com.google.protobuf.Descriptors.EnumDescriptor;
+import com.google.protobuf.Descriptors.EnumValueDescriptor;
 import com.google.protobuf.Descriptors.FieldDescriptor;
 import com.google.protobuf.Descriptors.FieldDescriptor.Type;
 import com.google.protobuf.Descriptors.OneofDescriptor;
@@ -298,6 +300,10 @@ public class RowDataToProtoConverters {
       case VARBINARY:
         if (targetSchema.getType() == Type.MESSAGE) {
           return createWrapperConverter(type, targetSchema);
+        } else if (targetSchema.getType() == Type.ENUM
+            && type.getTypeRoot() == org.apache.flink.table.types.logical.LogicalTypeRoot.INTEGER) {
+          final EnumDescriptor enumType = targetSchema.getEnumType();
+          return value -> enumValue(enumType, (Integer) value, targetSchema);
         } else if (type.getTypeRoot() == org.apache.flink.table.types.logical.LogicalTypeRoot.BIGINT
             && (targetSchema.getType() == Type.UINT32
                 || targetSchema.getType() == Type.FIXED32
@@ -503,6 +509,26 @@ public class RowDataToProtoConverters {
             "Value %s does not fit the unsigned 64-bit field '%s': it must be a whole number"
                 + " from 0 to 18446744073709551615.",
             value.toPlainString(), field.getFullName()));
+  }
+
+  /**
+   * Returns the enum value with the given number. An open (proto3) enum keeps a number it does not
+   * define, as Protobuf does; a closed (proto2) enum cannot hold one, so writing it fails.
+   */
+  private static EnumValueDescriptor enumValue(
+      EnumDescriptor enumType, int number, FieldDescriptor field) {
+    final EnumValueDescriptor known = enumType.findValueByNumber(number);
+    if (known != null) {
+      return known;
+    }
+    if (enumType.isClosed()) {
+      throw new IllegalArgumentException(
+          String.format(
+              "Enum %s of field '%s' has no value numbered %d, and a closed (proto2) enum cannot"
+                  + " hold an unknown number.",
+              enumType.getFullName(), field.getFullName(), number));
+    }
+    return enumType.findValueByNumberCreatingIfUnknown(number);
   }
 
   private static boolean isMessage(FieldDescriptor field, String fullName) {
