@@ -320,12 +320,14 @@ class RowDataToProtoConvertersTest {
 
   @Test
   void unsupportedType_throws() {
-    org.apache.flink.table.types.logical.TimestampType timestampType =
-        new org.apache.flink.table.types.logical.TimestampType(3);
+    // TIMESTAMP is supported since #174; a year-month interval has no Protobuf counterpart.
+    org.apache.flink.table.types.logical.YearMonthIntervalType intervalType =
+        new org.apache.flink.table.types.logical.YearMonthIntervalType(
+            org.apache.flink.table.types.logical.YearMonthIntervalType.YearMonthResolution.YEAR);
     RowType rowType =
         new RowType(
             false,
-            java.util.List.of(new RowType.RowField("x", timestampType)));
+            java.util.List.of(new RowType.RowField("x", intervalType)));
     var descriptor =
         RowTypeToProto.fromRowType(
             new RowType(

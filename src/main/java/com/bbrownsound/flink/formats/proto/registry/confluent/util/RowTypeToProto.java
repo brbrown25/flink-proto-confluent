@@ -54,6 +54,7 @@ import org.apache.flink.table.types.logical.RowType.RowField;
  * | BINARY                 | BYTES            |                           |                                           |
  * | VARBINARY              | BYTES            |                           |                                           |
  * | TIMESTAMP_LTZ          | MESSAGE          | google.protobuf.Timestamp |                                           |
+ * | TIMESTAMP              | MESSAGE          | google.protobuf.Timestamp | wall-clock time read and written as UTC   |
  * | DATE                   | MESSAGE          | google.type.Date          |                                           |
  * | TIME_WITHOUT_TIME_ZONE | MESSAGE          | google.type.TimeOfDay     |                                           |
  * | DECIMAL                | MESSAGE          | confluent.type.Decimal    |                                           |
@@ -188,6 +189,7 @@ public class RowTypeToProto {
         builder.setType(Type.TYPE_BYTES);
         return builder.build();
       case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
+      case TIMESTAMP_WITHOUT_TIME_ZONE:
         builder.setType(Type.TYPE_MESSAGE);
         builder.setTypeName(makeItTopLevelScoped(CommonConstants.PROTOBUF_TIMESTAMP_TYPE));
         dependencies.add(CommonConstants.PROTOBUF_TIMESTAMP_LOCATION);
@@ -275,7 +277,6 @@ public class RowTypeToProto {
               new IntType(false),
               multisetType.isNullable());
         }
-      case TIMESTAMP_WITHOUT_TIME_ZONE:
       case TIMESTAMP_WITH_TIME_ZONE:
       case INTERVAL_YEAR_MONTH:
       case INTERVAL_DAY_TIME:

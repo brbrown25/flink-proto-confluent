@@ -356,6 +356,9 @@ public class RowDataToProtoConverters {
           }
         };
       case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
+      case TIMESTAMP_WITHOUT_TIME_ZONE:
+        // TIMESTAMP (no time zone) is written as the instant of its wall-clock time in UTC, the
+        // inverse of how it is read.
         return new RowDataToProtoConverter() {
           @Override
           public Object convert(Object value) {
@@ -388,7 +391,6 @@ public class RowDataToProtoConverters {
       case INTERVAL_YEAR_MONTH:
       case RAW:
       case NULL:
-      case TIMESTAMP_WITHOUT_TIME_ZONE:
       default:
         throw new UnsupportedOperationException("Unsupported type: " + type);
     }
