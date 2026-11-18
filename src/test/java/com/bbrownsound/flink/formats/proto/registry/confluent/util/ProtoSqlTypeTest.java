@@ -15,6 +15,8 @@ import com.bbrownsound.flink.formats.proto.test.v1.TestRepeated;
 import com.bbrownsound.flink.formats.proto.test.v1.TestRepeatedNested;
 import com.bbrownsound.flink.formats.proto.test.v1.TestSimple;
 import com.bbrownsound.flink.formats.proto.test.v1.TestWrapperTypes;
+import com.google.protobuf.DescriptorProtos;
+import com.google.protobuf.Descriptors;
 import com.google.protobuf.Descriptors.Descriptor;
 import io.confluent.kafka.schemaregistry.protobuf.ProtobufSchema;
 import java.util.List;
@@ -60,7 +62,19 @@ class ProtoSqlTypeTest {
           "  bytes raw = 10;",
           "  confluent.type.Decimal odd = 11 [(confluent.field_meta) = { params: [",
           "    { key: \"precision\", value: \"x\" } ] }];",
+          "  int32 described = 12 [(confluent.field_meta) = { doc: \"no connect.type\" }];",
+          "  repeated SoloEntry solo = 13;",
+          "  repeated KeyedEntry keyed = 14;",
+          "  repeated ValuedEntry valued = 15;",
+          "  repeated RepeatedKeyEntry repeated_key = 16;",
+          "  repeated RepeatedValueEntry repeated_value = 17;",
           "  message Inner { string note = 1; optional int64 count = 2; }",
+          // Named like map entries, but each breaks one rule of the map-entry shape.
+          "  message SoloEntry { string key = 1; }",
+          "  message KeyedEntry { string k = 1; string value = 2; }",
+          "  message ValuedEntry { string key = 1; string v = 2; }",
+          "  message RepeatedKeyEntry { repeated string key = 1; string value = 2; }",
+          "  message RepeatedValueEntry { string key = 1; repeated string value = 2; }",
           "}");
 
   static Descriptor typed() {
@@ -131,6 +145,70 @@ class ProtoSqlTypeTest {
         "`by_key` MAP<STRING, ROW<`note` STRING, `count` BIGINT>> NOT NULL", columns.get(8));
     assertEquals("`raw` VARBINARY", columns.get(9));
     assertEquals("`odd` DECIMAL(10,0)", columns.get(10), "an unparsable precision is ignored");
+    assertEquals("`described` INT", columns.get(11), "field metadata without connect.type");
+    assertEquals("`solo` ARRAY<ROW<`key` STRING> NOT NULL> NOT NULL", columns.get(12));
+    assertEquals(
+        "`keyed` ARRAY<ROW<`k` STRING, `value` STRING> NOT NULL> NOT NULL", columns.get(13));
+    assertEquals(
+        "`valued` ARRAY<ROW<`key` STRING, `v` STRING> NOT NULL> NOT NULL", columns.get(14));
+    assertEquals(
+        "`repeated_key` ARRAY<ROW<`key` ARRAY<STRING> NOT NULL, `value` STRING> NOT NULL>"
+            + " NOT NULL",
+        columns.get(15));
+    assertEquals(
+        "`repeated_value` ARRAY<ROW<`key` STRING, `value` ARRAY<STRING> NOT NULL> NOT NULL>"
+            + " NOT NULL",
+        columns.get(16));
+  }
+
+  @Test
+  void requiredProto2FieldsAreNotNull() {
+    Descriptor required =
+        new ProtobufSchema(
+                "syntax = \"proto2\"; message Req { required string id = 1; optional string note = 2; }")
+            .toDescriptor();
+    assertEquals(
+        List.of("`id` STRING NOT NULL", "`note` STRING"),
+        ProtoToSqlType.toSqlType(required).toColumnDefinitions());
+  }
+
+  @Test
+  void groupsAreRejected() throws Exception {
+    DescriptorProtos.FileDescriptorProto file =
+        DescriptorProtos.FileDescriptorProto.newBuilder()
+            .setName("grouped.proto")
+            .addMessageType(
+                DescriptorProtos.DescriptorProto.newBuilder()
+                    .setName("Grouped")
+                    .addNestedType(DescriptorProtos.DescriptorProto.newBuilder().setName("Item"))
+                    .addField(
+                        DescriptorProtos.FieldDescriptorProto.newBuilder()
+                            .setName("item")
+                            .setNumber(1)
+                            .setLabel(DescriptorProtos.FieldDescriptorProto.Label.LABEL_OPTIONAL)
+                            .setType(DescriptorProtos.FieldDescriptorProto.Type.TYPE_GROUP)
+                            .setTypeName("Grouped.Item")))
+            .build();
+    Descriptor grouped =
+        Descriptors.FileDescriptor.buildFrom(file, new Descriptors.FileDescriptor[0])
+            .findMessageTypeByName("Grouped");
+    IllegalArgumentException e =
+        assertThrows(IllegalArgumentException.class, () -> ProtoToSqlType.toSqlType(grouped));
+    assertEquals("Unknown schema type: GROUP", e.getMessage());
+  }
+
+  @Test
+  void strictNotNullMakesNullableRowElementsNotNull() {
+    ProtoSqlType array =
+        ProtoSqlType.array(
+            true,
+            ProtoSqlType.row(
+                true, List.of(new ProtoSqlType.Field("a", ProtoSqlType.of(Kind.STRING, true)))));
+    assertEquals(
+        "ARRAY<ROW<`a` STRING NOT NULL> NOT NULL> NOT NULL", array.toStrictNotNull(null).toDdl());
+    assertEquals(
+        "ARRAY<ROW<`a` STRING> NOT NULL> NOT NULL",
+        array.toStrictNotNull(Set.of("[].a")).toDdl());
   }
 
   @Test

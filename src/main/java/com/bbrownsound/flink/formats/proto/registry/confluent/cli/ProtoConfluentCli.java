@@ -65,14 +65,16 @@ public final class ProtoConfluentCli {
   }
 
   /**
-   * Runs a command and exits the JVM with its status.
+   * Runs a command against {@link System#out} and {@link System#err}. {@link Main} calls this, in
+   * the class loader it picked, and exits the JVM with the returned status.
    *
    * @param args the command and its options
+   * @return the exit status, as {@link #run(String...)}
    */
-  public static void main(String[] args) {
+  public static int execute(String... args) {
     int status = new ProtoConfluentCli(System.out, System.err).run(args);
     System.out.flush();
-    System.exit(status);
+    return status;
   }
 
   /**

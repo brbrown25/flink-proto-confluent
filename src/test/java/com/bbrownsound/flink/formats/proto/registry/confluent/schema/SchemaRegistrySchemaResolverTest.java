@@ -9,7 +9,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.confluent.kafka.schemaregistry.avro.AvroSchema;
 import io.confluent.kafka.schemaregistry.avro.AvroSchemaProvider;
+import io.confluent.kafka.schemaregistry.ParsedSchema;
 import io.confluent.kafka.schemaregistry.client.MockSchemaRegistryClient;
+import io.confluent.kafka.schemaregistry.client.SchemaMetadata;
+import io.confluent.kafka.schemaregistry.client.rest.exceptions.RestClientException;
 import io.confluent.kafka.schemaregistry.protobuf.ProtobufSchema;
 import io.confluent.kafka.schemaregistry.protobuf.ProtobufSchemaProvider;
 import java.util.List;
@@ -115,5 +118,63 @@ class SchemaRegistrySchemaResolverTest {
         assertThrows(SchemaResolutionException.class, () -> unreachable.resolve("orders-value"));
     assertFalse(e.isNotFound());
     assertTrue(e.getMessage().startsWith("Cannot reach the Schema Registry"), e.getMessage());
+  }
+
+  @Test
+  void reportsOtherRegistryErrorsAsFound() {
+    SchemaRegistrySchemaResolver failing =
+        new SchemaRegistrySchemaResolver(
+            new MockSchemaRegistryClient() {
+              @Override
+              public SchemaMetadata getSchemaMetadata(String subject, int version)
+                  throws RestClientException {
+                throw new RestClientException("Internal error", 500, 50001);
+              }
+            });
+    SchemaResolutionException e =
+        assertThrows(SchemaResolutionException.class, () -> failing.resolve("a-value", 1, null));
+    assertFalse(e.isNotFound());
+    assertTrue(
+        e.getMessage().startsWith("Cannot read subject 'a-value' version 1 from the Schema Registry"),
+        e.getMessage());
+  }
+
+  @Test
+  void reportsAMissingVersionAsNotFound() {
+    SchemaRegistrySchemaResolver missing =
+        new SchemaRegistrySchemaResolver(
+            new MockSchemaRegistryClient() {
+              @Override
+              public SchemaMetadata getSchemaMetadata(String subject, int version)
+                  throws RestClientException {
+                throw new RestClientException("Version not found", 404, 40402);
+              }
+            });
+    assertTrue(
+        assertThrows(SchemaResolutionException.class, () -> missing.resolve("a-value", 3, null))
+            .isNotFound());
+  }
+
+  @Test
+  void rejectsAProtobufSubjectWhoseSchemaDoesNotParseAsProtobuf() {
+    SchemaRegistrySchemaResolver mismatched =
+        new SchemaRegistrySchemaResolver(
+            new MockSchemaRegistryClient() {
+              @Override
+              public SchemaMetadata getLatestSchemaMetadata(String subject) {
+                return new SchemaMetadata(7, 1, "PROTOBUF", List.of(), "syntax = \"proto3\";");
+              }
+
+              @Override
+              public ParsedSchema getSchemaBySubjectAndId(String subject, int id) {
+                return new AvroSchema("{\"type\":\"string\"}");
+              }
+            });
+    SchemaResolutionException e =
+        assertThrows(SchemaResolutionException.class, () -> mismatched.resolve("a-value"));
+    assertFalse(e.isNotFound());
+    assertEquals(
+        "Schema of subject 'a-value' (latest version) did not parse as a protobuf schema",
+        e.getMessage());
   }
 }

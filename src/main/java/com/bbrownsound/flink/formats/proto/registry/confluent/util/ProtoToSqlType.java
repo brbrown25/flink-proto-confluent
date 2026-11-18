@@ -252,7 +252,7 @@ public final class ProtoToSqlType {
     } else {
       // repeated type is always NOT NULL; array elements (ROW) are NOT NULL by convention
       ProtoSqlType elementType = convertNonRepeated(schema, context);
-      if (elementType.getKind() == Kind.ROW && elementType.isNullable()) {
+      if (elementType.getKind() == Kind.ROW) {
         elementType = elementType.withNullable(false);
       }
       return ProtoSqlType.array(false, elementType);
