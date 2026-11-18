@@ -313,6 +313,17 @@ To get the whole `CREATE TABLE` for a registered subject, with every column type
 java -jar flink-proto-confluent-<version>-all.jar ddl --url http://schema-registry:8081 --subject orders-value --bootstrap-servers kafka:9092
 ```
 
+To skip `CREATE TABLE` altogether, create a Schema Registry catalog: every topic with a protobuf `<topic>-value` subject becomes a table (see [Query topics through a catalog](docs/content/how-to/catalog.md)):
+
+```sql
+CREATE CATALOG sr WITH (
+  'type' = 'proto-confluent',
+  'url' = 'http://schema-registry:8081',
+  'properties.bootstrap.servers' = 'kafka:9092'
+);
+SELECT * FROM sr.`default`.orders;
+```
+
 To pin an **explicit named** protobuf message class for the key and/or value (instead of the default dynamic, Row-derived schema), set `message-class` on the corresponding format:
 
 ```sql
