@@ -172,6 +172,18 @@ tasks.test {
         "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED"
     )
 }
+
+// FlinkLineGuardTest and FlinkLineGuardIntegrationTest fail a test run whose classpath does not
+// match the Flink line it claims to test, so a CI leg can never pass by quietly testing the
+// default line. CI also sets EXPECTED_FLINK_VERSION from its matrix, independently of Gradle, which
+// catches a -PflinkVersion that Gradle ignored. Passed as system properties so they are task inputs.
+val ciExpectedFlinkVersion = providers.environmentVariable("EXPECTED_FLINK_VERSION").orElse("").get()
+tasks.withType<Test>().configureEach {
+    systemProperty("flinkLine.flinkVersion", flinkVersion)
+    systemProperty("flinkLine.kafkaConnectorVersion", kafkaConnectorVersion)
+    systemProperty("flinkLine.ciExpectedFlinkVersion", ciExpectedFlinkVersion)
+}
+
 tasks.named<Test>("test").configure {
     extensions.getByType<org.gradle.testing.jacoco.plugins.JacocoTaskExtension>().apply {
         destinationFile = layout.buildDirectory.file("jacoco/test.exec").get().asFile

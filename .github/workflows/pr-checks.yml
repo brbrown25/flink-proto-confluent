@@ -49,10 +49,17 @@ jobs:
           echo '::notice title=Docs-only change::Skipping build, test and coverage jobs.'
         fi
 
+  # Lint per Flink line: SpotBugs analyses the bytecode compiled against that
+  # line's Flink classes, so a 2.x-only finding cannot slip through.
   lint:
+    name: lint (flink ${{ matrix.flink }})
     runs-on: ubuntu-latest
     needs: changes
     if: needs.changes.outputs.code == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        flink: ['1.20.5', '2.2.1']
 
     steps:
     - name: Checkout code
@@ -62,9 +69,11 @@ jobs:
       uses: ./.github/actions/setup-build
 
     - name: Run lint (checkstyle, SpotBugs, Spotless)
-      run: ./gradlew checkstyleMain checkstyleTest checkstyleIntegrationTest spotbugsMain spotbugsTest spotlessCheck
+      run: ./gradlew -PflinkVersion=${{ matrix.flink }} checkstyleMain checkstyleTest checkstyleIntegrationTest spotbugsMain spotbugsTest spotlessCheck
 
+    # Checkstyle sees the same sources on every line; annotate once.
     - name: Annotate Checkstyle issues
+      if: matrix.flink == '1.20.5'
       uses: jwgmeligmeyling/checkstyle-github-action@master
       with:
         path: 'build/reports/checkstyle/*.xml'
@@ -85,6 +94,9 @@ jobs:
   # that line's Flink artifacts (-PflinkVersion picks the line, see #142).
   build-check:
     name: build (flink ${{ matrix.flink }})
+    env:
+      # Checked by FlinkLineGuardTest: the run must really be on this Flink version.
+      EXPECTED_FLINK_VERSION: ${{ matrix.flink }}
     runs-on: ubuntu-latest
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -119,6 +131,9 @@ jobs:
   # unit-test execution data for the integration-tests coverage leg to merge.
   test-matrix:
     name: unit tests (jdk ${{ matrix.java-version }}, flink ${{ matrix.flink }})
+    env:
+      # Checked by FlinkLineGuardTest: the run must really be on this Flink version.
+      EXPECTED_FLINK_VERSION: ${{ matrix.flink }}
     runs-on: ubuntu-latest
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -165,6 +180,9 @@ jobs:
   # exactly one upload per commit.
   integration-tests:
     name: integration tests (flink ${{ matrix.flink }})
+    env:
+      # Checked by FlinkLineGuardTest: the run must really be on this Flink version.
+      EXPECTED_FLINK_VERSION: ${{ matrix.flink }}
     runs-on: ubuntu-latest
     needs: [changes, test-matrix]
     if: needs.changes.outputs.code == 'true'
