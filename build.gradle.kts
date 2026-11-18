@@ -51,6 +51,31 @@ val flinkVersion: String by project
 val confluentVersion: String by project
 val protoVersion: String by project
 
+// The Flink line is the major version of flinkVersion. Coordinates that are released per Flink
+// line (connectors) are read from `flink<line>.*` properties in gradle.properties, so a build
+// never mixes artifacts from two lines.
+val supportedFlinkLines = listOf("1", "2")
+val flinkLine: String = flinkVersion.trim().substringBefore('.').let { major ->
+    if (major !in supportedFlinkLines) {
+        throw GradleException(
+            "Unsupported flinkVersion '$flinkVersion': its major version '$major' is not a " +
+                "supported Flink line. Supported lines: ${supportedFlinkLines.joinToString()} " +
+                "(e.g. -PflinkVersion=1.20.5 or -PflinkVersion=2.2.1)."
+        )
+    }
+    major
+}
+
+fun flinkLineProperty(name: String): String {
+    val key = "flink$flinkLine.$name"
+    return project.findProperty(key)?.toString()
+        ?: throw GradleException(
+            "gradle.properties has no '$key' for Flink line $flinkLine (flinkVersion=$flinkVersion)."
+        )
+}
+
+val kafkaConnectorVersion = flinkLineProperty("kafkaConnectorVersion")
+
 repositories {
     mavenCentral()
     maven("https://packages.confluent.io/maven/")
@@ -103,12 +128,11 @@ dependencies {
     add("integrationTestImplementation", "org.apache.flink:flink-table-runtime:$flinkVersion")
     add("integrationTestImplementation", "org.apache.flink:flink-connector-base:$flinkVersion")
     add("integrationTestImplementation", "org.apache.flink:flink-connector-datagen:$flinkVersion")
-    add("integrationTestImplementation", "org.apache.flink:flink-connector-kafka:5.0.0-2.2")
+    add("integrationTestImplementation", "org.apache.flink:flink-connector-kafka:$kafkaConnectorVersion")
     add("integrationTestImplementation", "org.apache.flink:flink-test-utils:$flinkVersion")
     add("integrationTestImplementation", "org.apache.flink:flink-test-utils-junit:$flinkVersion")
     add("integrationTestImplementation", "org.apache.flink:flink-runtime:$flinkVersion:tests")
     add("integrationTestImplementation", "com.clickhouse:clickhouse-jdbc:0.11.1")
-    add("integrationTestImplementation", "org.apache.flink:flink-connector-jdbc:3.4.0-1.20")
 }
 
 // clickhouse-jdbc 0.10.0 depends on the at.yawk.lz4:lz4-java fork, which declares the same
