@@ -12,6 +12,8 @@ import org.slf4j.LoggerFactory;
 
 import com.bbrownsound.flink.formats.proto.registry.confluent.ProtoConfluentFormatOptions;
 import com.bbrownsound.flink.formats.proto.registry.confluent.RegistryProtoFormatFactory;
+import com.bbrownsound.flink.formats.proto.registry.confluent.subject.FixedSubjectNameStrategy;
+import com.bbrownsound.flink.formats.proto.registry.confluent.subject.SubjectNameStrategies;
 
 /**
  * Derived from https://github.com/amstee/flink-proto-confluent (Apache-2.0). See NOTICE in project
@@ -23,8 +25,15 @@ public class ProtoConfluentFormatConfig implements Serializable {
   /** Schema Registry base URL. */
   public String schemaRegistryUrl;
 
-  /** Kafka topic name for schema subject resolution. */
+  /**
+   * Kafka topic name for schema subject resolution: the format's {@code topic} option, or else the
+   * table's single topic; {@code null} when neither is available (only valid with {@link
+   * #subject}).
+   */
   public String topic;
+
+  /** Explicit Schema Registry subject from the {@code subject} option, or {@code null}. */
+  public String subject;
 
   /** Whether this format is used for the key (vs value). */
   public Boolean isKey;
@@ -93,12 +102,31 @@ public class ProtoConfluentFormatConfig implements Serializable {
    */
   public ProtoConfluentFormatConfig(
       ReadableConfig formatOptions, String defaultDeadLetterBootstrapServers) {
+    this(formatOptions, defaultDeadLetterBootstrapServers, null);
+  }
+
+  /**
+   * Constructs config from Flink format options, with fallbacks taken from the table's own
+   * (connector) options.
+   *
+   * @param formatOptions the format options from the table environment
+   * @param defaultDeadLetterBootstrapServers as for {@link
+   *     #ProtoConfluentFormatConfig(ReadableConfig, String)}
+   * @param defaultTopic the topic to derive the subject from when the format's {@code topic}
+   *     option is unset, typically the Kafka connector's single {@code topic}; {@code null} for no
+   *     fallback
+   * @throws org.apache.flink.table.api.ValidationException as for {@link
+   *     #ProtoConfluentFormatConfig(ReadableConfig)}
+   */
+  public ProtoConfluentFormatConfig(
+      ReadableConfig formatOptions, String defaultDeadLetterBootstrapServers, String defaultTopic) {
     Boolean autoRegister = formatOptions.get(ProtoConfluentFormatOptions.AUTO_REGISTER_SCHEMAS);
     Boolean normalize = formatOptions.get(ProtoConfluentFormatOptions.NORMALIZE_SCHEMAS);
     Integer schemaId = formatOptions.get(ProtoConfluentFormatOptions.USE_SCHEMA_ID);
     Boolean skipKnown = formatOptions.get(ProtoConfluentFormatOptions.SKIP_KNOWN_TYPES);
     schemaRegistryUrl = formatOptions.get(ProtoConfluentFormatOptions.URL);
-    topic = formatOptions.get(ProtoConfluentFormatOptions.TOPIC);
+    topic = formatOptions.getOptional(ProtoConfluentFormatOptions.TOPIC).orElse(defaultTopic);
+    subject = formatOptions.getOptional(ProtoConfluentFormatOptions.SUBJECT).orElse(null);
     isKey = formatOptions.get(ProtoConfluentFormatOptions.IS_KEY);
     onDeserializeError = OnDeserializeError.fromOptions(formatOptions);
     deadLetterTopic =
@@ -124,6 +152,7 @@ public class ProtoConfluentFormatConfig implements Serializable {
   properties.put("normalize.schemas", normalize.toString());
   properties.put("use.schema.id", schemaId.toString());
   properties.put("skip.known.types", skipKnown.toString());
+    routeSubjectNaming(formatOptions);
     // An explicit message-class is role-scoped: route it to the key or value serializer property
     // based on is_key so the serializer picks it up. A value already tunneled in via the raw
     // 'properties' map (e.g. 'value.message-class:...') is preserved when this option is unset.
@@ -136,11 +165,35 @@ public class ProtoConfluentFormatConfig implements Serializable {
                     Boolean.TRUE.equals(isKey) ? "key.message-class" : "value.message-class", v));
     LOG.debug(
         "[proto-confluent] FormatConfig from options: schemaRegistryURL={}, topic={}, "
-            + "isKey={}, propertiesKeys={}",
+            + "subject={}, isKey={}, propertiesKeys={}",
         schemaRegistryUrl,
         topic,
+        subject,
         isKey,
         properties.keySet());
+  }
+
+  /**
+   * Routes the typed subject options to the key or value serde property, overriding a strategy
+   * tunneled in through the raw {@code properties} map. An explicit {@code subject} installs
+   * {@link FixedSubjectNameStrategy}; otherwise {@code subject-name-strategy}, when set, selects
+   * the strategy class.
+   */
+  private void routeSubjectNaming(ReadableConfig formatOptions) {
+    boolean key = Boolean.TRUE.equals(isKey);
+    String strategyKey = SubjectNameStrategies.strategyConfigKey(key);
+    if (subject != null) {
+      properties.put(strategyKey, FixedSubjectNameStrategy.class.getName());
+      properties.put(
+          key
+              ? FixedSubjectNameStrategy.KEY_SUBJECT_CONFIG
+              : FixedSubjectNameStrategy.VALUE_SUBJECT_CONFIG,
+          subject);
+      return;
+    }
+    formatOptions
+        .getOptional(ProtoConfluentFormatOptions.SUBJECT_NAME_STRATEGY)
+        .ifPresent(v -> properties.put(strategyKey, SubjectNameStrategies.className(v)));
   }
 
   /**

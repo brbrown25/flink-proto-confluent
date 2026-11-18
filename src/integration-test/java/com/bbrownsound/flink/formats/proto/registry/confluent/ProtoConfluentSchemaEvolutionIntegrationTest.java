@@ -504,6 +504,156 @@ class ProtoConfluentSchemaEvolutionIntegrationTest {
         "RecordNameStrategy must not register under the TopicName subject; got " + subjects);
   }
 
+  /**
+   * Issue #176: the typed {@code subject-name-strategy} option selects RecordNameStrategy without
+   * the raw {@code properties} passthrough, and the format's {@code topic} falls back to the Kafka
+   * connector's. No message class is pinned, so the sink registers the Row-derived schema under its
+   * record name, and the same table reads the record back.
+   */
+  @Test
+  @DisplayName("subject-name-strategy 'record' registers under the record name and reads back")
+  void subjectNameStrategyOption_record_registersUnderRecordNameAndReadsBack() throws Exception {
+    final String topic = "evo-it-typed-record-name-strategy";
+    createTopic(topic);
+    final String recordNameSubject = "com.flink.proto.confluent.Row";
+
+    final StreamTableEnvironment tableEnv = newTableEnv();
+    tableEnv.executeSql(
+        "CREATE TABLE typed_record_name ("
+            + "  `content` STRING,"
+            + "  `date_time` STRING"
+            + ") WITH ("
+            + "  'connector' = 'kafka',"
+            + "  'topic' = '"
+            + topic
+            + "',"
+            + "  'properties.bootstrap.servers' = '"
+            + bootstrapForJob
+            + "',"
+            + "  'properties.group.id' = 'evo-it-"
+            + UUID.randomUUID()
+            + "',"
+            + "  'scan.startup.mode' = 'earliest-offset',"
+            + "  'scan.bounded.mode' = 'latest-offset',"
+            + "  'value.format' = 'proto-confluent',"
+            + "  'value.proto-confluent.url' = '"
+            + schemaRegistryUrl
+            + "',"
+            + "  'value.proto-confluent.auto-register-schemas' = 'true',"
+            + "  'value.proto-confluent.subject-name-strategy' = 'Record'"
+            + ")");
+
+    tableEnv
+        .executeSql("INSERT INTO typed_record_name VALUES ('typed-record-name', '2025-02-05')")
+        .await(120, SECONDS);
+
+    final List<String> subjects = new ArrayList<>(registryClient.getAllSubjects());
+    assertTrue(
+        subjects.contains(recordNameSubject),
+        "subject-name-strategy=record must register under '"
+            + recordNameSubject
+            + "'; got "
+            + subjects);
+    assertTrue(
+        subjects.stream().noneMatch((topic + "-value")::equals),
+        "subject-name-strategy=record must not register under the TopicName subject; got "
+            + subjects);
+
+    final List<byte[]> written = consume(topic, 1);
+    assertEquals(1, written.size(), "expected the record on the topic");
+    assertEquals(
+        registryClient.getLatestSchemaMetadata(recordNameSubject).getId(),
+        wireSchemaId(written.get(0)),
+        "the record must carry the schema registered under the record-name subject");
+
+    final List<Row> rows =
+        collect(tableEnv, "SELECT `content`, `date_time` FROM typed_record_name");
+    assertEquals(1, rows.size(), "expected the written record back; got " + rows);
+    assertEquals(
+        "2025-02-05", String.valueOf(rowWithContent(rows, "typed-record-name").getField(1)));
+  }
+
+  /**
+   * Issue #176: an explicit {@code subject} makes the sink look up the latest schema under that
+   * subject rather than {@code <topic>-value}. Auto-registration is off, so the write only succeeds
+   * if the lookup found the pre-registered schema. The source names no topic at all (it subscribes
+   * by pattern), so it runs on the subject alone.
+   */
+  @Test
+  @DisplayName("subject option: sink uses the latest schema under it, source needs no topic")
+  void subjectOption_sinkLooksUpLatestUnderSubject_sourceReadsWithoutTopic() throws Exception {
+    final String topic = "evo-it-explicit-subject";
+    createTopic(topic);
+    final String subject = "evo-it-explicit-subject-custom";
+    final int registeredId = registryClient.register(subject, new ProtobufSchema(V1_SCHEMA));
+
+    final StreamTableEnvironment tableEnv = newTableEnv();
+    tableEnv.executeSql(
+        "CREATE TABLE explicit_subject_sink ("
+            + "  `content` STRING,"
+            + "  `date_time` STRING"
+            + ") WITH ("
+            + "  'connector' = 'kafka',"
+            + "  'topic' = '"
+            + topic
+            + "',"
+            + "  'properties.bootstrap.servers' = '"
+            + bootstrapForJob
+            + "',"
+            + "  'value.format' = 'proto-confluent',"
+            + "  'value.proto-confluent.url' = '"
+            + schemaRegistryUrl
+            + "',"
+            + "  'value.proto-confluent.auto-register-schemas' = 'false',"
+            + "  'value.proto-confluent.subject' = '"
+            + subject
+            + "'"
+            + ")");
+    tableEnv
+        .executeSql("INSERT INTO explicit_subject_sink VALUES ('by-subject', '2025-02-06')")
+        .await(120, SECONDS);
+
+    final List<byte[]> written = consume(topic, 1);
+    assertEquals(1, written.size(), "expected the record on the topic");
+    assertEquals(
+        registeredId,
+        wireSchemaId(written.get(0)),
+        "the sink must serialize with the latest schema registered under the explicit subject");
+    assertTrue(
+        registryClient.getAllSubjects().stream().noneMatch((topic + "-value")::equals),
+        "an explicit subject must not touch the TopicName subject");
+
+    tableEnv.executeSql(
+        "CREATE TABLE explicit_subject_source ("
+            + "  `content` STRING,"
+            + "  `date_time` STRING"
+            + ") WITH ("
+            + "  'connector' = 'kafka',"
+            + "  'topic-pattern' = '"
+            + topic
+            + "',"
+            + "  'properties.bootstrap.servers' = '"
+            + bootstrapForJob
+            + "',"
+            + "  'properties.group.id' = 'evo-it-"
+            + UUID.randomUUID()
+            + "',"
+            + "  'scan.startup.mode' = 'earliest-offset',"
+            + "  'scan.bounded.mode' = 'latest-offset',"
+            + "  'value.format' = 'proto-confluent',"
+            + "  'value.proto-confluent.url' = '"
+            + schemaRegistryUrl
+            + "',"
+            + "  'value.proto-confluent.subject' = '"
+            + subject
+            + "'"
+            + ")");
+    final List<Row> rows =
+        collect(tableEnv, "SELECT `content`, `date_time` FROM explicit_subject_source");
+    assertEquals(1, rows.size(), "expected the written record back; got " + rows);
+    assertEquals("2025-02-06", String.valueOf(rowWithContent(rows, "by-subject").getField(1)));
+  }
+
   @Test
   @DisplayName(
       "sink with a column absent from the registered schema fails with a descriptive error")
