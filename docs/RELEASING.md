@@ -24,8 +24,8 @@ There is no post-release version bump to remember — the next release pull requ
 
 1. **release-please** (`.github/workflows/release-please.yml`) sees the merge, creates annotated tag `vX.Y.Z`, and creates the GitHub Release with the changelog entry as its body.
 2. **`release.yml`** fires on the tag:
-   - **build-and-test** runs `test integrationTest jacocoTestReport jacocoTestCoverageVerification` and builds the shadow JAR. A failure here aborts before anything is published.
-   - **publish** rebuilds the shadow JAR at the tag version, signs and publishes to Sonatype (`publishSonatypePublicationToSonatypeRepository closeAndReleaseStagingRepositories`, which auto-closes and releases the staging repository to Maven Central), then attaches the JAR to the GitHub Release that already exists.
+   - **build-and-test** runs `test integrationTest jacocoTestReport jacocoTestCoverageVerification` and builds the shadow JAR once per Flink line (`-PflinkVersion=1.20.0` and `-PflinkVersion=2.2.1`). A failure on either line aborts before anything is published.
+   - **publish** builds each line at the tag version and publishes it in its own Gradle invocation, in order: `com.bbrownsound:flink-proto-confluent` (Flink 1.x), then `com.bbrownsound:flink-proto-confluent-flink2` (Flink 2.x). Each invocation signs, publishes to Sonatype and closes/releases only the staging repository it created (`publishSonatypePublicationToSonatypeRepository closeAndReleaseStagingRepositories`). A line already on Maven Central is skipped, so re-running a partly failed publish is safe. It then attaches both lines' JARs to the GitHub Release that already exists.
 3. **`publish-snapshot.yml`** skips this commit, since a snapshot of a release tree would only add a duplicate coordinate.
 
 A `concurrency` group keyed on the tag ensures only one publish per version is ever in flight.
@@ -77,8 +77,8 @@ Release-As: 2.0.0"
 ## Verifying the release
 
 - **Workflow:** `gh run watch` (or the Actions tab) — both `release.yml` jobs green.
-- **GitHub Release:** appears at `releases/tag/vX.Y.Z` with the changelog entry as the body and four JARs attached: the library JAR `flink-proto-confluent-X.Y.Z.jar` (about 100 KB — if it is tens of megabytes the shadow JAR has overwritten it), the self-contained `flink-proto-confluent-X.Y.Z-all.jar`, and the `-sources` and `-javadoc` JARs.
-- **Maven Central:** the sync from Sonatype takes ~15–30 min (search indexing can take longer). Check `https://repo1.maven.org/maven2/com/bbrownsound/flink-proto-confluent/X.Y.Z/`.
+- **GitHub Release:** appears at `releases/tag/vX.Y.Z` with the changelog entry as the body and four JARs per Flink line attached: the library JAR `flink-proto-confluent-X.Y.Z.jar` (about 100 KB — if it is tens of megabytes the shadow JAR has overwritten it), the self-contained `flink-proto-confluent-X.Y.Z-all.jar`, and the `-sources` and `-javadoc` JARs, plus the same four named `flink-proto-confluent-flink2-X.Y.Z*.jar` for Flink 2.x.
+- **Maven Central:** the sync from Sonatype takes ~15–30 min (search indexing can take longer). Check `https://repo1.maven.org/maven2/com/bbrownsound/flink-proto-confluent/X.Y.Z/` and `https://repo1.maven.org/maven2/com/bbrownsound/flink-proto-confluent-flink2/X.Y.Z/`.
 - **Smoke test:** in a scratch project, resolve `com.bbrownsound:flink-proto-confluent:X.Y.Z` from `mavenCentral()` plus `https://packages.confluent.io/maven/` and confirm it downloads, and check that `flink-proto-confluent-X.Y.Z-all.jar` is listed in the Maven Central directory above.
 
 ## Snapshots (automatic)
@@ -112,7 +112,7 @@ Do not create the release through the GitHub UI: that pushes the tag and can lea
   gh release delete v1.1.0 --cleanup-tag
   ```
 - **Already released to Maven Central:** the coordinates are **immutable** — you cannot overwrite `1.1.0`. Publish a new patch (`v1.1.1`) with the fix and note the bad version in the release notes.
-- **GitHub Release created but Central publish failed:** check the `publish` job logs (signing-key format and Sonatype credentials are the usual causes). Fix the secret, then re-run the failed job from the Actions tab — no need to delete and re-push the tag.
+- **GitHub Release created but Central publish failed:** check the `publish` job logs (signing-key format and Sonatype credentials are the usual causes). Fix the secret, then re-run the failed job from the Actions tab — no need to delete and re-push the tag. If one line was already released, wait until it shows on `repo1.maven.org` (up to ~30 min) before re-running, so the job skips it instead of failing on a duplicate upload.
 
 ## Reference
 

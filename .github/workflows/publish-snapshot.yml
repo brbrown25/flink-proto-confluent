@@ -60,15 +60,26 @@ jobs:
             echo "publish=true" >> $GITHUB_OUTPUT
           fi
 
+      # One snapshot per Flink line, same version: com.bbrownsound:flink-proto-confluent (Flink 1.x)
+      # and com.bbrownsound:flink-proto-confluent-flink2 (Flink 2.x). Snapshots go straight to the
+      # snapshot repository (no staging), one Gradle invocation per line.
       # GPG_SIGNING_KEY: ASCII-armored secret key (paste output of gpg --armor --export-secret-keys KEY_ID).
-      - name: Publish to Sonatype (snapshot)
+      - name: Build, verify and publish each Flink line to Sonatype (snapshot)
         if: steps.guard.outputs.publish == 'true'
-        run: ./gradlew -Pversion=${{ steps.version.outputs.version }} publishSonatypePublicationToSonatypeRepository
         env:
+          VERSION: ${{ steps.version.outputs.version }}
+          FLINK_VERSIONS: '1.20.0 2.2.1'
           ORG_GRADLE_PROJECT_sonatypeUsername: ${{ secrets.SONATYPE_USERNAME }}
           ORG_GRADLE_PROJECT_sonatypePassword: ${{ secrets.SONATYPE_PASSWORD }}
           ORG_GRADLE_PROJECT_signingKey: ${{ secrets.GPG_SIGNING_KEY }}
           ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.GPG_SIGNING_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          for FLINK in $FLINK_VERSIONS; do
+            echo "::group::Flink $FLINK"
+            ./gradlew -PflinkVersion="$FLINK" -Pversion="$VERSION" verifyJars verifyProtobufVersion publishSonatypePublicationToSonatypeRepository
+            echo "::endgroup::"
+          done
 
       # Debug: if publish failed, check that GPG_SIGNING_KEY is ASCII-armored (does not log the key)
       - name: Debug signing key format
