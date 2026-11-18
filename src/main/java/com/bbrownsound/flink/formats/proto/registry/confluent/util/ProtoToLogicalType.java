@@ -105,6 +105,19 @@ public class ProtoToLogicalType {
     return toFlinkSchemaNested(schema, context).copy(false);
   }
 
+  /**
+   * Returns the Flink type of a single value of the given field, ignoring {@code repeated}: for a
+   * {@code repeated int64} field this is {@code BIGINT}, the element type of the array the field
+   * maps to.
+   *
+   * @param field the Protobuf field descriptor
+   * @return the corresponding Flink logical type of one value of the field
+   * @throws IllegalArgumentException if the field's message type is cyclic
+   */
+  public static LogicalType toValueLogicalType(final FieldDescriptor field) {
+    return convertNonRepeated(field, new CycleContext());
+  }
+
   private static LogicalType toFlinkSchemaNested(
       final Descriptor schema, final CycleContext context) {
     List<OneofDescriptor> oneOfDescriptors = schema.getRealOneofs();

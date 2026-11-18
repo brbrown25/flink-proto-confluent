@@ -353,4 +353,63 @@ class ProtoConfluentFormatConfigTest {
     assertNull(config.getProperties().get("bootstrap.servers"));
     assertNull(config.getProperties().get("security.protocol"));
   }
+
+  @Test
+  void messageName_absentByDefault() {
+    Configuration options = new Configuration();
+    options.set(ProtoConfluentFormatOptions.URL, "http://sr:8081");
+    options.set(ProtoConfluentFormatOptions.TOPIC, "events");
+    ProtoConfluentFormatConfig config = new ProtoConfluentFormatConfig(options);
+    assertNull(config.messageName);
+    assertNull(config.getMessageClass());
+  }
+
+  @Test
+  void messageName_isCarriedAndSurvivesJavaSerialization() throws Exception {
+    Configuration options = new Configuration();
+    options.set(ProtoConfluentFormatOptions.URL, "http://sr:8081");
+    options.set(ProtoConfluentFormatOptions.TOPIC, "events");
+    options.set(ProtoConfluentFormatOptions.MESSAGE_NAME, "com.example.Order");
+    ProtoConfluentFormatConfig config = new ProtoConfluentFormatConfig(options);
+    assertEquals("com.example.Order", config.messageName);
+    ProtoConfluentFormatConfig copy =
+        InstantiationUtil.clone(config, getClass().getClassLoader());
+    assertEquals("com.example.Order", copy.messageName);
+  }
+
+  @Test
+  void messageName_emptyValueIgnored() {
+    Configuration options = new Configuration();
+    options.set(ProtoConfluentFormatOptions.URL, "http://sr:8081");
+    options.set(ProtoConfluentFormatOptions.TOPIC, "events");
+    options.setString("message-name", "");
+    assertNull(new ProtoConfluentFormatConfig(options).messageName);
+  }
+
+  @Test
+  void getMessageClass_isRoleScoped() {
+    Configuration options = new Configuration();
+    options.set(ProtoConfluentFormatOptions.URL, "http://sr:8081");
+    options.set(ProtoConfluentFormatOptions.TOPIC, "events");
+    options.set(ProtoConfluentFormatOptions.MESSAGE_CLASS, "com.example.Foo$Bar");
+    assertEquals("com.example.Foo$Bar", new ProtoConfluentFormatConfig(options).getMessageClass());
+    options.set(ProtoConfluentFormatOptions.IS_KEY, true);
+    assertEquals("com.example.Foo$Bar", new ProtoConfluentFormatConfig(options).getMessageClass());
+  }
+
+  @Test
+  void getMessageClass_readsATunneledValue() {
+    ProtoConfluentFormatConfig value =
+        new ProtoConfluentFormatConfig(
+            "http://sr:8081", "events", false, Map.of("value.message-class", "a.B$C"));
+    assertEquals("a.B$C", value.getMessageClass());
+    ProtoConfluentFormatConfig key =
+        new ProtoConfluentFormatConfig(
+            "http://sr:8081", "events", true, Map.of("value.message-class", "a.B$C"));
+    assertNull(key.getMessageClass());
+    ProtoConfluentFormatConfig empty =
+        new ProtoConfluentFormatConfig(
+            "http://sr:8081", "events", false, Map.of("value.message-class", ""));
+    assertNull(empty.getMessageClass());
+  }
 }

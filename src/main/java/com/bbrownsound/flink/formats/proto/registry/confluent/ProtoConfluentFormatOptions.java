@@ -81,7 +81,24 @@ public class ProtoConfluentFormatOptions {
                   + "descriptor instead of deriving a dynamic schema from the Flink Row type. "
                   + "Applies to the key when 'is_key' is true and to the value otherwise, so a "
                   + "sink can pin an explicit named entity for its key and/or value. When unset, "
-                  + "the format falls back to the previous dynamic-schema behavior.");
+                  + "the format falls back to the previous dynamic-schema behavior. On a source, "
+                  + "the table's columns are checked against this message when the query is "
+                  + "planned (or when the source opens, if the class is only on the task's "
+                  + "classpath), and records whose writer message is a different message are "
+                  + "handled per 'on-deserialize-error'.");
+
+  /** Fully-qualified protobuf message name every record read by a source must carry. */
+  public static final ConfigOption<String> MESSAGE_NAME =
+      ConfigOptions.key("message-name")
+          .stringType()
+          .noDefaultValue()
+          .withFallbackKeys("message_name")
+          .withDescription(
+              "Source only. Fully-qualified protobuf message name (e.g. 'com.example.Order') "
+                  + "that every record's writer message must have. A record of any other message "
+                  + "is a deserialize error and is handled per 'on-deserialize-error'. Needs no "
+                  + "class on the classpath. When 'message-class' is also set, both must name "
+                  + "the same message. Ignored by a sink.");
 
   /** Whether to auto-register schemas. */
   public static final ConfigOption<Boolean> AUTO_REGISTER_SCHEMAS =

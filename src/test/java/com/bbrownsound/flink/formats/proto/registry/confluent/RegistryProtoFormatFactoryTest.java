@@ -242,4 +242,43 @@ class RegistryProtoFormatFactoryTest {
     assertTrue(factory.optionalOptions().contains(ProtoConfluentFormatOptions.ON_DESERIALIZE_ERROR));
     assertTrue(factory.forwardOptions().contains(ProtoConfluentFormatOptions.ON_DESERIALIZE_ERROR));
   }
+
+  @Test
+  void messageName_isADeclaredOptionalAndForwardedOption() {
+    assertTrue(factory.optionalOptions().contains(ProtoConfluentFormatOptions.MESSAGE_NAME));
+    assertTrue(factory.forwardOptions().contains(ProtoConfluentFormatOptions.MESSAGE_NAME));
+    assertEquals("message-name", ProtoConfluentFormatOptions.MESSAGE_NAME.key());
+  }
+
+  @Test
+  void messageName_validValueIsAcceptedBySourceAndSink() {
+    Configuration options = new Configuration();
+    options.set(ProtoConfluentFormatOptions.URL, "http://localhost:8081");
+    options.set(ProtoConfluentFormatOptions.TOPIC, "test-topic");
+    options.set(ProtoConfluentFormatOptions.MESSAGE_NAME, "com.example.Order");
+    assertNotNull(factory.createDecodingFormat(null, options));
+    assertNotNull(factory.createEncodingFormat(null, options));
+  }
+
+  @Test
+  void messageName_malformedValueIsRejectedBySourceAndSink() {
+    Configuration options = new Configuration();
+    options.set(ProtoConfluentFormatOptions.URL, "http://localhost:8081");
+    options.set(ProtoConfluentFormatOptions.TOPIC, "test-topic");
+    options.setString("message-name", "com.example.Proto$Order");
+    ValidationException decode =
+        assertThrows(ValidationException.class, () -> factory.createDecodingFormat(null, options));
+    assertTrue(decode.getMessage().contains("'message-name'"), decode.getMessage());
+    assertTrue(decode.getMessage().contains("'com.example.Proto$Order'"), decode.getMessage());
+    assertThrows(ValidationException.class, () -> factory.createEncodingFormat(null, options));
+  }
+
+  @Test
+  void messageName_fallbackKeyIsAccepted() {
+    Configuration options = new Configuration();
+    options.set(ProtoConfluentFormatOptions.URL, "http://localhost:8081");
+    options.set(ProtoConfluentFormatOptions.TOPIC, "test-topic");
+    options.setString("message_name", "not valid");
+    assertThrows(ValidationException.class, () -> factory.createDecodingFormat(null, options));
+  }
 }

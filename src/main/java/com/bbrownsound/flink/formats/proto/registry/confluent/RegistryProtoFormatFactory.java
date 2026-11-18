@@ -3,6 +3,7 @@ package com.bbrownsound.flink.formats.proto.registry.confluent;
 import com.bbrownsound.flink.formats.proto.registry.confluent.config.DeadLetterDelivery;
 import com.bbrownsound.flink.formats.proto.registry.confluent.config.OnDeserializeError;
 import com.bbrownsound.flink.formats.proto.registry.confluent.config.ProtoConfluentFormatConfig;
+import com.bbrownsound.flink.formats.proto.registry.confluent.deserialize.SourceMessageValidator;
 import com.bbrownsound.flink.formats.proto.registry.confluent.subject.SubjectNameStrategies;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -64,13 +65,18 @@ public class RegistryProtoFormatFactory
     // Sink-only, but a declared option of this factory: reject a bad value on a source table too,
     // rather than only once the same table is written to.
     validateSchemaCacheTtl(formatOptions);
+    validateMessageName(formatOptions);
     ProtoConfluentFormatConfig config = createConfig(context, formatOptions);
     LOG.debug(
         "[proto-confluent] Creating decoding format: url={}, topic={}, subject={}",
         config.schemaRegistryUrl,
         config.topic,
         config.subject);
-    return new ProtoDecodingFormat(config);
+    return new ProtoDecodingFormat(
+        config,
+        context == null
+            ? Thread.currentThread().getContextClassLoader()
+            : context.getClassLoader());
   }
 
   @Override
@@ -82,6 +88,7 @@ public class RegistryProtoFormatFactory
     DeadLetterDelivery.fromOptions(formatOptions);
     FactoryUtil.validateFactoryOptions(this, formatOptions);
     validateSchemaCacheTtl(formatOptions);
+    validateMessageName(formatOptions);
 
     return new ProtoEncodingFormat(createConfig(context, formatOptions));
   }
@@ -220,6 +227,19 @@ public class RegistryProtoFormatFactory
             });
   }
 
+  /**
+   * Rejects a malformed {@code message-name} when the table is planned. Checked on a sink too,
+   * where the option is ignored, so a typo surfaces whichever way the table is used first.
+   */
+  private static void validateMessageName(ReadableConfig formatOptions) {
+    formatOptions
+        .getOptional(ProtoConfluentFormatOptions.MESSAGE_NAME)
+        .ifPresent(
+            name ->
+                SourceMessageValidator.validateMessageName(
+                    ProtoConfluentFormatOptions.MESSAGE_NAME.key(), name));
+  }
+
   @Override
   public String factoryIdentifier() {
     return IDENTIFIER;
@@ -234,6 +254,7 @@ public class RegistryProtoFormatFactory
             ProtoConfluentFormatOptions.SUBJECT_NAME_STRATEGY,
             ProtoConfluentFormatOptions.IS_KEY,
             ProtoConfluentFormatOptions.MESSAGE_CLASS,
+            ProtoConfluentFormatOptions.MESSAGE_NAME,
             ProtoConfluentFormatOptions.SCHEMA_CACHE_TTL,
             ProtoConfluentFormatOptions.PROPERTIES,
             ProtoConfluentFormatOptions.SSL_KEYSTORE_LOCATION,
@@ -268,6 +289,7 @@ public class RegistryProtoFormatFactory
     options.add(ProtoConfluentFormatOptions.SUBJECT_NAME_STRATEGY);
     options.add(ProtoConfluentFormatOptions.IS_KEY);
     options.add(ProtoConfluentFormatOptions.MESSAGE_CLASS);
+    options.add(ProtoConfluentFormatOptions.MESSAGE_NAME);
     options.add(ProtoConfluentFormatOptions.PROPERTIES);
     options.add(ProtoConfluentFormatOptions.AUTO_REGISTER_SCHEMAS);
     options.add(ProtoConfluentFormatOptions.NORMALIZE_SCHEMAS);

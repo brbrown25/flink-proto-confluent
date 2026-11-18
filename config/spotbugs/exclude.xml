@@ -9,4 +9,9 @@
     <Class name="~com\.bbrownsound\.flink\.formats\.proto\.registry\.confluent\.serialize\.RowDataToProtoConverters\$.*"/>
     <Bug code="Se"/>
   </Match>
+  <!-- The decoding format shares the planner's class loader to look up 'message-class'; by design. -->
+  <Match>
+    <Class name="com.bbrownsound.flink.formats.proto.registry.confluent.ProtoDecodingFormat"/>
+    <Bug pattern="EI_EXPOSE_REP2"/>
+  </Match>
 </FindBugsFilter>
