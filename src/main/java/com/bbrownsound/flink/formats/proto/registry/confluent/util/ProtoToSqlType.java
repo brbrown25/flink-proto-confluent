@@ -244,7 +244,13 @@ public final class ProtoToSqlType {
   private static ProtoSqlType toRecordSchemaWithCycleCheck(
       FieldDescriptor schema, CycleContext cycleContext, String fullName) {
     if (cycleContext.seenMessage.contains(fullName)) {
-      throw new IllegalArgumentException("Cyclic schemas are not supported.");
+      throw new IllegalArgumentException(
+          "Cyclic schemas are not supported. Message '"
+              + fullName
+              + "' contains itself through field '"
+              + schema.getFullName()
+              + "', so it has no finite table type. Declare that column by hand as BYTES (the"
+              + " serialized message), STRING (its JSON) or a ROW nested to the depth you need.");
     }
     cycleContext.seenMessage.add(fullName);
     try {
