@@ -8,6 +8,6 @@ say "...and the schema the producer registered"
 run schema orders-value
 say "Generate the Flink table from the subject with the format JAR's ddl command"
 run "generate-ddl --subject orders-value --bootstrap-servers kafka:9092 --option properties.group.id=docs-demo --option scan.startup.mode=earliest-offset --option scan.bounded.mode=latest-offset | tee sql/orders.sql"
-say "Query it with plain SQL"
-run "grep -v '^--' sql/quickstart.sql"
-run flink-sql sql/orders.sql sql/quickstart.sql
+say "Declare the Flink table over it and aggregate with plain SQL"
+run "grep -v '^--' sql/quickstart-generated.sql"
+run flink-sql sql/orders.sql sql/quickstart-generated.sql
