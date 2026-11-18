@@ -17,15 +17,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import org.apache.flink.api.common.functions.OpenContext;
+import org.apache.flink.api.common.functions.RichFlatMapFunction;
 import org.apache.flink.core.execution.JobClient;
 import org.apache.flink.runtime.client.JobCancellationException;
 import org.apache.flink.runtime.testutils.MiniClusterResourceConfiguration;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
+import org.apache.flink.streaming.api.functions.sink.v2.DiscardingSink;
 import org.apache.flink.table.api.Table;
 import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
 import org.apache.flink.test.util.MiniClusterWithClientResource;
 import org.apache.flink.types.Row;
+import org.apache.flink.util.Collector;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.NewTopic;
@@ -304,8 +307,9 @@ class ProtoConfluentClickHouseIntegrationTest {
     String tableRef = CLICKHOUSE_DB + "." + CLICKHOUSE_TABLE;
     tableEnv
         .toDataStream(result)
-        .addSink(new ClickHouseJdbcSink(clickHouseJdbcUrl, tableRef))
-        .name("ClickHouse " + tableRef);
+        .flatMap(new ClickHouseJdbcSink(clickHouseJdbcUrl, tableRef))
+        .name("ClickHouse " + tableRef)
+        .sinkTo(new DiscardingSink<>());
 
     log(
         "test: starting job (executeAsync), bootstrap="
@@ -369,7 +373,7 @@ class ProtoConfluentClickHouseIntegrationTest {
    * has a real sink and we can use executeAsync() + poll + cancel like
    * MaxMeasurementsObservationsIntegrationTest.
    */
-  private static final class ClickHouseJdbcSink extends RichSinkFunction<Row> {
+  private static final class ClickHouseJdbcSink extends RichFlatMapFunction<Row, Void> {
     private static final long serialVersionUID = 1L;
     private final String jdbcUrl;
     private final String tableRef;
@@ -384,8 +388,8 @@ class ProtoConfluentClickHouseIntegrationTest {
     private transient int invokeCount = 0;
 
     @Override
-    public void open(org.apache.flink.configuration.Configuration parameters) throws Exception {
-      super.open(parameters);
+    public void open(OpenContext openContext) throws Exception {
+      super.open(openContext);
       try {
         LOG.debug("[ClickHouseSink] open: url={}, table={}", jdbcUrl, tableRef);
         Class.forName("com.clickhouse.jdbc.ClickHouseDriver");
@@ -402,7 +406,7 @@ class ProtoConfluentClickHouseIntegrationTest {
     }
 
     @Override
-    public void invoke(Row row, Context context) throws Exception {
+    public void flatMap(Row row, Collector<Void> out) throws Exception {
       try {
         statement.setString(1, (String) row.getField(0));
         statement.setString(2, (String) row.getField(1));

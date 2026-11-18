@@ -20,15 +20,18 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import org.apache.flink.api.common.functions.OpenContext;
+import org.apache.flink.api.common.functions.RichFlatMapFunction;
 import org.apache.flink.core.execution.JobClient;
 import org.apache.flink.runtime.client.JobCancellationException;
 import org.apache.flink.runtime.testutils.MiniClusterResourceConfiguration;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
+import org.apache.flink.streaming.api.functions.sink.v2.DiscardingSink;
 import org.apache.flink.table.api.Table;
 import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
 import org.apache.flink.test.util.MiniClusterWithClientResource;
 import org.apache.flink.types.Row;
+import org.apache.flink.util.Collector;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.NewTopic;
@@ -267,7 +270,11 @@ class ProtoConfluentMiniClusterIntegrationTest {
       tableEnv.executeSql(createTable);
 
       Table table = tableEnv.from("simple_src");
-      tableEnv.toDataStream(table).addSink(new CollectSink(COLLECT_KEY)).name("collect-rows");
+      tableEnv
+          .toDataStream(table)
+          .flatMap(new CollectSink(COLLECT_KEY))
+          .name("collect-rows")
+          .sinkTo(new DiscardingSink<>());
 
       log(
           "test: starting job (executeAsync), bootstrap="
@@ -560,7 +567,11 @@ class ProtoConfluentMiniClusterIntegrationTest {
       tableEnv.executeSql(createTable);
 
       Table table = tableEnv.from("keyed_src");
-      tableEnv.toDataStream(table).addSink(new CollectSink(collectKey)).name("collect-keyed");
+      tableEnv
+          .toDataStream(table)
+          .flatMap(new CollectSink(collectKey))
+          .name("collect-keyed")
+          .sinkTo(new DiscardingSink<>());
 
       JobClient jobClient = env.executeAsync("Proto-confluent keyed SELECT");
       await()
@@ -875,7 +886,7 @@ class ProtoConfluentMiniClusterIntegrationTest {
     return out;
   }
 
-  private static final class CollectSink extends RichSinkFunction<Row> {
+  private static final class CollectSink extends RichFlatMapFunction<Row, Void> {
     private static final long serialVersionUID = 1L;
     private final String registryKey;
     private transient ConcurrentLinkedQueue<Row> target;
@@ -886,8 +897,8 @@ class ProtoConfluentMiniClusterIntegrationTest {
     }
 
     @Override
-    public void open(org.apache.flink.configuration.Configuration parameters) throws Exception {
-      super.open(parameters);
+    public void open(OpenContext openContext) throws Exception {
+      super.open(openContext);
       target = COLLECT_SINK_REGISTRY.get(registryKey);
       if (target == null) {
         throw new IllegalStateException("No queue registered for key: " + registryKey);
@@ -896,7 +907,7 @@ class ProtoConfluentMiniClusterIntegrationTest {
     }
 
     @Override
-    public void invoke(Row row, Context context) {
+    public void flatMap(Row row, Collector<Void> out) {
       target.add(row);
       invokeCount++;
       if (invokeCount <= 5 || invokeCount % 10 == 0) {
