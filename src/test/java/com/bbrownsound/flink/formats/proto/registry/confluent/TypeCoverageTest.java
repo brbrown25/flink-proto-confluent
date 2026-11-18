@@ -43,6 +43,7 @@ import org.apache.flink.table.types.logical.MapType;
 import org.apache.flink.table.types.logical.RowType;
 import org.apache.flink.table.types.logical.RowType.RowField;
 import org.apache.flink.table.types.logical.TimestampType;
+import org.apache.flink.table.types.logical.VarBinaryType;
 import org.apache.flink.table.types.logical.VarCharType;
 import org.junit.jupiter.api.Test;
 
@@ -449,5 +450,134 @@ class TypeCoverageTest {
         COVERAGE,
         row(field("color", new IntType()), field("colors", new ArrayType(new IntType()))),
         CLASS_NAME);
+  }
+
+  // ---- recursive messages ---------------------------------------------------------------------
+
+  private static final Descriptor TREE =
+      (Descriptor)
+          new ProtobufSchema(
+                  "syntax = \"proto3\"; package rec; message Tree { string name = 1; Tree child ="
+                      + " 2; repeated Tree children = 3; }")
+              .toDescriptor();
+
+  private static Message tree(String name, Message child) {
+    final DynamicMessage.Builder builder =
+        DynamicMessage.newBuilder(TREE).setField(TREE.findFieldByName("name"), name);
+    if (child != null) {
+      builder.setField(TREE.findFieldByName("child"), child);
+    }
+    return builder.build();
+  }
+
+  private static Message writeTree(RowType type, RowData row) {
+    return (Message) RowDataToProtoConverters.createConverter(type, TREE).convert(row);
+  }
+
+  private static RowData readTree(RowType type, Message message) throws Exception {
+    final DynamicMessage parsed = DynamicMessage.parseFrom(TREE, message.toByteArray());
+    return (RowData) ProtoToRowDataConverters.createConverter(TREE, type).convert(parsed);
+  }
+
+  @Test
+  void aRecursiveMessageReadsIntoARowNestedToAFixedDepth() throws Exception {
+    final RowType leaf = row(field("name", VarCharType.STRING_TYPE));
+    final RowType type =
+        row(
+            field("name", VarCharType.STRING_TYPE),
+            field("child", row(field("name", VarCharType.STRING_TYPE), field("child", leaf))));
+    final Message deep = tree("a", tree("b", tree("c", tree("d", null))));
+
+    final RowData out = readTree(type, deep);
+    assertEquals("a", out.getString(0).toString());
+    assertEquals("b", out.getRow(1, 2).getString(0).toString());
+    // Levels below the declared depth are left out.
+    assertEquals("c", out.getRow(1, 2).getRow(1, 1).getString(0).toString());
+
+    final Message written = writeTree(type, out);
+    assertEquals(
+        tree("a", tree("b", tree("c", null))),
+        DynamicMessage.parseFrom(TREE, written.toByteArray()));
+    SourceMessageValidator.validateRowType(TREE, type, CLASS_NAME);
+  }
+
+  @Test
+  void aRecursiveFieldRoundTripsAsBytes() throws Exception {
+    final RowType type =
+        row(
+            field("name", VarCharType.STRING_TYPE),
+            field("child", new VarBinaryType(VarBinaryType.MAX_LENGTH)),
+            field("children", new ArrayType(new VarBinaryType(VarBinaryType.MAX_LENGTH))));
+    final Message child = tree("b", tree("c", null));
+    final Message message =
+        DynamicMessage.newBuilder((DynamicMessage) tree("a", child))
+            .addRepeatedField(TREE.findFieldByName("children"), tree("x", null))
+            .build();
+
+    final RowData out = readTree(type, message);
+    assertArrayEquals(child.toByteArray(), out.getBinary(1));
+    assertArrayEquals(tree("x", null).toByteArray(), out.getArray(2).getBinary(0));
+
+    final Message written = writeTree(type, out);
+    assertEquals(message, DynamicMessage.parseFrom(TREE, written.toByteArray()));
+    SourceMessageValidator.validateRowType(TREE, type, CLASS_NAME);
+  }
+
+  @Test
+  void aRecursiveFieldRoundTripsAsJson() throws Exception {
+    final RowType type =
+        row(field("name", VarCharType.STRING_TYPE), field("child", VarCharType.STRING_TYPE));
+    final Message message = tree("a", tree("b", tree("c", null)));
+
+    final RowData out = readTree(type, message);
+    assertEquals("{\"name\":\"b\",\"child\":{\"name\":\"c\"}}", out.getString(1).toString());
+    assertEquals(message, DynamicMessage.parseFrom(TREE, writeTree(type, out).toByteArray()));
+    SourceMessageValidator.validateRowType(TREE, type, CLASS_NAME);
+  }
+
+  @Test
+  void writingBytesThatAreNotTheMessageFails() {
+    final RowType type = row(field("child", new VarBinaryType(VarBinaryType.MAX_LENGTH)));
+    final IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> writeTree(type, GenericRowData.of((Object) new byte[] {(byte) 0xff})));
+    assertTrue(e.getMessage().contains("rec.Tree"), e.getMessage());
+  }
+
+  @Test
+  void anyRoundTripsAsBytes() throws Exception {
+    final RowType type = row(field("any", new VarBinaryType(VarBinaryType.MAX_LENGTH)));
+    final Any any = Any.pack(Timestamp.newBuilder().setSeconds(9).build());
+    final RowData out = read(type, write(type, GenericRowData.of((Object) any.toByteArray())));
+    assertEquals(any, Any.parseFrom(out.getBinary(0)));
+    SourceMessageValidator.validateRowType(COVERAGE, type, CLASS_NAME);
+  }
+
+  @Test
+  void bytesForAWrapperStillReadsItsValueField() throws Exception {
+    final Descriptor wrapped =
+        (Descriptor)
+            new ProtobufSchema(
+                    "syntax = \"proto3\"; import \"google/protobuf/wrappers.proto\";"
+                        + " message W { google.protobuf.BytesValue b = 1; }")
+                .toDescriptor();
+    final RowType type = row(field("b", new VarBinaryType(VarBinaryType.MAX_LENGTH)));
+    final Message message =
+        (Message)
+            RowDataToProtoConverters.createConverter(type, wrapped)
+                .convert(GenericRowData.of((Object) new byte[] {1, 2}));
+    final RowData out =
+        (RowData) ProtoToRowDataConverters.createConverter(wrapped, type).convert(message);
+    assertArrayEquals(new byte[] {1, 2}, out.getBinary(0));
+  }
+
+  @Test
+  void aRecursiveFieldDeclaredAsAnotherScalarFailsTheCheck() {
+    assertThrows(
+        ValidationException.class,
+        () ->
+            SourceMessageValidator.validateRowType(
+                TREE, row(field("child", new IntType())), CLASS_NAME));
   }
 }

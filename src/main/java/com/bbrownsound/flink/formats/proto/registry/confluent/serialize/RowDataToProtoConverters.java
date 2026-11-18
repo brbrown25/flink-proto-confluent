@@ -17,6 +17,7 @@ import com.google.protobuf.DynamicMessage.Builder;
 import com.google.protobuf.FloatValue;
 import com.google.protobuf.Int32Value;
 import com.google.protobuf.Int64Value;
+import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.Message;
 import com.google.protobuf.StringValue;
 import com.google.protobuf.Timestamp;
@@ -298,6 +299,13 @@ public class RowDataToProtoConverters {
       case DOUBLE:
       case BINARY:
       case VARBINARY:
+        if ((type.getTypeRoot() == org.apache.flink.table.types.logical.LogicalTypeRoot.BINARY
+                || type.getTypeRoot()
+                    == org.apache.flink.table.types.logical.LogicalTypeRoot.VARBINARY)
+            && DeclaredTypes.isSerializedMessage(targetSchema)) {
+          final Descriptor messageType = targetSchema.getMessageType();
+          return value -> parseMessage((byte[]) value, messageType);
+        }
         if (targetSchema.getType() == Type.MESSAGE) {
           return createWrapperConverter(type, targetSchema);
         } else if (targetSchema.getType() == Type.ENUM
@@ -529,6 +537,21 @@ public class RowDataToProtoConverters {
               enumType.getFullName(), field.getFullName(), number));
     }
     return enumType.findValueByNumberCreatingIfUnknown(number);
+  }
+
+  private static Message parseMessage(byte[] bytes, Descriptor messageType) {
+    try {
+      return DynamicMessage.parseFrom(messageType, bytes);
+    } catch (InvalidProtocolBufferException e) {
+      throw new IllegalArgumentException(
+          "Cannot write a BYTES column to a "
+              + messageType.getFullName()
+              + " field: it is not a serialized "
+              + messageType.getFullName()
+              + ". "
+              + e.getMessage(),
+          e);
+    }
   }
 
   private static boolean isMessage(FieldDescriptor field, String fullName) {

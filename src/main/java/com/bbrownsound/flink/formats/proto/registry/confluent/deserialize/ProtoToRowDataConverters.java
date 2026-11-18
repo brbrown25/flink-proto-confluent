@@ -322,7 +322,7 @@ public class ProtoToRowDataConverters {
         return createBooleanConverter(targetType, schemaType);
       case BINARY:
       case VARBINARY:
-        return createBinaryConverter(targetType, schemaType);
+        return createBinaryConverter(targetType, readSchema);
       case TIME_WITHOUT_TIME_ZONE:
         return createTimeConverter();
       case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
@@ -454,10 +454,17 @@ public class ProtoToRowDataConverters {
   }
 
   private static ProtoToRowDataConverter createBinaryConverter(
-      LogicalType targetType, Type schemaType) {
+      LogicalType targetType, FieldDescriptor readSchema) {
+    final Type schemaType = readSchema.getType();
     return switch (schemaType) {
       case BYTES -> object -> ((ByteString) object).toByteArray();
-      case MESSAGE -> object -> ((ByteString) extractValueField(object)).toByteArray();
+      case MESSAGE -> {
+        if (DeclaredTypes.isSerializedMessage(readSchema)) {
+          // The message's Protobuf encoding, e.g. a recursive field kept serialized.
+          yield object -> ((Message) object).toByteArray();
+        }
+        yield object -> ((ByteString) extractValueField(object)).toByteArray();
+      }
       default -> throw unexpectedTypeForSchema(schemaType, targetType.getTypeRoot());
     };
   }

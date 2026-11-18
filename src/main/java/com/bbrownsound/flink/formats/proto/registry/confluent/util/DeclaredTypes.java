@@ -23,6 +23,9 @@ import org.apache.flink.table.types.logical.LogicalType;
  *   <li>An {@code enum} as {@code INT}: the value's number. A number the enum does not define reads
  *       as itself; writing one keeps it in an open (proto3) enum and fails for a closed (proto2)
  *       one.
+ *   <li>Any message (other than wrapper-style messages, see {@link #isSerializedMessage}) as {@code
+ *       BYTES}: the message's Protobuf encoding. With {@code STRING} and a {@code ROW} nested to a
+ *       fixed depth, this is how a table reads a recursive message.
  * </ul>
  */
 public final class DeclaredTypes {
@@ -47,6 +50,9 @@ public final class DeclaredTypes {
             || isMessage(field, CommonConstants.PROTOBUF_UINT64_WRAPPER_TYPE);
       case INTEGER:
         return field.getType() == FieldDescriptor.Type.ENUM;
+      case BINARY:
+      case VARBINARY:
+        return isSerializedMessage(field);
       case CHAR:
       case VARCHAR:
         return isSerializedMessage(field) && !isMessage(field, CommonConstants.PROTOBUF_ANY_TYPE);

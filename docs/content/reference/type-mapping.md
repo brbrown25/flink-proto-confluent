@@ -43,6 +43,7 @@ A table can declare one of these types for a field instead of the derived one. T
 | `uint64`, `fixed64`, `google.protobuf.UInt64Value` | `DECIMAL(p, s)`, normally `DECIMAL(20, 0)` | The unsigned value, from 0 to 18446744073709551615. `DECIMAL(20, 0)` holds every value; with a smaller precision a value that does not fit reads as `NULL`. Writing fails on a negative value, a fractional value or one above 18446744073709551615 instead of wrapping it. |
 | any `message` except `google.protobuf.Any` and wrapper-style messages | `STRING` | The message's JSON (see [JSON strings](#json-strings)). |
 | `enum` | `INT` | The value's number instead of its name. A number the enum does not define (written by a newer schema) reads as that number. Writing a number the enum does not define keeps it in an open (proto3) enum and fails for a closed (proto2) enum, which cannot hold it. Works for `repeated` enums (`ARRAY<INT>`) and map values too. |
+| any `message` except wrapper-style messages | `BYTES` | The message's Protobuf encoding, kept serialized. Writing fails on bytes that do not parse as the message. For `google.protobuf.Any` this is the whole `Any`, type URL included. |
 
 ## Unsigned integers in `BIGINT`
 
@@ -64,3 +65,21 @@ Two kinds of message are not read as JSON:
 
 - **Wrapper-style messages**, those with a field named `value` (`google.protobuf.StringValue` and the other wrappers, and any message of your own shaped like one): a `STRING` column reads and writes that `value` field, as it always has.
 - **`google.protobuf.Any`**: its JSON needs the packed message's type, which the format does not know. Read it as `ROW<type_url STRING, value BYTES>` (the derived type).
+
+## Recursive messages
+
+A message that contains itself, directly (`message Tree { Tree child = 1; }`) or through other messages, has no finite `ROW` type, so derived DDL (the `ddl` command, the catalog and `ProtoToTableDDL`) fails on it with `Cyclic schemas are not supported.`, naming the message and the field that closes the cycle. Write the DDL for that field by hand, choosing one of:
+
+- **`ROW` nested to a fixed depth.** Declare as many levels as you need; the source reads those levels and leaves out anything deeper, and the sink writes the levels the row has.
+- **`BYTES`.** The field's Protobuf encoding, every level included. Decode it later, or write it back to a topic unchanged.
+- **`STRING`.** The field's JSON (see [JSON strings](#json-strings)), every level included, for Flink's JSON functions.
+
+```sql
+CREATE TABLE trees (
+  `name` STRING,
+  `child` ROW<`name` STRING, `child` ROW<`name` STRING>>,  -- two levels below the root
+  `children` ARRAY<BYTES>                                  -- every level, serialized
+) WITH (...);
+```
+
+Derived DDL has no option to do this for you yet, so a recursive message cannot be read through the catalog; write its table by hand.

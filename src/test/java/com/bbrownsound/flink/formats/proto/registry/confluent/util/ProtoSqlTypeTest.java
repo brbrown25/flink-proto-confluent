@@ -224,7 +224,10 @@ class ProtoSqlTypeTest {
             .toDescriptor();
     IllegalArgumentException e =
         assertThrows(IllegalArgumentException.class, () -> ProtoToSqlType.toSqlType(cyclic));
-    assertEquals("Cyclic schemas are not supported.", e.getMessage());
+    assertTrue(e.getMessage().startsWith("Cyclic schemas are not supported."), e.getMessage());
+    assertTrue(
+        e.getMessage().contains("'Node' contains itself through field 'Node.next'"),
+        e.getMessage());
   }
 
   @Test
