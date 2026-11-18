@@ -333,6 +333,7 @@ public class RowTypeToProto {
     builder.clearProto3Optional();
     return builder.build();
   }
+
   /**
    * Converts {@code lower_underscore} to {@code UpperCamel} the way Guava's {@code
    * CaseFormat.LOWER_UNDERSCORE.to(CaseFormat.UPPER_CAMEL, ...)} does: split on {@code '_'},
