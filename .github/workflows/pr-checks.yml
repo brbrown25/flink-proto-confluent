@@ -1,7 +1,7 @@
 name: PR Checks
 
 # Owns all pull-request signal. ci.yml is push-only, so nothing here is a
-# repeat of it: each task runs once per JDK per PR.
+# repeat of it: each task runs once per JDK and Flink line per PR.
 on:
   pull_request:
     types: [opened, synchronize, reopened]
@@ -81,10 +81,17 @@ jobs:
       with:
         fail-on-severity: high
 
+  # One leg per supported Flink line. Each leg compiles and packages against
+  # that line's Flink artifacts (-PflinkVersion picks the line, see #142).
   build-check:
+    name: build (flink ${{ matrix.flink }})
     runs-on: ubuntu-latest
     needs: changes
     if: needs.changes.outputs.code == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        flink: ['1.20.5', '2.2.1']
 
     steps:
     - name: Checkout code
@@ -93,21 +100,25 @@ jobs:
     - name: Setup build environment
       uses: ./.github/actions/setup-build
 
-    - name: Build
-      run: ./gradlew build -x test -x integrationTest
+    - name: Build against Flink ${{ matrix.flink }}
+      run: ./gradlew -PflinkVersion=${{ matrix.flink }} build -x test -x integrationTest
 
     # `build` already runs verifyJars through `check`; this runs it by name so the packaging
     # contract (thin library JAR, relocated self-contained -all JAR) shows up as its own step.
     - name: Check JAR contents
       run: |
-        ./gradlew verifyJars
+        ./gradlew -PflinkVersion=${{ matrix.flink }} verifyJars
         ls -l build/libs
 
-  # Unit tests only, once per supported JDK. integrationTest and
+  # Unit tests only, once per supported JDK x Flink line. integrationTest and
   # jacocoTestReport are excluded because `test` is wired to finalize with
   # jacocoTestReport, which depends on integrationTest -- without the
   # exclusions the integration suite would run on every matrix leg.
+  #
+  # Exactly one leg (JDK 21, Flink 1.20) is the coverage leg: it uploads its
+  # unit-test execution data for the integration-tests coverage leg to merge.
   test-matrix:
+    name: unit tests (jdk ${{ matrix.java-version }}, flink ${{ matrix.flink }})
     runs-on: ubuntu-latest
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -115,6 +126,11 @@ jobs:
       fail-fast: false
       matrix:
         java-version: ['17', '21']
+        flink: ['1.20.5', '2.2.1']
+        include:
+          - java-version: '21'
+            flink: '1.20.5'
+            coverage: true
 
     steps:
     - name: Checkout code
@@ -125,29 +141,40 @@ jobs:
       with:
         java-version: ${{ matrix.java-version }}
 
-    - name: Run unit tests on JDK ${{ matrix.java-version }}
-      run: ./gradlew test -x integrationTest -x jacocoTestReport
+    - name: Run unit tests on JDK ${{ matrix.java-version }}, Flink ${{ matrix.flink }}
+      run: ./gradlew -PflinkVersion=${{ matrix.flink }} test -x integrationTest -x jacocoTestReport
 
     - name: Upload test results
       uses: actions/upload-artifact@v7
       if: always()
       with:
-        name: test-results-jdk${{ matrix.java-version }}
+        name: test-results-jdk${{ matrix.java-version }}-flink${{ matrix.flink }}
         path: build/test-results/test/
 
     - name: Upload unit test coverage data
       uses: actions/upload-artifact@v7
-      if: always()
+      if: always() && matrix.coverage
       with:
-        name: jacoco-exec-jdk${{ matrix.java-version }}
+        name: jacoco-exec-coverage-leg
         path: build/jacoco/test.exec
 
-  # Runs the integration suite once (primary JDK) and reuses the unit-test
-  # coverage data produced by the JDK 21 matrix leg, so `test` is not re-run.
-  coverage:
+  # Integration suite once per Flink line on the primary JDK: real Flink SQL
+  # jobs on a MiniCluster against Kafka + Schema Registry, so every line gets
+  # an end-to-end smoke test of the format. Only the Flink 1.20 leg merges the
+  # unit-test coverage data, verifies coverage and reports it, so Codecov sees
+  # exactly one upload per commit.
+  integration-tests:
+    name: integration tests (flink ${{ matrix.flink }})
     runs-on: ubuntu-latest
     needs: [changes, test-matrix]
     if: needs.changes.outputs.code == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        flink: ['1.20.5', '2.2.1']
+        include:
+          - flink: '1.20.5'
+            coverage: true
 
     steps:
     - name: Checkout code
@@ -156,14 +183,22 @@ jobs:
     - name: Setup build environment
       uses: ./.github/actions/setup-build
 
-    - name: Restore unit test coverage data from JDK 21 matrix leg
+    - name: Restore unit test coverage data from the coverage leg
+      if: matrix.coverage
       uses: actions/download-artifact@v8
       with:
-        name: jacoco-exec-jdk21
+        name: jacoco-exec-coverage-leg
         path: build/jacoco
 
     - name: Run integration tests and verify combined coverage
-      run: ./gradlew integrationTest jacocoTestReport jacocoTestCoverageVerification -x test
+      if: matrix.coverage
+      run: ./gradlew -PflinkVersion=${{ matrix.flink }} integrationTest jacocoTestReport jacocoTestCoverageVerification -x test
+      env:
+        TESTCONTAINERS_RYUK_DISABLED: true
+
+    - name: Run integration tests
+      if: ${{ !matrix.coverage }}
+      run: ./gradlew -PflinkVersion=${{ matrix.flink }} integrationTest -x test
       env:
         TESTCONTAINERS_RYUK_DISABLED: true
 
@@ -171,7 +206,7 @@ jobs:
       uses: dorny/test-reporter@v3
       if: success() || failure()
       with:
-        name: Integration Test Results
+        name: Integration Test Results (flink ${{ matrix.flink }})
         path: build/test-results/integrationTest/*.xml
         reporter: java-junit
 
@@ -179,12 +214,13 @@ jobs:
       uses: actions/upload-artifact@v7
       if: always()
       with:
-        name: integration-test-results
+        name: integration-test-results-flink${{ matrix.flink }}
         path: |
           build/test-results/integrationTest/
           build/reports/tests/integrationTest/
 
     - name: Upload coverage to Codecov
+      if: matrix.coverage
       uses: codecov/codecov-action@v7
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
@@ -194,6 +230,7 @@ jobs:
         fail_ci_if_error: true
 
     - name: Add coverage to PR
+      if: matrix.coverage
       uses: madrapps/jacoco-report@v1.8.0
       with:
         paths: build/reports/jacoco/test/jacocoTestReport.xml
@@ -202,3 +239,29 @@ jobs:
         min-coverage-changed-files: 80
         title: Code Coverage
         update-comment: true
+
+  # The one check branch protection should require. Matrix check names carry
+  # version numbers and change on every Flink/JDK bump; this name does not.
+  # It runs even when upstream jobs fail or are skipped: it fails if any of
+  # them failed or was cancelled, and passes when they were all skipped for a
+  # docs-only PR (#117), so the required check is never left pending.
+  ci-ok:
+    name: ci-ok
+    runs-on: ubuntu-latest
+    needs: [changes, lint, build-check, test-matrix, integration-tests]
+    if: always()
+
+    steps:
+    - name: Check upstream job results
+      env:
+        RESULTS: ${{ toJSON(needs) }}
+      run: |
+        set -euo pipefail
+        printf '%s\n' "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+        bad=$(printf '%s\n' "$RESULTS" \
+          | jq -r '[to_entries[] | select(.value.result == "failure" or .value.result == "cancelled") | .key] | join(", ")')
+        if [ -n "$bad" ]; then
+          echo "::error title=Required checks failed::$bad"
+          exit 1
+        fi
+        echo 'All required jobs succeeded or were skipped for a docs-only change.'
