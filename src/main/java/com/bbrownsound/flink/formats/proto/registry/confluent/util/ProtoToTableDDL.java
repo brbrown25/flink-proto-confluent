@@ -2,7 +2,6 @@ package com.bbrownsound.flink.formats.proto.registry.confluent.util;
 
 import com.google.protobuf.Descriptors.Descriptor;
 import com.google.protobuf.Message;
-import java.lang.reflect.Method;
 import java.util.Set;
 import org.apache.flink.table.types.logical.LogicalType;
 import org.slf4j.Logger;
@@ -117,21 +116,7 @@ public final class ProtoToTableDDL {
   }
 
   private static Descriptor getDescriptor(Class<? extends Message> messageClass) {
-    try {
-      Method getDescriptor = messageClass.getMethod("getDescriptor");
-      Object result = getDescriptor.invoke(null);
-      if (result instanceof Descriptor) {
-        return (Descriptor) result;
-      }
-      throw new IllegalArgumentException(
-          "getDescriptor() did not return a Descriptor: " + messageClass.getName());
-    } catch (NoSuchMethodException e) {
-      throw new IllegalArgumentException(
-          "Not a protobuf message class (no getDescriptor()): " + messageClass.getName(), e);
-    } catch (Exception e) {
-      throw new IllegalArgumentException(
-          "Failed to get descriptor for " + messageClass.getName(), e);
-    }
+    return ProtoDescriptors.descriptorOf(messageClass);
   }
 
   private ProtoToTableDDL() {}

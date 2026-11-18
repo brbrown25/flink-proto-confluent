@@ -307,6 +307,12 @@ Then in Flink SQL (e.g. `sql-client.sh`), use the format identifier `proto-confl
 
 The subject is derived from `topic` (`<topic>-value`). `value.proto-confluent.topic` can be omitted when the table's Kafka `topic` names a single topic, since the format falls back to it. To name the subject directly, set `value.proto-confluent.subject` instead; to change how it is derived, set `value.proto-confluent.subject-name-strategy` (`topic`, `record`, `topic-record` or a class name). See [Subject naming](docs/content/how-to/schema-evolution.md#subject-naming).
 
+To get the whole `CREATE TABLE` for a registered subject, with every column typed from the schema, run the `-all` JAR's `ddl` command (no Flink installation needed; see [Generate table DDL](docs/content/how-to/generate-ddl.md)):
+
+```bash
+java -jar flink-proto-confluent-<version>-all.jar ddl --url http://schema-registry:8081 --subject orders-value --bootstrap-servers kafka:9092
+```
+
 To pin an **explicit named** protobuf message class for the key and/or value (instead of the default dynamic, Row-derived schema), set `message-class` on the corresponding format:
 
 ```sql

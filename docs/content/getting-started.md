@@ -221,6 +221,9 @@ CREATE TABLE orders (
 
 `value.proto-confluent.topic` can be omitted when the table's Kafka `topic` names a single topic, as here: the format then derives the subject from that topic. To name the subject directly instead, replace it with `'value.proto-confluent.subject' = 'orders-value'`. See [Subject naming](how-to/schema-evolution.md#subject-naming).
 
+!!! tip "Generate the statement instead"
+    For a schema that is already registered, `java -jar flink-proto-confluent-<version>-all.jar ddl --url http://schema-registry:8081 --subject orders-value` prints this statement with every column, nested `ROW`, `ARRAY` and `MAP` filled in from the schema. See [Generate table DDL](how-to/generate-ddl.md).
+
 ## 3. Query it
 
 ```sql

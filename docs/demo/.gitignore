@@ -1,3 +1,6 @@
 lib/
 .cache/
 .env
+# Written by bin/flink-sql and casts/quickstart.sh.
+sql/.run.sql
+sql/orders.sql

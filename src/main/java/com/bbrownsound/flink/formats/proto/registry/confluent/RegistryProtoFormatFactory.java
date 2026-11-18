@@ -6,6 +6,7 @@ import com.bbrownsound.flink.formats.proto.registry.confluent.config.ProtoConflu
 import com.bbrownsound.flink.formats.proto.registry.confluent.deserialize.SourceMessageValidator;
 import com.bbrownsound.flink.formats.proto.registry.confluent.subject.SubjectNameStrategies;
 import java.util.Arrays;
+import com.bbrownsound.flink.formats.proto.registry.confluent.schema.SchemaRegistryClients;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -312,6 +313,21 @@ public class RegistryProtoFormatFactory
   }
 
   /**
+   * The format options that configure the connection to the registry (SSL and authentication).
+   * Their client properties come from {@link SchemaRegistryClients#CONNECTION_OPTIONS}.
+   */
+  static final List<ConfigOption<String>> CONNECTION_OPTIONS =
+      List.of(
+          ProtoConfluentFormatOptions.SSL_KEYSTORE_LOCATION,
+          ProtoConfluentFormatOptions.SSL_KEYSTORE_PASSWORD,
+          ProtoConfluentFormatOptions.SSL_TRUSTSTORE_LOCATION,
+          ProtoConfluentFormatOptions.SSL_TRUSTSTORE_PASSWORD,
+          ProtoConfluentFormatOptions.BASIC_AUTH_CREDENTIALS_SOURCE,
+          ProtoConfluentFormatOptions.BASIC_AUTH_USER_INFO,
+          ProtoConfluentFormatOptions.BEARER_AUTH_CREDENTIALS_SOURCE,
+          ProtoConfluentFormatOptions.BEARER_AUTH_TOKEN);
+
+  /**
    * Builds a properties map from optional format options (SSL, auth, etc.) for the Schema Registry
    * client.
    *
@@ -324,30 +340,12 @@ public class RegistryProtoFormatFactory
 
     formatOptions.getOptional(ProtoConfluentFormatOptions.PROPERTIES).ifPresent(properties::putAll);
 
-    formatOptions
-        .getOptional(ProtoConfluentFormatOptions.SSL_KEYSTORE_LOCATION)
-        .ifPresent(v -> properties.put("schema.registry.ssl.keystore.location", v));
-    formatOptions
-        .getOptional(ProtoConfluentFormatOptions.SSL_KEYSTORE_PASSWORD)
-        .ifPresent(v -> properties.put("schema.registry.ssl.keystore.password", v));
-    formatOptions
-        .getOptional(ProtoConfluentFormatOptions.SSL_TRUSTSTORE_LOCATION)
-        .ifPresent(v -> properties.put("schema.registry.ssl.truststore.location", v));
-    formatOptions
-        .getOptional(ProtoConfluentFormatOptions.SSL_TRUSTSTORE_PASSWORD)
-        .ifPresent(v -> properties.put("schema.registry.ssl.truststore.password", v));
-    formatOptions
-        .getOptional(ProtoConfluentFormatOptions.BASIC_AUTH_CREDENTIALS_SOURCE)
-        .ifPresent(v -> properties.put("basic.auth.credentials.source", v));
-    formatOptions
-        .getOptional(ProtoConfluentFormatOptions.BASIC_AUTH_USER_INFO)
-        .ifPresent(v -> properties.put("basic.auth.user.info", v));
-    formatOptions
-        .getOptional(ProtoConfluentFormatOptions.BEARER_AUTH_CREDENTIALS_SOURCE)
-        .ifPresent(v -> properties.put("bearer.auth.credentials.source", v));
-    formatOptions
-        .getOptional(ProtoConfluentFormatOptions.BEARER_AUTH_TOKEN)
-        .ifPresent(v -> properties.put("bearer.auth.token", v));
+    // The option-to-client-property mapping is shared with the ddl command line tool.
+    for (ConfigOption<String> option : CONNECTION_OPTIONS) {
+      formatOptions
+          .getOptional(option)
+          .ifPresent(v -> properties.put(SchemaRegistryClients.clientProperty(option.key()), v));
+    }
 
     if (properties.isEmpty()) {
       return null;
