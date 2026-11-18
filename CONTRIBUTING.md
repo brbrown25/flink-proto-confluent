@@ -21,9 +21,22 @@ You need a JDK (17 or 21) and, for the integration tests, a running Docker daemo
 
 ```bash
 make check      # unit + integration tests, checkstyle, spotbugs, spotless, coverage gate, JAR checks
-make test       # unit tests only
+make test       # unit tests, then integration tests (the JaCoCo report needs both)
 ./gradlew spotlessApply   # fix formatting
 ```
+
+### Testing against each Flink line
+
+One source tree builds for both supported Flink lines (see the [support matrix](README.md#supported-flink-versions)). `-PflinkVersion` picks the Flink version the build compiles and tests against; without it the build uses `flinkVersion` from `gradle.properties` (1.20.0), which is what the `make` targets run. CI runs every suite on Flink 1.20.5 and 2.2.1, so run the same commands for both lines before opening a pull request that touches `src/` or the build:
+
+| What | Flink 1.20 | Flink 2.x |
+| --- | --- | --- |
+| Unit tests only | `./gradlew test -x integrationTest -PflinkVersion=1.20.5` | `./gradlew test -x integrationTest -PflinkVersion=2.2.1` |
+| Integration tests (needs Docker) | `./gradlew integrationTest -PflinkVersion=1.20.5` | `./gradlew integrationTest -PflinkVersion=2.2.1` |
+| Unit + integration tests and the JaCoCo report | `./gradlew test -PflinkVersion=1.20.5` | `./gradlew test -PflinkVersion=2.2.1` |
+| Full gate (unit + integration tests and every check) | `./gradlew check -PflinkVersion=1.20.5` | `./gradlew check -PflinkVersion=2.2.1` |
+
+`test` is finalized by the JaCoCo report, which needs the integration tests too, so a plain `./gradlew test` (and `make test`) also runs the integration suite; `-x integrationTest` skips it. Run a single test class with `--tests`, for example `./gradlew test -x integrationTest -PflinkVersion=2.2.1 --tests '*RegistryProtoFormatFactoryTest'`. Switching `-PflinkVersion` changes the test classpath, so Gradle reruns the tests rather than reusing the other line's results. Code under `src/` must compile and pass on both lines; the build puts only one line's Flink artifacts on the classpath, so a test that passes on one line says nothing about the other.
 
 - Tests use JUnit 5 and real components: Testcontainers for Kafka and Schema Registry, a Flink MiniCluster for end-to-end runs. Mockito is not used.
 - Cover behaviour changes with tests. A bug fix starts with a test that fails without the fix.

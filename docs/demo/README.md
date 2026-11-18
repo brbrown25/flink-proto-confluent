@@ -1,11 +1,20 @@
 # Demo stack and recorded casts
 
-Kafka (KRaft) + Confluent Schema Registry + a Flink 1.20 (Java 17) session cluster with the `proto-confluent` format and the Flink Kafka SQL connector on the classpath. Used to record the [asciinema](https://asciinema.org) casts shown on the docs site.
+Kafka (KRaft) + Confluent Schema Registry + a Flink session cluster (Java 17) with the `proto-confluent` format and the Flink Kafka SQL connector on the classpath. Used to record the [asciinema](https://asciinema.org) casts shown on the docs site.
+
+The stack runs **Flink 1.20** by default. Set `FLINK_VERSION=2.2` when running `setup.sh` (or `record.sh`) to run it on Flink 2.2 instead; the variable picks the Flink image, the Kafka SQL connector and the Flink version the format JAR is built against:
+
+| `FLINK_VERSION` | Flink image | Format JAR in `lib/` | Kafka SQL connector in `lib/` |
+| --- | --- | --- | --- |
+| `1.20` (default) | `flink:1.20-java17` | `flink-proto-confluent-<version>-all.jar`, built with `-PflinkVersion=1.20.0` | `flink-sql-connector-kafka-3.4.0-1.20.jar` |
+| `2.2` | `flink:2.2-java17` | `flink-proto-confluent-flink2-<version>-all.jar`, built with `-PflinkVersion=2.2.1` | `flink-sql-connector-kafka-5.0.0-2.2.jar` |
+
+`setup.sh` writes the chosen version to `.env`, so the `docker compose` and `bin/` commands that follow use the same image without repeating the variable. The recorded casts are captured on the default Flink 1.20 stack.
 
 Requires Docker, `asciinema` (3.x) and a JDK to build the JAR.
 
 ```bash
-./setup.sh                  # build shadow JAR + fetch Kafka SQL connector into ./lib
+./setup.sh                  # build shadow JAR + fetch Kafka SQL connector into ./lib (FLINK_VERSION=2.2 ./setup.sh for Flink 2.2)
 docker compose up -d        # start the stack
 bin/create-topic orders
 echo '{"order_id":"o-1","customer":"acme","amount":42.5}' | bin/produce-proto orders
@@ -18,6 +27,7 @@ docker compose down -v
 ```bash
 ./record.sh                 # clean stack, records casts/*.sh into ../content/assets/casts/
 ./record.sh NAME...         # only the named casts, reusing a healthy stack (--reset for a clean one)
+FLINK_VERSION=2.2 ./record.sh NAME...   # same against the Flink 2.2 stack; a stack on another version is always reset
 ```
 
 Each `casts/<name>.sh` is a script of `say` (comment) and `run` (typed + executed) steps, so a recording is reproducible and diffable. `bin/` holds thin wrappers around the Docker containers; `sql/` holds the Flink SQL the casts run. Preview with `asciinema play ../content/assets/casts/quickstart.cast` or `mkdocs serve`.
