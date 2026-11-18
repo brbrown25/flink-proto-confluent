@@ -22,7 +22,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.stream.Stream;
-import org.apache.flink.shaded.guava31.com.google.common.base.CaseFormat;
 import org.apache.flink.table.types.logical.ArrayType;
 import org.apache.flink.table.types.logical.DecimalType;
 import org.apache.flink.table.types.logical.IntType;
@@ -315,8 +314,7 @@ public class RowTypeToProto {
     // value}}
     // we keep the naming strategy compatible here
     final String typeName =
-        CaseFormat.LOWER_UNDERSCORE.to(
-            CaseFormat.UPPER_CAMEL, fieldName + "_" + CommonConstants.MAP_ENTRY_SUFFIX);
+        lowerUnderscoreToUpperCamel(fieldName + "_" + CommonConstants.MAP_ENTRY_SUFFIX);
     final DescriptorProto mapDescriptor =
         fromRowType(
             new RowType(
@@ -334,5 +332,33 @@ public class RowTypeToProto {
     builder.setName(fieldName);
     builder.clearProto3Optional();
     return builder.build();
+  }
+  /**
+   * Converts {@code lower_underscore} to {@code UpperCamel} the way Guava's {@code
+   * CaseFormat.LOWER_UNDERSCORE.to(CaseFormat.UPPER_CAMEL, ...)} does: split on {@code '_'},
+   * upper-case the first ASCII character of each word and lower-case the rest. Implemented here
+   * rather than through Flink's shaded Guava, whose package name changes between Flink lines
+   * ({@code guava31} on 1.20, {@code guava33} on 2.x).
+   */
+  static String lowerUnderscoreToUpperCamel(String value) {
+    final StringBuilder out = new StringBuilder(value.length());
+    for (String word : value.split("_", -1)) {
+      if (word.isEmpty()) {
+        continue;
+      }
+      out.append(toAsciiUpper(word.charAt(0)));
+      for (int i = 1; i < word.length(); i++) {
+        out.append(toAsciiLower(word.charAt(i)));
+      }
+    }
+    return out.toString();
+  }
+
+  private static char toAsciiUpper(char c) {
+    return c >= 'a' && c <= 'z' ? (char) (c - ('a' - 'A')) : c;
+  }
+
+  private static char toAsciiLower(char c) {
+    return c >= 'A' && c <= 'Z' ? (char) (c + ('a' - 'A')) : c;
   }
 }
