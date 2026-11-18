@@ -11,6 +11,19 @@ make coverage   # unit + integration tests + JaCoCo
 
 Tests use JUnit 5 and real components (Testcontainers for Kafka and Schema Registry); Mockito is not used. Commits follow [Conventional Commits](https://www.conventionalcommits.org/), which drives release-please.
 
+## Testing against each Flink line
+
+One source tree builds for both supported Flink lines (see [Supported Flink versions](getting-started.md#supported-flink-versions)). `-PflinkVersion` picks the Flink version the build compiles and tests against; without it the build uses `flinkVersion` from `gradle.properties` (1.20.0), which is what the `make` targets run. CI runs every suite on Flink 1.20.5 and 2.2.1, so run the same commands for both lines before opening a pull request that touches `src/` or the build. The integration tests need a running Docker daemon.
+
+| What | Flink 1.20 | Flink 2.x |
+| --- | --- | --- |
+| Unit tests only | `./gradlew test -x integrationTest -PflinkVersion=1.20.5` | `./gradlew test -x integrationTest -PflinkVersion=2.2.1` |
+| Integration tests | `./gradlew integrationTest -PflinkVersion=1.20.5` | `./gradlew integrationTest -PflinkVersion=2.2.1` |
+| Unit + integration tests and the JaCoCo report | `./gradlew test -PflinkVersion=1.20.5` | `./gradlew test -PflinkVersion=2.2.1` |
+| Full gate (unit + integration tests and every check) | `./gradlew check -PflinkVersion=1.20.5` | `./gradlew check -PflinkVersion=2.2.1` |
+
+`test` is finalized by the JaCoCo report, which needs the integration tests too, so a plain `./gradlew test` (and `make test`) also runs the integration suite; `-x integrationTest` skips it. Run a single test class with `--tests`, for example `./gradlew test -x integrationTest -PflinkVersion=2.2.1 --tests '*RegistryProtoFormatFactoryTest'`. Code under `src/` must compile and pass on both lines; the build puts only one line's Flink artifacts on the classpath, so a test that passes on one line says nothing about the other.
+
 ## Working on these docs
 
 The site is [MkDocs Material](https://squidfunk.github.io/mkdocs-material/). Sources are in `docs/content/`, config in `docs/mkdocs.yml`, and the nav is the `nav:` list in that file — a new page must be added there.
@@ -49,7 +62,7 @@ Keep SQL snippets in the docs identical to the SQL in `docs/demo/sql/` where bot
 
 ### Terminal demos (asciinema)
 
-Casts in `docs/content/assets/casts/` are recorded against a real Kafka + Schema Registry + Flink stack defined in `docs/demo/`. Requires Docker, `asciinema` 3.x and a JDK.
+Casts in `docs/content/assets/casts/` are recorded against a real Kafka + Schema Registry + Flink stack defined in `docs/demo/`. The stack runs Flink 1.20 (`flink:1.20-java17`) by default, and the committed casts are recorded on it; `FLINK_VERSION=2.2 ./record.sh ...` records against Flink 2.2 (`flink:2.2-java17`) instead, which is useful for checking a cast still behaves the same on the other line. Requires Docker, `asciinema` 3.x and a JDK.
 
 ```bash
 cd docs/demo

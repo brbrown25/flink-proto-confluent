@@ -1,6 +1,6 @@
 # Demos
 
-Real terminal recordings, captured against a local Kafka + Schema Registry + Flink 1.20 stack (see [`docs/demo`](https://github.com/brbrown25/flink-proto-confluent/tree/main/docs/demo) to run it yourself). Click play, or pause and copy text straight from the terminal.
+Real terminal recordings, captured against a local Kafka + Schema Registry + Flink 1.20 stack (`flink:1.20-java17` with `flink-sql-connector-kafka-3.4.0-1.20`). The format and its options behave the same on Flink 2.x; see [`docs/demo`](https://github.com/brbrown25/flink-proto-confluent/tree/main/docs/demo) to run the stack yourself on either line (`FLINK_VERSION=2.2` runs it on `flink:2.2-java17`). Click play, or pause and copy text straight from the terminal.
 
 ## Quickstart
 
