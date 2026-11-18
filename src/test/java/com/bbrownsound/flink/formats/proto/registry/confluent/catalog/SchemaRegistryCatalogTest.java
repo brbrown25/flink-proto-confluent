@@ -446,6 +446,27 @@ class SchemaRegistryCatalogTest {
   }
 
   @Test
+  void aSubjectWithoutVersionsIsNotATable() throws Exception {
+    MockSchemaRegistryClient noVersions =
+        new MockSchemaRegistryClient(List.of(new ProtobufSchemaProvider())) {
+          @Override
+          public SchemaMetadata getLatestSchemaMetadata(String subject)
+              throws RestClientException {
+            throw new RestClientException("no versions", 404, 40402);
+          }
+
+          @Override
+          public Collection<String> getAllSubjects() {
+            return List.of("orders-value");
+          }
+        };
+    SchemaRegistryCatalog c = catalog(Map.of(), noVersions);
+    assertTrue(c.listTables("default").isEmpty());
+    assertFalse(c.tableExists(ORDERS));
+    assertThrows(TableNotExistException.class, () -> c.getTable(ORDERS));
+  }
+
+  @Test
   void aSchemaThatDisappearsWhileItIsReadIsTableNotExist() throws Exception {
     Map<String, Integer> failures = new HashMap<>();
     MockSchemaRegistryClient racing =
