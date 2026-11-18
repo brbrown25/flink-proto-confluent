@@ -2,6 +2,7 @@ package com.bbrownsound.flink.formats.proto.registry.confluent.deserialize;
 
 import static org.apache.flink.table.api.DataTypes.ARRAY;
 import static org.apache.flink.table.api.DataTypes.BIGINT;
+import static org.apache.flink.table.api.DataTypes.BINARY;
 import static org.apache.flink.table.api.DataTypes.BYTES;
 import static org.apache.flink.table.api.DataTypes.CHAR;
 import static org.apache.flink.table.api.DataTypes.FIELD;
@@ -31,6 +32,8 @@ import com.bbrownsound.flink.formats.proto.test.v1.TestRepeatedNested;
 import com.bbrownsound.flink.formats.proto.test.v1.TestSimple;
 import com.bbrownsound.flink.formats.proto.test.v1.TestWrapperTypes;
 import com.google.protobuf.Descriptors.Descriptor;
+import com.google.protobuf.DynamicMessage;
+import com.google.protobuf.Struct;
 import java.util.stream.Stream;
 import org.apache.flink.table.api.ValidationException;
 import org.apache.flink.table.types.DataType;
@@ -120,6 +123,19 @@ class SourceMessageValidatorTest {
     assertTrue(e.getMessage().contains("not a generated protobuf message class"), e.getMessage());
   }
 
+  @Test
+  void loadDescriptor_messageWithoutAStaticDefaultInstance_isRejected() {
+    // DynamicMessage is a Message but has no no-arg static getDefaultInstance().
+    ValidationException e =
+        assertThrows(
+            ValidationException.class,
+            () ->
+                SourceMessageValidator.loadDescriptor(
+                    DynamicMessage.class.getName(), getClass().getClassLoader()));
+    assertTrue(e.getMessage().contains("Failed to read the descriptor"), e.getMessage());
+    assertTrue(e.getMessage().contains(DynamicMessage.class.getName()), e.getMessage());
+  }
+
   // ---- expected message name ----
 
   @Test
@@ -192,6 +208,7 @@ class SourceMessageValidatorTest {
                         FIELD("int32_field_16", TINYINT()),
                         FIELD("string_field_3", CHAR(5)),
                         FIELD("bytes_field_4", BYTES()),
+                        FIELD("bytes_field_12", BINARY(16)),
                         FIELD("bytes_field_10", VARBINARY(10)))),
                 CLASS_NAME));
   }
@@ -366,6 +383,16 @@ class SourceMessageValidatorTest {
     message = validationError(d, ROW(FIELD("a", INT())));
     assertTrue(message.contains("column 'a' has no field"), message);
     assertTrue(message.contains("fields: choice"), message);
+  }
+
+  @Test
+  void validateRowType_cyclicMessageDeclaredAsScalar_readsAsRow() {
+    // google.protobuf.Struct -> map<string, Value> -> Value.struct_value -> Struct is cyclic, so
+    // the field's Flink type cannot be derived; a non-ROW column for it is still a mismatch.
+    String message =
+        validationError(Struct.getDescriptor(), ROW(FIELD("fields", MAP(STRING(), STRING()))));
+    assertTrue(message.contains("column 'fields.value' is STRING"), message);
+    assertTrue(message.contains("(google.protobuf.Value) reads as a ROW"), message);
   }
 
   @Test
