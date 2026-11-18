@@ -1,1 +1,2 @@
 com.bbrownsound.flink.formats.proto.registry.confluent.RegistryProtoFormatFactory
+com.bbrownsound.flink.formats.proto.registry.confluent.catalog.SchemaRegistryCatalogFactory

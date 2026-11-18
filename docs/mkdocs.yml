@@ -52,6 +52,7 @@ nav:
   - Demos: demos.md
   - How-to Guides:
       - Generate table DDL: how-to/generate-ddl.md
+      - Query topics through a catalog: how-to/catalog.md
       - Pin a message class: how-to/message-class.md
       - Handle bad records (dead-letter topic): how-to/dead-letter-topic.md
       - SSL and authentication: how-to/ssl-and-auth.md
