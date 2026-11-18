@@ -16,6 +16,7 @@ CREATE TABLE keyed_sink (
   'key.fields' = 'k_id',
   'key.fields-prefix' = 'k_',
   'key.proto-confluent.url' = 'http://schema-registry:8081',
+  'key.proto-confluent.topic' = 'orders',
   'key.proto-confluent.is_key' = 'true',
   'key.proto-confluent.auto-register-schemas' = 'true',
   'key.proto-confluent.message-class' = 'com.example.OrderProto$OrderKey',
@@ -23,6 +24,7 @@ CREATE TABLE keyed_sink (
   'value.format' = 'proto-confluent',
   'value.fields-include' = 'EXCEPT_KEY',
   'value.proto-confluent.url' = 'http://schema-registry:8081',
+  'value.proto-confluent.topic' = 'orders',
   'value.proto-confluent.is_key' = 'false',
   'value.proto-confluent.auto-register-schemas' = 'true',
   'value.proto-confluent.message-class' = 'com.example.OrderProto$Order'
@@ -34,3 +36,4 @@ CREATE TABLE keyed_sink (
 - Use the JVM binary name — nested generated classes use `$`.
 - Use `key.fields-prefix` when one message backs both key and value, so prefixed key columns still map to proto field names.
 - Leave `message-class` unset to keep dynamic-schema behaviour.
+- The `key.proto-confluent.topic` and `value.proto-confluent.topic` lines can be omitted here, because the format falls back to the table's single `topic`. Set `subject` or `subject-name-strategy` on either format to change the subject the message is registered under; see [Subject naming](schema-evolution.md#subject-naming).
