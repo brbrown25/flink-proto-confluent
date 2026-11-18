@@ -30,6 +30,9 @@ jobs:
   # so Codecov sees a single report per commit.
   build:
     name: build (flink ${{ matrix.flink }})
+    env:
+      # Checked by FlinkLineGuardTest: the run must really be on this Flink version.
+      EXPECTED_FLINK_VERSION: ${{ matrix.flink }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -113,8 +116,12 @@ jobs:
         fail_ci_if_error: true
 
   checkstyle:
-    name: checkstyle
+    name: checkstyle (flink ${{ matrix.flink }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        flink: ['1.20.5', '2.2.1']
 
     steps:
     - name: Checkout code
@@ -124,11 +131,11 @@ jobs:
       uses: ./.github/actions/setup-build
 
     - name: Run lint (checkstyle, SpotBugs, Spotless)
-      run: ./gradlew checkstyleMain checkstyleTest checkstyleIntegrationTest spotbugsMain spotbugsTest spotlessCheck
+      run: ./gradlew -PflinkVersion=${{ matrix.flink }} checkstyleMain checkstyleTest checkstyleIntegrationTest spotbugsMain spotbugsTest spotlessCheck
 
     - name: Upload lint results
       uses: actions/upload-artifact@v7
       if: always()
       with:
-        name: lint-results
+        name: lint-results-flink${{ matrix.flink }}
         path: build/reports/checkstyle/
