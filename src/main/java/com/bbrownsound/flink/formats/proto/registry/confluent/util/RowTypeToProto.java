@@ -10,6 +10,7 @@ import com.google.protobuf.DescriptorProtos.FileDescriptorProto;
 import com.google.protobuf.Descriptors.Descriptor;
 import com.google.protobuf.Descriptors.DescriptorValidationException;
 import com.google.protobuf.Descriptors.FileDescriptor;
+import com.google.protobuf.Duration;
 import com.google.protobuf.Timestamp;
 import com.google.type.Date;
 import com.google.type.TimeOfDay;
@@ -55,6 +56,7 @@ import org.apache.flink.table.types.logical.RowType.RowField;
  * | VARBINARY              | BYTES            |                           |                                           |
  * | TIMESTAMP_LTZ          | MESSAGE          | google.protobuf.Timestamp |                                           |
  * | TIMESTAMP              | MESSAGE          | google.protobuf.Timestamp | wall-clock time read and written as UTC   |
+ * | INTERVAL DAY TO SECOND | MESSAGE          | google.protobuf.Duration  | milliseconds                              |
  * | DATE                   | MESSAGE          | google.type.Date          |                                           |
  * | TIME_WITHOUT_TIME_ZONE | MESSAGE          | google.type.TimeOfDay     |                                           |
  * | DECIMAL                | MESSAGE          | confluent.type.Decimal    |                                           |
@@ -96,6 +98,7 @@ public class RowTypeToProto {
                       Date.getDescriptor(),
                       TimeOfDay.getDescriptor(),
                       Timestamp.getDescriptor(),
+                      Duration.getDescriptor(),
                       Decimal.getDescriptor())
                   .map(Descriptor::getFile)
                   .toArray(FileDescriptor[]::new))
@@ -194,6 +197,11 @@ public class RowTypeToProto {
         builder.setTypeName(makeItTopLevelScoped(CommonConstants.PROTOBUF_TIMESTAMP_TYPE));
         dependencies.add(CommonConstants.PROTOBUF_TIMESTAMP_LOCATION);
         return builder.build();
+      case INTERVAL_DAY_TIME:
+        builder.setType(Type.TYPE_MESSAGE);
+        builder.setTypeName(makeItTopLevelScoped(CommonConstants.PROTOBUF_DURATION_TYPE));
+        dependencies.add(CommonConstants.PROTOBUF_DURATION_LOCATION);
+        return builder.build();
       case DATE:
         builder.setType(Type.TYPE_MESSAGE);
         builder.setTypeName(makeItTopLevelScoped(CommonConstants.PROTOBUF_DATE_TYPE));
@@ -279,7 +287,6 @@ public class RowTypeToProto {
         }
       case TIMESTAMP_WITH_TIME_ZONE:
       case INTERVAL_YEAR_MONTH:
-      case INTERVAL_DAY_TIME:
       case DISTINCT_TYPE:
       case STRUCTURED_TYPE:
       case SYMBOL:

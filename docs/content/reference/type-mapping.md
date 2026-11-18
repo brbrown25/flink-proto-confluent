@@ -4,7 +4,7 @@ How the format maps Protobuf types to Flink SQL types, in both directions. The s
 
 ## Derived types
 
-These are the types the [`ddl` command](../how-to/generate-ddl.md), the [catalog](../how-to/catalog.md) and `ProtoToTableDDL` derive for a Protobuf schema, and the types the sink derives a Protobuf schema from when it registers one.
+These are the types the [`ddl` command](../how-to/generate-ddl.md), the [catalog](../how-to/catalog.md) and `ProtoToTableDDL` derive for a Protobuf schema. A sink that registers a schema of its own derives it the other way round: `BIGINT` becomes `int64`, a `ROW` a nested message, `TIMESTAMP_LTZ` a `google.protobuf.Timestamp`, and so on.
 
 | Protobuf type | Flink SQL type |
 | --- | --- |
@@ -42,8 +42,9 @@ A table can declare one of these types for a field instead of the derived one. T
 | `google.protobuf.Timestamp` | `TIMESTAMP(p)` | The instant's wall-clock time in UTC. Writing reads the column's wall-clock time as UTC. When the sink derives a schema, a `TIMESTAMP(p)` column becomes a `google.protobuf.Timestamp` field. |
 | `uint64`, `fixed64`, `google.protobuf.UInt64Value` | `DECIMAL(p, s)`, normally `DECIMAL(20, 0)` | The unsigned value, from 0 to 18446744073709551615. `DECIMAL(20, 0)` holds every value; with a smaller precision a value that does not fit reads as `NULL`. Writing fails on a negative value, a fractional value or one above 18446744073709551615 instead of wrapping it. |
 | any `message` except `google.protobuf.Any` and wrapper-style messages | `STRING` | The message's JSON (see [JSON strings](#json-strings)). |
-| `enum` | `INT` | The value's number instead of its name. A number the enum does not define (written by a newer schema) reads as that number. Writing a number the enum does not define keeps it in an open (proto3) enum and fails for a closed (proto2) enum, which cannot hold it. Works for `repeated` enums (`ARRAY<INT>`) and map values too. |
+| `enum` | `INT` | The value's number instead of its name. In an open (proto3) enum, a number the enum does not define (written by a newer schema) reads as that number; a closed (proto2) enum drops such a number when the record is parsed, so the field reads as unset. Writing a number the enum does not define keeps it in an open (proto3) enum and fails for a closed (proto2) enum, which cannot hold it. Works for `repeated` enums (`ARRAY<INT>`) and map values too. |
 | any `message` except wrapper-style messages | `BYTES` | The message's Protobuf encoding, kept serialized. Writing fails on bytes that do not parse as the message. For `google.protobuf.Any` this is the whole `Any`, type URL included. |
+| `google.protobuf.Duration` | `INTERVAL DAY TO SECOND` (any precision, e.g. `INTERVAL DAY(2) TO SECOND(3)`) | The duration in milliseconds, the interval's resolution in Flink: nanoseconds below a millisecond are dropped when reading (toward zero). Negative durations work. When the sink derives a schema, an `INTERVAL DAY TO SECOND` column becomes a `google.protobuf.Duration` field. Derived DDL keeps reading a `Duration` as `ROW<seconds BIGINT, nanos INT>`. |
 
 ## Unsigned integers in `BIGINT`
 

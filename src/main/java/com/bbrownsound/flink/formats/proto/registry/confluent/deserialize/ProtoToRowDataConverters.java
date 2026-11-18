@@ -332,6 +332,8 @@ public class ProtoToRowDataConverters {
         return createTimestampConverter();
       case DATE:
         return createDateConverter();
+      case INTERVAL_DAY_TIME:
+        return createDurationConverter();
       case DECIMAL:
         return createDecimalConverter((DecimalType) targetType, readSchema);
       case TINYINT:
@@ -359,7 +361,6 @@ public class ProtoToRowDataConverters {
       case SYMBOL:
       case DISTINCT_TYPE:
       case STRUCTURED_TYPE:
-      case INTERVAL_DAY_TIME:
       case INTERVAL_YEAR_MONTH:
       case TIMESTAMP_WITH_TIME_ZONE:
       case UNRESOLVED:
@@ -628,6 +629,27 @@ public class ProtoToRowDataConverters {
       long millis = Math.addExact(Math.multiplyExact(seconds, 1000L), nanos / 1000_000L);
       int nanosOfMillis = nanos % 1000_000;
       return TimestampData.fromEpochMillis(millis, nanosOfMillis);
+    };
+  }
+
+  /**
+   * Reads a {@code google.protobuf.Duration} as an {@code INTERVAL DAY TO SECOND}, which Flink holds
+   * in milliseconds: nanoseconds below a millisecond are dropped (toward zero).
+   */
+  private static ProtoToRowDataConverter createDurationConverter() {
+    return object -> {
+      final Message message = (Message) object;
+      long seconds = 0L;
+      int nanos = 0;
+      for (Map.Entry<FieldDescriptor, Object> entry : message.getAllFields().entrySet()) {
+        final String fieldName = entry.getKey().getName();
+        switch (fieldName) {
+          case "seconds" -> seconds = ((Number) entry.getValue()).longValue();
+          case "nanos" -> nanos = ((Number) entry.getValue()).intValue();
+          default -> throw new IllegalStateException("Unexpected field name: " + fieldName);
+        }
+      }
+      return Math.addExact(Math.multiplyExact(seconds, 1000L), nanos / 1000_000L);
     };
   }
 

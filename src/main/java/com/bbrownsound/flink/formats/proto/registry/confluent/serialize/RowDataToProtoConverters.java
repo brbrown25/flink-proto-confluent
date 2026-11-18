@@ -12,6 +12,7 @@ import com.google.protobuf.Descriptors.FieldDescriptor;
 import com.google.protobuf.Descriptors.FieldDescriptor.Type;
 import com.google.protobuf.Descriptors.OneofDescriptor;
 import com.google.protobuf.DoubleValue;
+import com.google.protobuf.Duration;
 import com.google.protobuf.DynamicMessage;
 import com.google.protobuf.DynamicMessage.Builder;
 import com.google.protobuf.FloatValue;
@@ -397,6 +398,16 @@ public class RowDataToProtoConverters {
             return Timestamp.newBuilder().setSeconds(seconds).setNanos(nanos).build();
           }
         };
+      case INTERVAL_DAY_TIME:
+        // Flink holds INTERVAL DAY TO SECOND in milliseconds. Seconds and nanos share its sign,
+        // as google.protobuf.Duration requires.
+        return value -> {
+          final long millis = (Long) value;
+          return Duration.newBuilder()
+              .setSeconds(millis / 1000)
+              .setNanos((int) (millis % 1000) * 1_000_000)
+              .build();
+        };
       case DECIMAL:
         if (targetSchema.getType() == Type.UINT64 || targetSchema.getType() == Type.FIXED64) {
           return value -> toUnsignedLong((DecimalData) value, targetSchema);
@@ -419,7 +430,6 @@ public class RowDataToProtoConverters {
         return createMapConverter((MapType) type, targetSchema);
       case ROW:
         return createConverter((RowType) type, targetSchema.getMessageType());
-      case INTERVAL_DAY_TIME:
       case INTERVAL_YEAR_MONTH:
       case RAW:
       case NULL:

@@ -35,6 +35,7 @@ import org.apache.flink.table.data.StringData;
 import org.apache.flink.table.data.TimestampData;
 import org.apache.flink.table.types.logical.ArrayType;
 import org.apache.flink.table.types.logical.BigIntType;
+import org.apache.flink.table.types.logical.DayTimeIntervalType;
 import org.apache.flink.table.types.logical.DecimalType;
 import org.apache.flink.table.types.logical.IntType;
 import org.apache.flink.table.types.logical.LogicalType;
@@ -67,6 +68,7 @@ class TypeCoverageTest {
                       "import \"google/protobuf/wrappers.proto\";",
                       "import \"google/protobuf/struct.proto\";",
                       "import \"google/protobuf/any.proto\";",
+                      "import \"google/protobuf/duration.proto\";",
                       "enum Color {",
                       "  RED = 0;",
                       "  GREEN = 1;",
@@ -88,6 +90,7 @@ class TypeCoverageTest {
                       "  Color color = 14;",
                       "  repeated Color colors = 15;",
                       "  map<string, Color> color_map = 16;",
+                      "  google.protobuf.Duration duration = 17;",
                       "  message Inner {",
                       "    string inner_name = 1;",
                       "    int32 count = 2;",
@@ -579,5 +582,59 @@ class TypeCoverageTest {
         () ->
             SourceMessageValidator.validateRowType(
                 TREE, row(field("child", new IntType())), CLASS_NAME));
+  }
+
+  // ---- google.protobuf.Duration as INTERVAL DAY TO SECOND ------------------------------------
+
+  private static DayTimeIntervalType dayToSecond() {
+    return new DayTimeIntervalType(DayTimeIntervalType.DayTimeResolution.DAY_TO_SECOND, 2, 3);
+  }
+
+  @Test
+  void durationRoundTripsAsADayToSecondInterval() throws Exception {
+    final RowType type = row(field("duration", dayToSecond()));
+    // 1 day, 2 hours, 3.5 seconds, and a negative duration.
+    for (long millis : new long[] {93_603_500L, -1_500L, 0L}) {
+      final Message message = write(type, GenericRowData.of(millis));
+      final com.google.protobuf.Duration duration =
+          com.google.protobuf.Duration.parseFrom(
+              ((Message) protoField(message, "duration")).toByteString());
+      assertEquals(millis / 1000, duration.getSeconds());
+      assertEquals((millis % 1000) * 1_000_000, duration.getNanos());
+      assertEquals(millis, read(type, message).getLong(0));
+    }
+  }
+
+  @Test
+  void durationNanosBelowAMillisecondAreDropped() throws Exception {
+    final RowType type = row(field("duration", dayToSecond()));
+    final Message message =
+        DynamicMessage.newBuilder(COVERAGE)
+            .setField(
+                COVERAGE.findFieldByName("duration"),
+                com.google.protobuf.Duration.newBuilder().setSeconds(-2).setNanos(-999_999).build())
+            .build();
+    assertEquals(-2_000L, read(type, message).getLong(0));
+    assertTrue(read(type, DynamicMessage.getDefaultInstance(COVERAGE)).isNullAt(0));
+  }
+
+  @Test
+  void durationIsStillDerivedAsARowOfSecondsAndNanos() throws Exception {
+    final RowType derived = (RowType) ProtoToLogicalType.toLogicalType(COVERAGE);
+    final RowType duration = (RowType) derived.getTypeAt(derived.getFieldIndex("duration"));
+    assertEquals(List.of("seconds", "nanos"), duration.getFieldNames());
+  }
+
+  @Test
+  void intervalPassesTheMessageClassCheckAndDerivesADuration() {
+    final RowType type = row(field("duration", dayToSecond()));
+    SourceMessageValidator.validateRowType(COVERAGE, type, CLASS_NAME);
+    assertEquals(
+        "google.protobuf.Duration", derivedField(type, "duration").getMessageType().getFullName());
+    assertThrows(
+        ValidationException.class,
+        () ->
+            SourceMessageValidator.validateRowType(
+                COVERAGE, row(field("ts", dayToSecond())), CLASS_NAME));
   }
 }
