@@ -223,11 +223,9 @@ public class ProtoConfluentFormatConfig implements Serializable {
    * @return the class name, or {@code null} when none is set
    */
   public String getMessageClass() {
+    // Every constructor sets a non-null properties map.
     final String value =
-        properties == null
-            ? null
-            : properties.get(
-                Boolean.TRUE.equals(isKey) ? "key.message-class" : "value.message-class");
+        properties.get(Boolean.TRUE.equals(isKey) ? "key.message-class" : "value.message-class");
     return value == null || value.isEmpty() ? null : value;
   }
 
