@@ -54,7 +54,7 @@ By default the command:
 - reads the **latest** version of the subject and resolves its references (imported schemas registered under other subjects);
 - uses the **first message** in the schema, the one Confluent serializers write unless told otherwise;
 - takes the topic, and the table name, from a `<topic>-value` subject (`orders-value` gives `orders`);
-- maps types and nullability exactly as the format does: `message` fields become `ROW`s, `repeated` fields `ARRAY`s, `map` fields `MAP`s, enums `STRING`, `google.protobuf.Timestamp` `TIMESTAMP_LTZ(9)` and the wrapper types their nullable scalar. The columns are the same as those `ProtoToTableDDL` returns in Java. [Type mapping](../reference/type-mapping.md) lists every mapping, and the column types you can declare instead.
+- maps types and nullability exactly as the format does: `message` fields become `ROW`s, `repeated` fields `ARRAY`s, `map` fields `MAP`s, enums `STRING`, `google.protobuf.Timestamp` `TIMESTAMP_LTZ(9)`, the wrapper types their nullable scalar and `google.protobuf.Struct`, `Value` and `ListValue` a JSON `STRING`. The columns are the same as those `ProtoToTableDDL` returns in Java. [Type mapping](../reference/type-mapping.md) lists every mapping, and the column types you can declare instead.
 
 The `'properties.bootstrap.servers'` option is only written when you pass `--bootstrap-servers`; the Kafka connector needs it to read. Add any other table option with `--option key=value` (repeatable): startup mode, group ID, bounded mode. An `--option` with the same key as a generated option replaces it, e.g. `--option connector=upsert-kafka`.
 

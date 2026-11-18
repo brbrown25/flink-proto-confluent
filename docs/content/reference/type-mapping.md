@@ -24,6 +24,8 @@ These are the types the [`ddl` command](../how-to/generate-ddl.md), the [catalog
 | `google.protobuf.Int32Value` | `INT` |
 | `google.protobuf.Int64Value` / `UInt64Value` / `UInt32Value` | `BIGINT` |
 | `google.protobuf.BoolValue` / `StringValue` / `BytesValue` | `BOOLEAN` / `STRING` / `BYTES` |
+| `google.protobuf.Struct` / `Value` / `ListValue` | `STRING`, holding the value's JSON (see [JSON strings](#json-strings)) |
+| `google.protobuf.Any` | `ROW<type_url STRING, value BYTES>`, like any other message: the packed message stays serialized in `value` |
 | `map<K, V>` | `MAP<K, V>` |
 | `repeated T` | `ARRAY<T>` |
 | any other `message` | `ROW<...>` of its fields |
@@ -39,9 +41,25 @@ A table can declare one of these types for a field instead of the derived one. T
 | --- | --- | --- |
 | `google.protobuf.Timestamp` | `TIMESTAMP(p)` | The instant's wall-clock time in UTC. Writing reads the column's wall-clock time as UTC. When the sink derives a schema, a `TIMESTAMP(p)` column becomes a `google.protobuf.Timestamp` field. |
 | `uint64`, `fixed64`, `google.protobuf.UInt64Value` | `DECIMAL(p, s)`, normally `DECIMAL(20, 0)` | The unsigned value, from 0 to 18446744073709551615. `DECIMAL(20, 0)` holds every value; with a smaller precision a value that does not fit reads as `NULL`. Writing fails on a negative value, a fractional value or one above 18446744073709551615 instead of wrapping it. |
+| any `message` except `google.protobuf.Any` and wrapper-style messages | `STRING` | The message's JSON (see [JSON strings](#json-strings)). |
 
 ## Unsigned integers in `BIGINT`
 
 Java has no unsigned 64-bit type, so a `uint64` or `fixed64` value above 9223372036854775807 (`Long.MAX_VALUE`) reads into the derived `BIGINT` column as a negative number: the same 64 bits, read as two's complement (18446744073709551615 reads as `-1`). Writing that negative `BIGINT` back writes the original unsigned value, so values round-trip unchanged, but arithmetic and comparisons in SQL see the negative number. Declare the column `DECIMAL(20, 0)` (see above) to read the unsigned value. `google.protobuf.UInt64Value` behaves the same way.
 
 `uint32` and `fixed32` fit in `BIGINT`: they read as their unsigned value, from 0 to 4294967295, and so does `google.protobuf.UInt32Value`.
+
+## JSON strings
+
+`google.protobuf.Struct`, `Value` and `ListValue` hold arbitrary JSON, and `Struct` and `Value` contain each other, so they have no `ROW` type: the derived DDL maps them to `STRING` and the column holds the value's JSON, e.g. `{"a":1.5,"tags":["x","y"]}`. Before this mapping, deriving DDL for a schema that used them failed with `Cyclic schemas are not supported.` Use Flink's JSON functions (`JSON_VALUE`, `JSON_QUERY`) to read into it.
+
+Any other message field can be declared `STRING` too, and is read and written the same way. The JSON is the canonical proto3 JSON mapping (`com.google.protobuf.util.JsonFormat`) with these settings:
+
+- object keys are the Protobuf field names (`inner_name`, not `innerName`); writing accepts either;
+- fields left at their default value are left out, and there is no whitespace;
+- writing fails on text that is not valid JSON for the message type, naming the type.
+
+Two kinds of message are not read as JSON:
+
+- **Wrapper-style messages**, those with a field named `value` (`google.protobuf.StringValue` and the other wrappers, and any message of your own shaped like one): a `STRING` column reads and writes that `value` field, as it always has.
+- **`google.protobuf.Any`**: its JSON needs the packed message's type, which the format does not know. Read it as `ROW<type_url STRING, value BYTES>` (the derived type).

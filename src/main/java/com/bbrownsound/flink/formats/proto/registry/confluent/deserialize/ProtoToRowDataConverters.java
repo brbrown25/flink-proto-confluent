@@ -1,5 +1,7 @@
 package com.bbrownsound.flink.formats.proto.registry.confluent.deserialize;
 
+import com.bbrownsound.flink.formats.proto.registry.confluent.util.DeclaredTypes;
+import com.bbrownsound.flink.formats.proto.registry.confluent.util.ProtoJson;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.Descriptors.Descriptor;
 import com.google.protobuf.Descriptors.FieldDescriptor;
@@ -314,7 +316,7 @@ public class ProtoToRowDataConverters {
     switch (targetType.getTypeRoot()) {
       case CHAR:
       case VARCHAR:
-        return createStringConverter(targetType, schemaType);
+        return createStringConverter(targetType, readSchema);
       case BOOLEAN:
         return createBooleanConverter(targetType, schemaType);
       case BINARY:
@@ -427,10 +429,16 @@ public class ProtoToRowDataConverters {
   }
 
   private static ProtoToRowDataConverter createStringConverter(
-      LogicalType targetType, Type schemaType) {
+      LogicalType targetType, FieldDescriptor readSchema) {
+    final Type schemaType = readSchema.getType();
     return switch (schemaType) {
       case STRING, ENUM -> object -> StringData.fromString(object.toString());
-      case MESSAGE -> object -> StringData.fromString(extractValueField(object).toString());
+      case MESSAGE -> {
+        if (DeclaredTypes.isSerializedMessage(readSchema)) {
+          yield object -> StringData.fromString(ProtoJson.toJson((Message) object));
+        }
+        yield object -> StringData.fromString(extractValueField(object).toString());
+      }
       default -> throw unexpectedTypeForSchema(schemaType, targetType.getTypeRoot());
     };
   }

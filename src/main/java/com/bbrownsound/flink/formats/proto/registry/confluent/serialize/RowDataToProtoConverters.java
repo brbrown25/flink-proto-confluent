@@ -1,5 +1,7 @@
 package com.bbrownsound.flink.formats.proto.registry.confluent.serialize;
 
+import com.bbrownsound.flink.formats.proto.registry.confluent.util.DeclaredTypes;
+import com.bbrownsound.flink.formats.proto.registry.confluent.util.ProtoJson;
 import com.google.protobuf.BoolValue;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.BytesValue;
@@ -316,7 +318,10 @@ public class RowDataToProtoConverters {
         }
       case CHAR:
       case VARCHAR:
-        if (targetSchema.getType() == Type.MESSAGE) {
+        if (DeclaredTypes.isSerializedMessage(targetSchema)) {
+          final Descriptor messageType = targetSchema.getMessageType();
+          return value -> ProtoJson.fromJson(value.toString(), messageType);
+        } else if (targetSchema.getType() == Type.MESSAGE) {
           return createWrapperConverter(type, targetSchema);
         } else if (targetSchema.getType() == Type.ENUM) {
           return new RowDataToProtoConverter() {

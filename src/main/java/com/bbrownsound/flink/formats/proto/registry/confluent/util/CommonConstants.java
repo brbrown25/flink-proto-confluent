@@ -36,5 +36,10 @@ class CommonConstants {
   static final String PROTOBUF_STRING_WRAPPER_TYPE = "google.protobuf.StringValue";
   static final String PROTOBUF_BYTES_WRAPPER_TYPE = "google.protobuf.BytesValue";
 
+  static final String PROTOBUF_STRUCT_TYPE = "google.protobuf.Struct";
+  static final String PROTOBUF_VALUE_TYPE = "google.protobuf.Value";
+  static final String PROTOBUF_LIST_VALUE_TYPE = "google.protobuf.ListValue";
+  static final String PROTOBUF_ANY_TYPE = "google.protobuf.Any";
+
   private CommonConstants() {}
 }

@@ -1,5 +1,6 @@
 package com.bbrownsound.flink.formats.proto.registry.confluent;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -8,11 +9,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.bbrownsound.flink.formats.proto.registry.confluent.deserialize.ProtoToRowDataConverters;
 import com.bbrownsound.flink.formats.proto.registry.confluent.deserialize.SourceMessageValidator;
 import com.bbrownsound.flink.formats.proto.registry.confluent.serialize.RowDataToProtoConverters;
+import com.bbrownsound.flink.formats.proto.registry.confluent.util.ProtoToLogicalType;
 import com.bbrownsound.flink.formats.proto.registry.confluent.util.RowTypeToProto;
+import com.google.protobuf.Any;
 import com.google.protobuf.Descriptors.Descriptor;
 import com.google.protobuf.Descriptors.FieldDescriptor;
 import com.google.protobuf.DynamicMessage;
 import com.google.protobuf.Message;
+import com.google.protobuf.Struct;
 import com.google.protobuf.Timestamp;
 import com.google.protobuf.UInt64Value;
 import io.confluent.kafka.schemaregistry.protobuf.ProtobufSchema;
@@ -24,14 +28,17 @@ import org.apache.flink.table.data.DecimalData;
 import org.apache.flink.table.data.GenericArrayData;
 import org.apache.flink.table.data.GenericRowData;
 import org.apache.flink.table.data.RowData;
+import org.apache.flink.table.data.StringData;
 import org.apache.flink.table.data.TimestampData;
 import org.apache.flink.table.types.logical.ArrayType;
 import org.apache.flink.table.types.logical.BigIntType;
 import org.apache.flink.table.types.logical.DecimalType;
 import org.apache.flink.table.types.logical.LogicalType;
+import org.apache.flink.table.types.logical.LogicalTypeRoot;
 import org.apache.flink.table.types.logical.RowType;
 import org.apache.flink.table.types.logical.RowType.RowField;
 import org.apache.flink.table.types.logical.TimestampType;
+import org.apache.flink.table.types.logical.VarCharType;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -52,6 +59,8 @@ class TypeCoverageTest {
                       "package coverage;",
                       "import \"google/protobuf/timestamp.proto\";",
                       "import \"google/protobuf/wrappers.proto\";",
+                      "import \"google/protobuf/struct.proto\";",
+                      "import \"google/protobuf/any.proto\";",
                       "message Coverage {",
                       "  google.protobuf.Timestamp ts = 1;",
                       "  repeated google.protobuf.Timestamp ts_list = 2;",
@@ -60,6 +69,16 @@ class TypeCoverageTest {
                       "  google.protobuf.UInt64Value u64_wrapper = 5;",
                       "  uint32 u32 = 6;",
                       "  google.protobuf.UInt32Value u32_wrapper = 7;",
+                      "  google.protobuf.Struct struct = 8;",
+                      "  google.protobuf.Value value = 9;",
+                      "  google.protobuf.ListValue list = 10;",
+                      "  repeated google.protobuf.Struct structs = 11;",
+                      "  google.protobuf.Any any = 12;",
+                      "  Inner inner = 13;",
+                      "  message Inner {",
+                      "    string inner_name = 1;",
+                      "    int32 count = 2;",
+                      "  }",
                       "}"))
               .toDescriptor();
 
@@ -251,5 +270,107 @@ class TypeCoverageTest {
         () ->
             SourceMessageValidator.validateRowType(
                 COVERAGE, row(field("u32_wrapper", decimal)), CLASS_NAME));
+  }
+
+  // ---- google.protobuf.Struct / Value / ListValue as JSON STRING -----------------------------
+
+  private static StringData str(String value) {
+    return StringData.fromString(value);
+  }
+
+  @Test
+  void structValueAndListValueRoundTripAsJson() throws Exception {
+    final RowType type =
+        row(
+            field("struct", VarCharType.STRING_TYPE),
+            field("value", VarCharType.STRING_TYPE),
+            field("list", VarCharType.STRING_TYPE),
+            field("structs", new ArrayType(VarCharType.STRING_TYPE)));
+    final String struct = "{\"a\":1.5,\"b\":[true,null,\"x\"],\"c\":{\"d\":\"e\"}}";
+    final GenericRowData in =
+        GenericRowData.of(
+            str(struct),
+            str("\"text\""),
+            str("[1.0,{\"k\":false}]"),
+            new GenericArrayData(new Object[] {str("{}"), str("{\"n\":2.0}")}));
+
+    final Message message = write(type, in);
+    final Struct written =
+        Struct.parseFrom(((Message) protoField(message, "struct")).toByteString());
+    assertEquals(
+        "e", written.getFieldsOrThrow("c").getStructValue().getFieldsOrThrow("d").getStringValue());
+
+    final RowData out = read(type, message);
+    assertEquals(struct, out.getString(0).toString());
+    assertEquals("\"text\"", out.getString(1).toString());
+    assertEquals("[1.0,{\"k\":false}]", out.getString(2).toString());
+    assertEquals("{}", out.getArray(3).getString(0).toString());
+    assertEquals("{\"n\":2.0}", out.getArray(3).getString(1).toString());
+  }
+
+  @Test
+  void anyMessageDeclaredAsStringRoundTripsAsJsonWithProtobufFieldNames() throws Exception {
+    final RowType type = row(field("inner", VarCharType.STRING_TYPE));
+    final GenericRowData in = GenericRowData.of(str("{\"inner_name\":\"a\",\"count\":3}"));
+    final RowData out = read(type, write(type, in));
+    assertEquals("{\"inner_name\":\"a\",\"count\":3}", out.getString(0).toString());
+  }
+
+  @Test
+  void writingInvalidJsonFails() {
+    final RowType type = row(field("struct", VarCharType.STRING_TYPE));
+    final IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class, () -> write(type, GenericRowData.of(str("[1, 2]"))));
+    assertTrue(e.getMessage().contains("google.protobuf.Struct"), e.getMessage());
+  }
+
+  @Test
+  void derivedDdlMapsStructValueAndListValueToString() {
+    final RowType derived = (RowType) ProtoToLogicalType.toLogicalType(COVERAGE);
+    for (String name : new String[] {"struct", "value", "list"}) {
+      final LogicalType column = derived.getTypeAt(derived.getFieldIndex(name));
+      assertEquals(LogicalTypeRoot.VARCHAR, column.getTypeRoot(), name);
+      assertTrue(column.isNullable(), name);
+    }
+    final ArrayType structs = (ArrayType) derived.getTypeAt(derived.getFieldIndex("structs"));
+    assertEquals(LogicalTypeRoot.VARCHAR, structs.getElementType().getTypeRoot());
+    // The derived columns read the topic, so they pass the message-class check.
+    SourceMessageValidator.validateRowType(COVERAGE, derived, CLASS_NAME);
+  }
+
+  @Test
+  void stringPassesTheMessageClassCheckForAMessageButNotForAny() {
+    SourceMessageValidator.validateRowType(
+        COVERAGE, row(field("inner", VarCharType.STRING_TYPE)), CLASS_NAME);
+    assertThrows(
+        ValidationException.class,
+        () ->
+            SourceMessageValidator.validateRowType(
+                COVERAGE, row(field("any", VarCharType.STRING_TYPE)), CLASS_NAME));
+  }
+
+  // ---- google.protobuf.Any -------------------------------------------------------------------
+
+  @Test
+  void anyIsDerivedAndRoundTripsAsARowOfTypeUrlAndValue() throws Exception {
+    final RowType derived = (RowType) ProtoToLogicalType.toLogicalType(COVERAGE);
+    final RowType any = (RowType) derived.getTypeAt(derived.getFieldIndex("any"));
+    assertEquals(List.of("type_url", "value"), any.getFieldNames());
+    assertEquals(LogicalTypeRoot.VARCHAR, any.getTypeAt(0).getTypeRoot());
+    assertEquals(LogicalTypeRoot.VARBINARY, any.getTypeAt(1).getTypeRoot());
+
+    final RowType type = row(field("any", any));
+    final byte[] packed = Timestamp.newBuilder().setSeconds(7).build().toByteArray();
+    final GenericRowData in =
+        GenericRowData.of(
+            GenericRowData.of(str("type.googleapis.com/google.protobuf.Timestamp"), packed));
+    final Message message = write(type, in);
+    final Any written = Any.parseFrom(((Message) protoField(message, "any")).toByteString());
+    assertEquals(7L, written.unpack(Timestamp.class).getSeconds());
+
+    final RowData out = read(type, message).getRow(0, 2);
+    assertEquals("type.googleapis.com/google.protobuf.Timestamp", out.getString(0).toString());
+    assertArrayEquals(packed, out.getBinary(1));
   }
 }

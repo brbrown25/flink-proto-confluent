@@ -35,6 +35,7 @@ import com.bbrownsound.flink.formats.proto.test.v1.TestWrapperTypes;
 import com.google.protobuf.Descriptors.Descriptor;
 import com.google.protobuf.DynamicMessage;
 import com.google.protobuf.Struct;
+import io.confluent.kafka.schemaregistry.protobuf.ProtobufSchema;
 import java.util.stream.Stream;
 import org.apache.flink.table.api.ValidationException;
 import org.apache.flink.table.types.DataType;
@@ -275,10 +276,17 @@ class SourceMessageValidatorTest {
 
   @Test
   void validateRowType_messageFieldDeclaredAsScalar_isRejected() {
+    // A message field may be declared STRING (its JSON, #174), but not as another scalar.
+    assertDoesNotThrow(
+        () ->
+            SourceMessageValidator.validateRowType(
+                TestRepeatedNested.RepeatedMessageTest.getDescriptor(),
+                row(ROW(FIELD("d", STRING()))),
+                CLASS_NAME));
     String message =
         validationError(
-            TestRepeatedNested.RepeatedMessageTest.getDescriptor(), ROW(FIELD("d", STRING())));
-    assertTrue(message.contains("column 'd' is STRING"), message);
+            TestRepeatedNested.RepeatedMessageTest.getDescriptor(), ROW(FIELD("d", INT())));
+    assertTrue(message.contains("column 'd' is INT"), message);
     assertTrue(message.contains("reads as ROW"), message);
   }
 
@@ -394,12 +402,25 @@ class SourceMessageValidatorTest {
 
   @Test
   void validateRowType_cyclicMessageDeclaredAsScalar_readsAsRow() {
-    // google.protobuf.Struct -> map<string, Value> -> Value.struct_value -> Struct is cyclic, so
-    // the field's Flink type cannot be derived; a non-ROW column for it is still a mismatch.
-    String message =
-        validationError(Struct.getDescriptor(), ROW(FIELD("fields", MAP(STRING(), STRING()))));
-    assertTrue(message.contains("column 'fields.value' is STRING"), message);
-    assertTrue(message.contains("(google.protobuf.Value) reads as a ROW"), message);
+    // google.protobuf.Struct -> map<string, Value> -> Value.struct_value -> Struct is cyclic, but
+    // Struct, Value and ListValue read as JSON strings since #174, so a STRING column is accepted.
+    assertDoesNotThrow(
+        () ->
+            SourceMessageValidator.validateRowType(
+                Struct.getDescriptor(),
+                row(ROW(FIELD("fields", MAP(STRING(), STRING())))),
+                CLASS_NAME));
+    // Node -> Node is cyclic, so the field's Flink type cannot be derived; a column that is
+    // neither a ROW nor a serialized form of the message is still a mismatch.
+    Descriptor cyclic =
+        (Descriptor)
+            new ProtobufSchema(
+                    "syntax = \"proto3\"; package cyc;"
+                        + " message Node { string id = 1; Node next = 2; }")
+                .toDescriptor();
+    String message = validationError(cyclic, ROW(FIELD("next", INT())));
+    assertTrue(message.contains("column 'next' is INT"), message);
+    assertTrue(message.contains("(cyc.Node) reads as a ROW"), message);
   }
 
   @Test
