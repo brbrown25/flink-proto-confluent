@@ -199,7 +199,7 @@ Replace `1.2.0` with the [latest release](https://github.com/brbrown25/flink-pro
 
 ## 2. Declare a table
 
-Use the format identifier `proto-confluent`. Only `url` is required. The subject is derived from the table's Kafka `topic` (`<topic>-value`); set `value.proto-confluent.topic` to derive it from another topic, or `value.proto-confluent.subject` to name the subject directly.
+Use the format identifier `proto-confluent`. `url` is required, and so is a topic or a subject: `topic` is used to derive the subject (`<topic>-value`).
 
 ```sql
 CREATE TABLE orders (
@@ -214,9 +214,12 @@ CREATE TABLE orders (
 
   'value.format' = 'proto-confluent',
   'value.proto-confluent.url' = 'http://schema-registry:8081',
+  'value.proto-confluent.topic' = 'orders',
   'value.proto-confluent.is_key' = 'false'
 );
 ```
+
+`value.proto-confluent.topic` can be omitted when the table's Kafka `topic` names a single topic, as here: the format then derives the subject from that topic. To name the subject directly instead, replace it with `'value.proto-confluent.subject' = 'orders-value'`. See [Subject naming](how-to/schema-evolution.md#subject-naming).
 
 ## 3. Query it
 

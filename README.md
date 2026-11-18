@@ -301,8 +301,11 @@ Then in Flink SQL (e.g. `sql-client.sh`), use the format identifier `proto-confl
 ```sql
 'value.format' = 'proto-confluent',
 'value.proto-confluent.url' = 'http://schema-registry:8081',
+'value.proto-confluent.topic' = 'your-topic',
 'value.proto-confluent.is_key' = 'false'
 ```
+
+The subject is derived from `topic` (`<topic>-value`). `value.proto-confluent.topic` can be omitted when the table's Kafka `topic` names a single topic, since the format falls back to it. To name the subject directly, set `value.proto-confluent.subject` instead; to change how it is derived, set `value.proto-confluent.subject-name-strategy` (`topic`, `record`, `topic-record` or a class name). See [Subject naming](docs/content/how-to/schema-evolution.md#subject-naming).
 
 To pin an **explicit named** protobuf message class for the key and/or value (instead of the default dynamic, Row-derived schema), set `message-class` on the corresponding format:
 

@@ -8,7 +8,19 @@ A source decodes each record with the **writer schema** named by the schema ID i
 - **`use-schema-id`:** pin the schema ID stamped on a sink. The schema must already be registered under the subject.
 - **`auto-register-schemas`:** with `false` (default) writing to a subject without a schema fails. With `true`, a change the registry rejects under its compatibility level fails the job with the registry's error.
 - **Registry errors and schema caching on a sink:** only a "subject not found" answer makes a sink derive a schema from the table; any other registry error fails the write. The schema a sink resolves is kept until restart unless `schema-cache.ttl` is set. See [How a sink picks its schema](#how-a-sink-picks-its-schema-and-how-long-it-keeps-it).
-- **Subject naming:** `<topic>-value` by default; change it with `subject-name-strategy` or `subject`. See [Subject naming](#subject-naming).
+- **Subject naming:** use the `subject-name-strategy` option, or the `properties` passthrough:
+
+```sql
+'value.proto-confluent.subject-name-strategy' = 'record'
+```
+
+```sql
+'value.proto-confluent.properties' = 'value.subject.name.strategy:io.confluent.kafka.serializers.subject.RecordNameStrategy'
+```
+
+Record-based strategies need `message-class` or a row-derived schema, since no subject can be named before a schema exists.
+
+The passthrough still works; when both are set, the typed option wins. To name the subject outright, set `subject`. Details in [Subject naming](#subject-naming).
 
 ## Subject naming
 
@@ -85,7 +97,9 @@ See the [breaking change demo](../demos.md#breaking-change-and-the-dead-letter-t
 
 ## How a sink picks its schema, and how long it keeps it
 
-A sink without `message-class` asks the registry for the latest schema of its subject (`<topic>-value` by default, or the [`subject`](#subject-naming) you set) with `GET /subjects/{subject}/versions/latest` and serializes with it. A sink with `message-class`, or with a record-based subject-naming strategy, never makes that lookup, so nothing in this section applies to it.
+A sink without `message-class` asks the registry for the latest schema of its subject (`GET /subjects/{subject}/versions/latest`) and serializes with it. A sink with `message-class`, or with a record-based subject-naming strategy, never makes that lookup, so nothing in this section applies to it.
+
+The subject is `<topic>-value` by default, or the [`subject`](#subject-naming) you set; with `subject`, the lookup goes to that subject.
 
 ### What each registry answer does
 

@@ -62,6 +62,7 @@ CREATE TABLE keyed_sink (
   'key.fields' = 'k_id',
   'key.fields-prefix' = 'k_',
   'key.proto-confluent.url' = 'http://schema-registry:8081',
+  'key.proto-confluent.topic' = 'orders',
   'key.proto-confluent.is_key' = 'true',
   'key.proto-confluent.auto-register-schemas' = 'true',
   'key.proto-confluent.message-class' = 'com.example.OrderProto$OrderKey',
@@ -70,6 +71,7 @@ CREATE TABLE keyed_sink (
   'value.format' = 'proto-confluent',
   'value.fields-include' = 'EXCEPT_KEY',
   'value.proto-confluent.url' = 'http://schema-registry:8081',
+  'value.proto-confluent.topic' = 'orders',
   'value.proto-confluent.is_key' = 'false',
   'value.proto-confluent.auto-register-schemas' = 'true',
   'value.proto-confluent.message-class' = 'com.example.OrderProto$Order'
@@ -88,6 +90,7 @@ Notes:
   behavior.
 - The class name is the JVM binary name — nested/generated message classes use
   `$` (e.g. `com.example.OrderProto$Order`).
+- The `key.proto-confluent.topic` and `value.proto-confluent.topic` lines can be omitted, because the format falls back to the table's single `topic`, or replaced by `subject` to name each subject directly.
 
 ## Schema evolution and subject naming
 
@@ -100,4 +103,5 @@ A source decodes each record with the writer schema named by the schema ID in th
 - **Registry errors on a sink.** A sink without `message-class` looks up the latest schema of its subject. Only a "subject not found" answer (error code `40401`) makes it derive a schema from the table (and register it when `auto-register-schemas` is `true`). Every other failure, including `401`, `403`, `5xx`, timeouts, "version not found" (`40402`) and a 404 without that error code, fails the write with the registry's error and registers nothing.
 - **`schema-cache.ttl`.** Unset, a sink keeps the schema it resolved at its first write until the job restarts. Set, the sink looks the subject up again once the schema is older than the TTL and switches to a new version if there is one; if that refresh fails, it keeps the schema it has and retries. `0` and negative durations are rejected with a `ValidationException`. Details in [how a sink picks its schema](../how-to/schema-evolution.md#how-a-sink-picks-its-schema-and-how-long-it-keeps-it).
 - **`normalize-schemas`.** The format always registers schemas derived from a protobuf descriptor, and those are already in Confluent's normalized form, so this option does not change what a sink registers. It does not retroactively match a denormalized schema that is already stored in the registry — that registers as a new version.
-- **Subject naming.** By default the subject is `<topic>-value` (or `<topic>-key`). Set `subject-name-strategy` to `record` or `topic-record` to name it after the message instead, e.g. `'value.proto-confluent.subject-name-strategy' = 'record'`, or set `subject` to name it outright. With a record-based strategy the sink cannot look up a subject before it knows the message, so it serializes with the `message-class` descriptor, or with the Row-derived schema (message `com.flink.proto.confluent.Row`, so subject `com.flink.proto.confluent.Row` under `record`), and registers or looks up the schema under the subject that message yields. With `subject`, a sink without `message-class` looks up the latest schema under that subject, exactly as it would under `<topic>-value`. The raw passthrough (`'value.proto-confluent.properties' = 'value.subject.name.strategy:...'`) still works when neither typed option is set. See [Subject naming](../how-to/schema-evolution.md#subject-naming).
+- **Subject-naming strategy.** Set it with the `subject-name-strategy` option, e.g. `'value.proto-confluent.subject-name-strategy' = 'record'`, or, as before, through the `properties` passthrough, e.g. `'value.proto-confluent.properties' = 'value.subject.name.strategy:io.confluent.kafka.serializers.subject.RecordNameStrategy'`. The passthrough still works; when both are set, the typed option wins. Strategies that derive the subject from the record rather than the topic require `message-class` or a Row-derived schema, since no subject can be named before a schema exists. The Row-derived message is `com.flink.proto.confluent.Row`, so with `record` it registers under the subject `com.flink.proto.confluent.Row`.
+- **Explicit subject.** `subject` names the subject outright instead of deriving it from the topic. A sink without `message-class` then looks up the latest schema under that subject, exactly as it would under `<topic>-value`. See [Subject naming](../how-to/schema-evolution.md#subject-naming).

@@ -13,6 +13,7 @@ CREATE TABLE orders (
 
   'value.format' = 'proto-confluent',
   'value.proto-confluent.url' = 'http://schema-registry:8081',
+  'value.proto-confluent.topic' = 'orders',
   'value.proto-confluent.on-deserialize-error' = 'skip',
   'value.proto-confluent.dead-letter-topic' = 'orders-dlq',
   'value.proto-confluent.dead-letter.properties' = 'bootstrap.servers:''kafka:9092'''
