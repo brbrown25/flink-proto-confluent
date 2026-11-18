@@ -14,4 +14,17 @@
     <Class name="com.bbrownsound.flink.formats.proto.registry.confluent.ProtoDecodingFormat"/>
     <Bug pattern="EI_EXPOSE_REP2"/>
   </Match>
+  <!-- ProtoSqlType is a deeply immutable final class, so returning its child types exposes nothing. -->
+  <Match>
+    <Class name="~com\.bbrownsound\.flink\.formats\.proto\.registry\.confluent\.util\.ProtoSqlType(\$.*)?"/>
+    <Bug code="EI"/>
+  </Match>
+  <!-- The resolver hands out the shared registry client and the protobuf Descriptor on purpose; both are meant to be shared. -->
+  <Match>
+    <Or>
+      <Class name="com.bbrownsound.flink.formats.proto.registry.confluent.schema.ResolvedProtoSchema"/>
+      <Class name="com.bbrownsound.flink.formats.proto.registry.confluent.schema.SchemaRegistrySchemaResolver"/>
+    </Or>
+    <Bug code="EI"/>
+  </Match>
 </FindBugsFilter>

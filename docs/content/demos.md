@@ -4,7 +4,7 @@ Real terminal recordings, captured against a local Kafka + Schema Registry + Fli
 
 ## Quickstart
 
-Protobuf `Order` records sit on a topic in the Confluent wire format. A Flink table declared with `'value.format' = 'proto-confluent'` reads them and aggregates with plain SQL.
+Protobuf `Order` records sit on a topic in the Confluent wire format. The `ddl` command [generates the table](how-to/generate-ddl.md) from the registered `orders-value` subject, and the Flink table, declared with `'value.format' = 'proto-confluent'`, reads them and aggregates with plain SQL.
 
 <div class="cast" data-src="../assets/casts/quickstart.cast" data-rows="32"></div>
 

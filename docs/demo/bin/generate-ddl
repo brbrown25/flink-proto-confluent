@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# generate-ddl [ddl options]  — prints Flink DDL for a registered subject with the format JAR's ddl
+# command, run inside the Flink container so it reaches the registry at the address Flink uses.
+. "$(dirname "$0")/_common.sh"
+docker compose exec -T jobmanager bash -c 'exec java -jar /opt/flink/lib/flink-proto-confluent-*-all.jar "$@"' \
+  -- ddl --url "$SR_URL" "$@"

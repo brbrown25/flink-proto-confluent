@@ -1,9 +1,8 @@
 package com.bbrownsound.flink.formats.proto.registry.confluent.metrics;
 
+import com.bbrownsound.flink.formats.proto.registry.confluent.schema.SchemaRegistryClients;
 import io.confluent.kafka.schemaregistry.client.CachedSchemaRegistryClient;
 import io.confluent.kafka.schemaregistry.client.rest.RestService;
-import io.confluent.kafka.schemaregistry.protobuf.ProtobufSchemaProvider;
-import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import javax.annotation.Nullable;
@@ -29,9 +28,6 @@ public final class SchemaRegistryMetrics {
 
   /** Histogram: duration of the requests to the Schema Registry, in milliseconds. */
   public static final String LATENCY_MS = "schemaRegistryLatencyMs";
-
-  /** Schemas the registry client keeps per cache, as before the client was instrumented. */
-  private static final int CLIENT_CACHE_CAPACITY = 100;
 
   private final Counter requests;
   private final Counter errors;
@@ -61,12 +57,7 @@ public final class SchemaRegistryMetrics {
             ? new RestService(schemaRegistryUrl)
             : new InstrumentedRestService(
                 schemaRegistryUrl, new SchemaRegistryMetrics(metricGroup));
-    return new CachedSchemaRegistryClient(
-        restService,
-        CLIENT_CACHE_CAPACITY,
-        Collections.singletonList(new ProtobufSchemaProvider()),
-        properties,
-        null);
+    return SchemaRegistryClients.create(restService, properties);
   }
 
   /** Records one finished request. */

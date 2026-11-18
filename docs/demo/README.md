@@ -18,9 +18,13 @@ Requires Docker, `asciinema` (3.x) and a JDK to build the JAR.
 docker compose up -d        # start the stack
 bin/create-topic orders
 echo '{"order_id":"o-1","customer":"acme","amount":42.5}' | bin/produce-proto orders
-bin/flink-sql sql/quickstart.sql
+bin/generate-ddl --subject orders-value --bootstrap-servers kafka:9092 \
+  --option scan.startup.mode=earliest-offset --option scan.bounded.mode=latest-offset >sql/orders.sql
+bin/flink-sql sql/orders.sql sql/quickstart.sql
 docker compose down -v
 ```
+
+`bin/generate-ddl` runs the format JAR's [`ddl` command](../content/how-to/generate-ddl.md) inside the Flink container against the demo registry and prints the `CREATE TABLE` for a subject; `bin/flink-sql` runs one or more SQL files, concatenated in order, in the SQL client.
 
 ## Re-recording the casts
 

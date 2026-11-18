@@ -42,6 +42,8 @@ The following are bundled under their **original** package names, on purpose:
 
 The build enforces both lists: `./gradlew verifyJars` (part of `check`) fails if a relocated package appears under its original name, if Flink or SLF4J classes are bundled, or if the library JAR contains anything but this project's classes.
 
+The `-all` JAR is also the [`ddl` command line tool](../how-to/generate-ddl.md) (its manifest names `com.bbrownsound.flink.formats.proto.registry.confluent.cli.Main` as `Main-Class`). For that it carries one more file, `META-INF/proto-confluent-cli/slf4j-api.jar.bin`: a copy of `slf4j-api` stored as a nested JAR, which no class loader reads while the JAR is in `lib/`. The tool puts it on a private class loader only when it runs with `java -jar` and SLF4J is not on the classpath, so it never competes with Flink's SLF4J. `verifyJars` checks the entry point and the nested JAR are present.
+
 ### What this means in practice
 
 - **Kafka SQL connector.** `flink-sql-connector-kafka` relocates its own Kafka client under `org.apache.flink.kafka.shaded`, so it does not collide with the `kafka-clients` bundled here. The demo stack runs the `-all` JAR next to `flink-sql-connector-kafka` on `flink:1.20-java17` by default, and on `flink:2.2-java17` with `FLINK_VERSION=2.2`.

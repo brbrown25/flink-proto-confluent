@@ -1,3 +1,4 @@
+import java.util.jar.Manifest as JarManifest
 import java.util.zip.ZipFile
 
 plugins {
@@ -190,10 +191,32 @@ tasks.named<Test>("test").configure {
     }
 }
 
+// The shadow JAR doubles as the `ddl` command line tool (cli.Main). Flink provides SLF4J, so the
+// shadow JAR leaves it out, but the Schema Registry client cannot load without the SLF4J API. A
+// copy of slf4j-api rides along as a nested JAR under a name no class loader looks at (so it is
+// invisible in Flink's lib/); cli.Main puts it on a private class loader only when `java -jar`
+// runs the tool without SLF4J on the classpath. Its version follows the one the format resolves.
+val cliEmbeddedSlf4j by configurations.creating {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+    isTransitive = false
+    shouldResolveConsistentlyWith(configurations.runtimeClasspath.get())
+}
+dependencies {
+    cliEmbeddedSlf4j("org.slf4j:slf4j-api")
+}
+
 tasks.shadowJar {
     archiveBaseName.set(publishedArtifactId)
     archiveClassifier.set("all")
     mergeServiceFiles()
+    manifest {
+        attributes("Main-Class" to "com.bbrownsound.flink.formats.proto.registry.confluent.cli.Main")
+    }
+    from(cliEmbeddedSlf4j) {
+        into("META-INF/proto-confluent-cli")
+        rename { "slf4j-api.jar.bin" }
+    }
     dependencies {
         exclude(dependency("org.apache.flink:.*:.*"))
         exclude(dependency("org.slf4j:.*:.*"))
@@ -256,6 +279,18 @@ val verifyJars = tasks.register("verifyJars") {
         )
         val missing = mustBePresent.filter { prefix -> all.none { it.startsWith(prefix) } }
         check(missing.isEmpty()) { "Shadow JAR is missing expected packages: $missing" }
+        // The `ddl` command line tool: an entry point, and the SLF4J API it needs outside Flink.
+        ZipFile(allJar.get().asFile).use { zip ->
+            val mainClass = JarManifest(
+                zip.getInputStream(zip.getEntry("META-INF/MANIFEST.MF"))
+            ).mainAttributes.getValue("Main-Class")
+            check(mainClass == "com.bbrownsound.flink.formats.proto.registry.confluent.cli.Main") {
+                "Shadow JAR manifest must name the ddl tool as Main-Class, found '$mainClass'"
+            }
+            check(zip.getEntry("META-INF/proto-confluent-cli/slf4j-api.jar.bin") != null) {
+                "Shadow JAR is missing the embedded slf4j-api the ddl tool needs"
+            }
+        }
     }
 }
 
@@ -395,6 +430,16 @@ val integrationTestTask = tasks.register<Test>("integrationTest") {
         "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED",
         "--add-opens=java.base/java.io=ALL-UNNAMED"
     )
+    // DdlCliIntegrationTest also runs `java -jar <shadow JAR> ddl ...` as a separate process.
+    val shadowJarFile = tasks.shadowJar.flatMap { it.archiveFile }
+    inputs.file(shadowJarFile)
+    val testClassesDirs = sourceSets.test.get().output.classesDirs
+    jvmArgumentProviders.add(CommandLineArgumentProvider {
+        listOf(
+            "-Dcli.shadowJar=${shadowJarFile.get().asFile.absolutePath}",
+            "-Dcli.testClasses=${testClassesDirs.files.joinToString(File.pathSeparator)}",
+        )
+    })
     testLogging {
         showStandardStreams = true
         showCauses = true
