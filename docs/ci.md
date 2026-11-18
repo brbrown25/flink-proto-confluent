@@ -25,11 +25,13 @@ Each workflow owns a distinct slice of the pipeline so that no Gradle task runs 
 | `test` (unit) | `pr-checks.yml` → `test-matrix` (JDK 17 **and** 21, per Flink line) | `ci.yml` → `build` (primary JDK, per Flink line) |
 | `integrationTest` | `pr-checks.yml` → `integration-tests` (primary JDK, per Flink line) | `ci.yml` → `build` (per Flink line) |
 | `jacocoTestReport`, `jacocoTestCoverageVerification` | `pr-checks.yml` → `integration-tests` (Flink 1.20 leg) | `ci.yml` → `build` (Flink 1.20 leg) |
-| Checkstyle / SpotBugs / Spotless | `pr-checks.yml` → `lint` | `ci.yml` → `checkstyle` |
+| Checkstyle / SpotBugs / Spotless | `pr-checks.yml` → `lint` (per Flink line) | `ci.yml` → `checkstyle` (per Flink line) |
 
 ## Flink lines and the `ci-ok` check
 
-The build, unit-test and integration-test jobs run once per supported Flink line (`flink: ['1.20.5', '2.2.1']`, passed as `-PflinkVersion`), with `fail-fast: false` so one line's failure does not hide the other's result. Check names carry the versions, e.g. `build (flink 2.2.1)`, `unit tests (jdk 17, flink 1.20.5)`, `integration tests (flink 2.2.1)`.
+The lint, build, unit-test and integration-test jobs run once per supported Flink line (`flink: ['1.20.5', '2.2.1']`, passed as `-PflinkVersion`), with `fail-fast: false` so one line's failure does not hide the other's result. Check names carry the versions, e.g. `lint (flink 2.2.1)`, `build (flink 2.2.1)`, `unit tests (jdk 17, flink 1.20.5)`, `integration tests (flink 2.2.1)`.
+
+Each leg also proves it ran on the line it names. The jobs export the matrix value as `EXPECTED_FLINK_VERSION`, and `FlinkLineGuardTest` (unit) and `FlinkLineGuardIntegrationTest` (integration) fail unless it equals the `flinkVersion` Gradle resolved, `flink-runtime` reports that version, and `flink-core`, `flink-table-common`, the DataStream/Table bridge and the Kafka connector are loaded from that line's JARs. A leg that silently fell back to the default Flink version therefore fails instead of passing against the wrong line. Locally, without the variable, the guards still check the classpath against `-PflinkVersion`.
 
 Because those names change on every version bump, branch protection requires only `ci-ok`. It needs every gated job, runs with `if: always()`, and fails if any of them failed or was cancelled; when they were all skipped for a docs-only change it passes, so the required check is never left pending. Bumping a Flink or JDK version therefore needs no ruleset change.
 
