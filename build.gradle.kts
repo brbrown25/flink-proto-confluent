@@ -76,6 +76,19 @@ fun flinkLineProperty(name: String): String {
 
 val kafkaConnectorVersion = flinkLineProperty("kafkaConnectorVersion")
 
+// Each Flink line publishes under its own artifactId (same group, same version). Every JAR the
+// build writes (thin, -all, -sources, -javadoc) is named after it, so the two lines' JARs can sit
+// side by side on a GitHub Release.
+val publishedArtifactId = flinkLineProperty("artifactId")
+base {
+    archivesName.set(publishedArtifactId)
+}
+
+tasks.register("printArtifactId") {
+    val id = publishedArtifactId
+    doLast { println(id) }
+}
+
 repositories {
     mavenCentral()
     maven("https://packages.confluent.io/maven/")
@@ -166,7 +179,7 @@ tasks.named<Test>("test").configure {
 }
 
 tasks.shadowJar {
-    archiveBaseName.set("flink-proto-confluent")
+    archiveBaseName.set(publishedArtifactId)
     archiveClassifier.set("all")
     mergeServiceFiles()
     dependencies {
@@ -411,6 +424,10 @@ tasks.test {
 
 // Sonatype Central Portal (Maven Central) via OSSRH Staging API
 nexusPublishing {
+    // Names the staging repository after the coordinates it holds. Each Gradle invocation creates
+    // and then closes/releases only the staging repository it started itself, so the release
+    // workflow publishes the lines one invocation at a time (see .github/workflows/release.yml).
+    repositoryDescription.set("${project.group}:$publishedArtifactId:${project.version}")
     repositories {
         sonatype {
             nexusUrl.set(uri("https://ossrh-staging-api.central.sonatype.com/service/local/"))
@@ -438,17 +455,20 @@ publishing {
             // shadowRuntimeElements variant, so it is not attached again here.
             from(components["java"])
             groupId = project.group.toString()
-            artifactId = "flink-proto-confluent"
+            artifactId = publishedArtifactId
             version = project.version.toString()
         }
         create<MavenPublication>("sonatype") {
             from(components["java"])
             groupId = project.group.toString()
-            artifactId = "flink-proto-confluent"
+            artifactId = publishedArtifactId
             version = project.version.toString()
             pom {
                 name.set(artifactId)
-                description.set("Flink table format for Protobuf with Confluent Schema Registry")
+                description.set(
+                    "Flink table format for Protobuf with Confluent Schema Registry " +
+                        "(Flink $flinkLine.x line, built against Flink $flinkVersion)"
+                )
                 url.set("https://github.com/brbrown25/flink-proto-confluent")
                 licenses {
                     license {
