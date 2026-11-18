@@ -16,7 +16,7 @@ This project is an improved, standalone derivative of [amstee/flink-proto-conflu
 
 <div class="grid cards" markdown>
 
-- **[Getting Started](getting-started.md)** — add the dependency and run your first query.
+- **[Getting Started](getting-started.md)** — pick the artifact for Flink 1.20 or 2.x, add the dependency and run your first query.
 - **[Demos](demos.md)** — terminal recordings of the format in action.
 - **[How-to Guides](how-to/message-class.md)** — task-oriented recipes.
 - **[Configuration reference](reference/configuration.md)** — every option, default and precedence rule.
