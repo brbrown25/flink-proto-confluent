@@ -1,8 +1,11 @@
 name: Release
 
 # Triggered by the `vX.Y.Z` tag that release-please pushes when a release PR merges (see
-# release-please.yml). Publishes the library JAR and the self-contained "-all" shadow JAR to Maven
-# Central and attaches the same JARs to the GitHub Release that release-please already created.
+# release-please.yml). Publishes one artifact per supported Flink line, all at the tag version:
+#   Flink 1.x -> com.bbrownsound:flink-proto-confluent         (built with -PflinkVersion=1.20.0)
+#   Flink 2.x -> com.bbrownsound:flink-proto-confluent-flink2  (built with -PflinkVersion=2.2.1)
+# Each line's library JAR and self-contained "-all" shadow JAR go to Maven Central and are attached
+# to the GitHub Release that release-please already created.
 #
 # The tag push is the only trigger on purpose. A `release: [created]` trigger would fire a
 # second, concurrent run for the same version, and both publish jobs would contend for the same
@@ -23,8 +26,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Every line is tested before anything is published, so a line that fails its tests cannot
+  # leave the release half-published.
   build-and-test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        flink: ['1.20.0', '2.2.1']
+    name: build-and-test (Flink ${{ matrix.flink }})
 
     steps:
       - name: Checkout code
@@ -34,10 +44,10 @@ jobs:
         uses: ./.github/actions/setup-build
 
       - name: Run all tests with coverage verification
-        run: ./gradlew test integrationTest jacocoTestReport jacocoTestCoverageVerification
+        run: ./gradlew -PflinkVersion=${{ matrix.flink }} test integrationTest jacocoTestReport jacocoTestCoverageVerification
 
       - name: Build and verify JARs
-        run: ./gradlew jar shadowJar verifyJars
+        run: ./gradlew -PflinkVersion=${{ matrix.flink }} jar shadowJar verifyJars verifyProtobufVersion
 
   publish:
     runs-on: ubuntu-latest
@@ -57,18 +67,41 @@ jobs:
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
           echo "Releasing version: $VERSION"
 
-      - name: Build and verify JARs
-        run: ./gradlew -Pversion=${{ steps.version.outputs.VERSION }} jar shadowJar verifyJars
-
-      - name: Publish to Sonatype (Maven Central)
-        run: ./gradlew -Pversion=${{ steps.version.outputs.VERSION }} publishSonatypePublicationToSonatypeRepository closeAndReleaseStagingRepositories
+      # One job publishes every line, one Gradle invocation per line, in order. The nexus publish
+      # plugin creates a staging repository per invocation and closes/releases only the one that
+      # invocation created, so the lines never touch each other's staging repository. Running the
+      # lines in parallel jobs instead would put two close/release sequences for the same version
+      # in flight at once. A line whose POM is already on Maven Central is skipped, so re-running a
+      # release that failed part-way publishes only what is missing (Central rejects re-uploads of
+      # an existing version). Central can take up to ~30 minutes to show a fresh release, so wait
+      # that long before re-running after a partial failure.
+      - name: Build, verify and publish each Flink line to Sonatype (Maven Central)
         env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+          FLINK_VERSIONS: '1.20.0 2.2.1'
           ORG_GRADLE_PROJECT_sonatypeUsername: ${{ secrets.SONATYPE_USERNAME }}
           ORG_GRADLE_PROJECT_sonatypePassword: ${{ secrets.SONATYPE_PASSWORD }}
           ORG_GRADLE_PROJECT_signingKey: ${{ secrets.GPG_SIGNING_KEY }}
           ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.GPG_SIGNING_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for FLINK in $FLINK_VERSIONS; do
+            ARTIFACT=$(./gradlew -q -PflinkVersion="$FLINK" printArtifactId | tail -1)
+            echo "::group::Flink $FLINK -> com.bbrownsound:$ARTIFACT:$VERSION"
+            ./gradlew -PflinkVersion="$FLINK" -Pversion="$VERSION" jar shadowJar sourcesJar javadocJar verifyJars verifyProtobufVersion
+            cp "build/libs/$ARTIFACT-$VERSION"*.jar dist/
+            POM_URL="https://repo1.maven.org/maven2/com/bbrownsound/$ARTIFACT/$VERSION/$ARTIFACT-$VERSION.pom"
+            if curl -fsSLI "$POM_URL" >/dev/null 2>&1; then
+              echo "$ARTIFACT:$VERSION is already on Maven Central; not publishing it again."
+            else
+              ./gradlew -PflinkVersion="$FLINK" -Pversion="$VERSION" publishSonatypePublicationToSonatypeRepository closeAndReleaseStagingRepositories
+            fi
+            echo "::endgroup::"
+          done
+          ls -l dist
 
-      - name: Attach JARs to GitHub Release
+      - name: Attach every line's JARs to GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
@@ -79,7 +112,7 @@ jobs:
           # than creating a duplicate.
           for attempt in 1 2 3 4 5 6; do
             if gh release view "$TAG" >/dev/null 2>&1; then
-              gh release upload "$TAG" build/libs/*.jar --clobber
+              gh release upload "$TAG" dist/*.jar --clobber
               echo "Attached JARs to release $TAG."
               exit 0
             fi
@@ -89,4 +122,4 @@ jobs:
           # Fallback for a hand-pushed tag (see docs/RELEASING.md): no release-please run, so no
           # Release exists and this workflow has to create one.
           echo "No release found for $TAG after 60s; creating one (hand-pushed tag?)."
-          gh release create "$TAG" --verify-tag --title "$TAG" --generate-notes build/libs/*.jar
+          gh release create "$TAG" --verify-tag --title "$TAG" --generate-notes dist/*.jar
