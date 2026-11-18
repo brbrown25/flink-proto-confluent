@@ -11,6 +11,7 @@ plugins {
     jacoco
     id("com.diffplug.spotless") version "8.11.0"
     id("com.github.spotbugs") version "6.5.13"
+    id("me.champeau.jmh") version "0.7.3"
 }
 
 group = "com.bbrownsound"
@@ -372,11 +373,47 @@ val declaredProtobufTest = tasks.register<Test>("declaredProtobufTest") {
     }
 }
 
+// JMH benchmarks (src/jmh): the per-record deserialize and serialize paths over the test messages,
+// against an in-memory Schema Registry. `./gradlew jmh` runs them and writes JSON results to
+// build/results/jmh/results.json. They are not part of `check`, `test` or coverage; the source set
+// is only compiled and linted there. Every run setting below can be overridden with a project
+// property, e.g. `./gradlew jmh -Pjmh.fork=2 -Pjmh.iterations=10 -Pjmh.includes=Deserialize`.
+// See docs/content/reference/benchmarks.md.
+fun jmhProperty(name: String): String? =
+    project.findProperty("jmh.$name")?.toString()?.takeIf { it.isNotBlank() }
+
+jmh {
+    // Benchmarks reuse the generated test messages (TestSimple, TestBig, ...) and Flink, which the
+    // main source set only has at compile time.
+    includeTests = true
+    jmhVersion = "1.37"
+    fork = jmhProperty("fork")?.toInt() ?: 1
+    warmupIterations = jmhProperty("warmupIterations")?.toInt() ?: 3
+    warmup = jmhProperty("warmup") ?: "2s"
+    iterations = jmhProperty("iterations")?.toInt() ?: 5
+    timeOnIteration = jmhProperty("timeOnIteration") ?: "2s"
+    jmhProperty("includes")?.let { includes = it.split(",") }
+    jmhProperty("profilers")?.let { profilers = it.split(",") }
+    resultFormat = "JSON"
+    resultsFile = layout.buildDirectory.file("results/jmh/results.json")
+    humanOutputFile = layout.buildDirectory.file("results/jmh/human.txt")
+    jvmArgsAppend = listOf(
+        "--add-opens=java.base/java.util=ALL-UNNAMED",
+        "--add-opens=java.base/java.lang=ALL-UNNAMED",
+    )
+}
+
+dependencies {
+    add("jmhImplementation", "org.apache.flink:flink-core:$flinkVersion")
+    add("jmhImplementation", "org.apache.flink:flink-table-common:$flinkVersion")
+}
+
 spotless {
     java {
         googleJavaFormat()
         target("src/main/java/**/*.java", "src/test/java/**/*.java")
         target("src/integration-test/java/**/*.java")
+        target("src/jmh/java/**/*.java")
         targetExclude("src/test/java/com/bbrownsound/flink/formats/proto/test/**")
     }
 }

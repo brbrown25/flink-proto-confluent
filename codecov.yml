@@ -37,6 +37,10 @@ coverage:
         informational: true
         if_ci_failed: error
 
+# The JMH benchmarks (src/jmh) are never run by the tests, so they are not coverage material.
+ignore:
+  - "src/jmh/**"
+
 comment:
   layout: "condensed_header, diff, files, footer"
   behavior: default

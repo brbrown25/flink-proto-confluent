@@ -12,6 +12,7 @@ Each workflow owns a distinct slice of the pipeline so that no Gradle task runs 
 | `release-please.yml` | `push` to `main`, `workflow_dispatch` | Maintaining the `chore(release): X.Y.Z` pull request, and on its merge creating the tag and the GitHub Release. |
 | `docs.yml` | `pull_request` / `push` to `main`/`master` touching `docs/**`, `workflow_dispatch` | Building the MkDocs site with `--strict` (PRs and pushes) and deploying it to GitHub Pages (pushes only). |
 | `release.yml` | tag `v*` | Release verification, publishing to Maven Central, and attaching the library and self-contained `-all` JARs to the GitHub Release. |
+| `benchmarks.yml` | `workflow_dispatch` only | Running the JMH benchmarks (`./gradlew jmh`) on demand and uploading `build/results/jmh/` as an artifact. Not a required check; the benchmark source set is only compiled and linted by `build`. See [Benchmarks](content/reference/benchmarks.md). |
 
 `ci.yml` deliberately does **not** trigger on `pull_request`; that is what makes the PR path free of same-JDK repeats.
 

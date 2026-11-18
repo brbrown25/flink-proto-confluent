@@ -27,4 +27,13 @@
     </Or>
     <Bug code="EI"/>
   </Match>
+  <!-- JMH benchmark fixtures (src/jmh) hand the one in-memory registry client to the schemas under test on purpose. -->
+  <Match>
+    <Or>
+      <Class name="com.bbrownsound.flink.formats.proto.registry.confluent.bench.BenchRegistry"/>
+      <Class name="com.bbrownsound.flink.formats.proto.registry.confluent.deserialize.InMemoryDeserializationSchema"/>
+      <Class name="com.bbrownsound.flink.formats.proto.registry.confluent.serialize.InMemorySerializationSchema"/>
+    </Or>
+    <Bug code="EI,EI2"/>
+  </Match>
 </FindBugsFilter>
