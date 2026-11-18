@@ -301,7 +301,6 @@ Then in Flink SQL (e.g. `sql-client.sh`), use the format identifier `proto-confl
 ```sql
 'value.format' = 'proto-confluent',
 'value.proto-confluent.url' = 'http://schema-registry:8081',
-'value.proto-confluent.topic' = 'your-topic',
 'value.proto-confluent.is_key' = 'false'
 ```
 

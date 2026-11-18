@@ -27,7 +27,35 @@ public class ProtoConfluentFormatOptions {
           .stringType()
           .noDefaultValue()
           .withFallbackKeys("topic")
-          .withDescription("The kafka topic name");
+          .withDescription(
+              "The Kafka topic the subject name is derived from. When unset, the table's own "
+                  + "'topic' option (the Kafka connector's) is used if it names exactly one "
+                  + "topic. Not needed when 'subject' is set.");
+
+  /** Explicit Schema Registry subject, bypassing the subject-naming strategy. */
+  public static final ConfigOption<String> SUBJECT =
+      ConfigOptions.key("subject")
+          .stringType()
+          .noDefaultValue()
+          .withDescription(
+              "The Schema Registry subject to register and look up schemas under, e.g. "
+                  + "'orders-value'. When set, no subject-naming strategy is applied and "
+                  + "'topic' is not required. Cannot be combined with 'subject-name-strategy'.");
+
+  /** Subject-naming strategy for the key or value, depending on 'is_key'. */
+  public static final ConfigOption<String> SUBJECT_NAME_STRATEGY =
+      ConfigOptions.key("subject-name-strategy")
+          .stringType()
+          .noDefaultValue()
+          .withFallbackKeys("subject_name_strategy")
+          .withDescription(
+              "How the subject name is derived: 'topic' (<topic>-key / <topic>-value, the "
+                  + "Confluent default), 'record' (the fully-qualified message name), "
+                  + "'topic-record' (<topic>-<message name>), case-insensitive, or the "
+                  + "fully-qualified name of a class implementing Confluent's "
+                  + "SubjectNameStrategy. Applies to the key when 'is_key' is true and to the "
+                  + "value otherwise, and wins over a strategy set through 'properties'. Cannot "
+                  + "be combined with 'subject'.");
 
   /** Whether the format is used for the key. */
   public static final ConfigOption<Boolean> IS_KEY =

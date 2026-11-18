@@ -3,9 +3,13 @@ package com.bbrownsound.flink.formats.proto.registry.confluent;
 import com.bbrownsound.flink.formats.proto.registry.confluent.config.DeadLetterDelivery;
 import com.bbrownsound.flink.formats.proto.registry.confluent.config.OnDeserializeError;
 import com.bbrownsound.flink.formats.proto.registry.confluent.config.ProtoConfluentFormatConfig;
+import com.bbrownsound.flink.formats.proto.registry.confluent.subject.SubjectNameStrategies;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -40,6 +44,12 @@ public class RegistryProtoFormatFactory
   /** The Kafka connector's table option naming the brokers of the table's own topic. */
   private static final String TABLE_BOOTSTRAP_SERVERS = "properties.bootstrap.servers";
 
+  /**
+   * The Kafka connector's table option naming the table's topic, or several separated by {@code
+   * ;}.
+   */
+  private static final String TABLE_TOPIC = "topic";
+
   /** Creates the factory; invoked by the Flink service loader. */
   public RegistryProtoFormatFactory() {}
 
@@ -54,10 +64,13 @@ public class RegistryProtoFormatFactory
     // Sink-only, but a declared option of this factory: reject a bad value on a source table too,
     // rather than only once the same table is written to.
     validateSchemaCacheTtl(formatOptions);
-    String url = formatOptions.get(ProtoConfluentFormatOptions.URL);
-    String topic = formatOptions.get(ProtoConfluentFormatOptions.TOPIC);
-    LOG.debug("[proto-confluent] Creating decoding format: url={}, topic={}", url, topic);
-    return new ProtoDecodingFormat(createConfig(context, formatOptions));
+    ProtoConfluentFormatConfig config = createConfig(context, formatOptions);
+    LOG.debug(
+        "[proto-confluent] Creating decoding format: url={}, topic={}, subject={}",
+        config.schemaRegistryUrl,
+        config.topic,
+        config.subject);
+    return new ProtoDecodingFormat(config);
   }
 
   @Override
@@ -86,8 +99,13 @@ public class RegistryProtoFormatFactory
         context == null
             ? null
             : context.getCatalogTable().getOptions().get(TABLE_BOOTSTRAP_SERVERS);
+    String tableTopicOption =
+        context == null ? null : context.getCatalogTable().getOptions().get(TABLE_TOPIC);
+    validateSubjectNaming(context, formatOptions);
     ProtoConfluentFormatConfig config =
-        new ProtoConfluentFormatConfig(formatOptions, tableBootstrapServers);
+        new ProtoConfluentFormatConfig(
+            formatOptions, tableBootstrapServers, singleTopic(tableTopicOption));
+    requireTopicOrSubject(config, tableTopicOption);
     if (config.deadLetterTopic != null
         && !config.getDeadLetterProperties().containsKey(DEAD_LETTER_BOOTSTRAP_SERVERS)) {
       throw new ValidationException(
@@ -106,6 +124,85 @@ public class RegistryProtoFormatFactory
               + "'.");
     }
     return config;
+  }
+
+  /**
+   * Returns the topic named by the Kafka connector's {@code topic} table option when it names
+   * exactly one, else {@code null}: a list of topics has no single subject to derive.
+   */
+  static @Nullable String singleTopic(@Nullable String tableTopicOption) {
+    if (tableTopicOption == null) {
+      return null;
+    }
+    List<String> topics =
+        Arrays.stream(tableTopicOption.split(";"))
+            .map(String::trim)
+            .filter(t -> !t.isEmpty())
+            .collect(Collectors.toList());
+    return topics.size() == 1 ? topics.get(0) : null;
+  }
+
+  /**
+   * Rejects a blank {@code subject}, {@code subject} together with {@code subject-name-strategy}
+   * (an explicit subject leaves no strategy to apply, so one of them would be silently ignored),
+   * and a strategy that names no loadable {@code SubjectNameStrategy}.
+   */
+  private static void validateSubjectNaming(
+      @Nullable DynamicTableFactory.Context context, ReadableConfig formatOptions) {
+    Optional<String> subject = formatOptions.getOptional(ProtoConfluentFormatOptions.SUBJECT);
+    Optional<String> strategy =
+        formatOptions.getOptional(ProtoConfluentFormatOptions.SUBJECT_NAME_STRATEGY);
+    if (subject.isPresent() && subject.get().trim().isEmpty()) {
+      throw new ValidationException(
+          "'"
+              + ProtoConfluentFormatOptions.SUBJECT.key()
+              + "' must not be empty. Name a Schema Registry subject, or remove the option to "
+              + "derive the subject from the topic.");
+    }
+    if (subject.isPresent() && strategy.isPresent()) {
+      throw new ValidationException(
+          "'"
+              + ProtoConfluentFormatOptions.SUBJECT.key()
+              + "' and '"
+              + ProtoConfluentFormatOptions.SUBJECT_NAME_STRATEGY.key()
+              + "' cannot both be set: an explicit subject is used as is, so no strategy "
+              + "applies. Remove one of them.");
+    }
+    if (strategy.isPresent()) {
+      ClassLoader classLoader =
+          context == null
+              ? RegistryProtoFormatFactory.class.getClassLoader()
+              : context.getClassLoader();
+      SubjectNameStrategies.validatedClassName(
+          ProtoConfluentFormatOptions.SUBJECT_NAME_STRATEGY.key(), strategy.get(), classLoader);
+    }
+  }
+
+  /** The subject is derived from a topic or named outright; a table needs one of the two. */
+  private static void requireTopicOrSubject(
+      ProtoConfluentFormatConfig config, @Nullable String tableTopicOption) {
+    if (config.topic != null || config.subject != null) {
+      return;
+    }
+    String tableTopic =
+        tableTopicOption == null
+            ? "the table has no single 'topic' to fall back to"
+            : "the table's 'topic' ('"
+                + tableTopicOption
+                + "') names more than one topic, so it cannot be used as a fallback";
+    throw new ValidationException(
+        "The proto-confluent format needs a topic or a subject to resolve the Schema Registry "
+            + "subject, but neither '"
+            + ProtoConfluentFormatOptions.TOPIC.key()
+            + "' nor '"
+            + ProtoConfluentFormatOptions.SUBJECT.key()
+            + "' is set and "
+            + tableTopic
+            + ". Set '"
+            + ProtoConfluentFormatOptions.TOPIC.key()
+            + "' (e.g. 'value.proto-confluent.topic') or '"
+            + ProtoConfluentFormatOptions.SUBJECT.key()
+            + "'.");
   }
 
   private static void validateSchemaCacheTtl(ReadableConfig formatOptions) {
@@ -133,6 +230,8 @@ public class RegistryProtoFormatFactory
     return Stream.of(
             ProtoConfluentFormatOptions.URL,
             ProtoConfluentFormatOptions.TOPIC,
+            ProtoConfluentFormatOptions.SUBJECT,
+            ProtoConfluentFormatOptions.SUBJECT_NAME_STRATEGY,
             ProtoConfluentFormatOptions.IS_KEY,
             ProtoConfluentFormatOptions.MESSAGE_CLASS,
             ProtoConfluentFormatOptions.SCHEMA_CACHE_TTL,
@@ -156,13 +255,17 @@ public class RegistryProtoFormatFactory
   public Set<ConfigOption<?>> requiredOptions() {
     Set<ConfigOption<?>> options = new HashSet<>();
     options.add(ProtoConfluentFormatOptions.URL);
-    options.add(ProtoConfluentFormatOptions.TOPIC);
     return options;
   }
 
   @Override
   public Set<ConfigOption<?>> optionalOptions() {
     Set<ConfigOption<?>> options = new HashSet<>();
+    // Optional individually, but a table needs 'topic', 'subject' or a single Kafka 'topic' to
+    // fall back to; createConfig rejects it otherwise.
+    options.add(ProtoConfluentFormatOptions.TOPIC);
+    options.add(ProtoConfluentFormatOptions.SUBJECT);
+    options.add(ProtoConfluentFormatOptions.SUBJECT_NAME_STRATEGY);
     options.add(ProtoConfluentFormatOptions.IS_KEY);
     options.add(ProtoConfluentFormatOptions.MESSAGE_CLASS);
     options.add(ProtoConfluentFormatOptions.PROPERTIES);

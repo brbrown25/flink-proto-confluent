@@ -26,9 +26,9 @@ class RegistryProtoFormatFactoryTest {
   @Test
   void requiredOptions() {
     var required = factory.requiredOptions();
-    assertEquals(2, required.size());
+    // 'topic' became optional with issue #176: 'subject' or the table's own topic can stand in.
+    assertEquals(1, required.size());
     assertTrue(required.stream().anyMatch(o -> o.key().equals("url")));
-    assertTrue(required.stream().anyMatch(o -> o.key().equals("topic")));
   }
 
   @Test
@@ -199,7 +199,6 @@ class RegistryProtoFormatFactoryTest {
         assertThrows(
             ValidationException.class, () -> factory.createDecodingFormat(null, options));
     assertTrue(e.getMessage().contains("url"), e.getMessage());
-    assertTrue(e.getMessage().contains("topic"), e.getMessage());
   }
 
   @Test
