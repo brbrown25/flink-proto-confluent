@@ -26,8 +26,8 @@ runs:
     # No gradle-version pin: builds are driven through the committed wrapper
     # (./gradlew), which is the single source of truth for the Gradle version.
     # setup-gradle keys its cache entry by workflow, job and matrix values, so
-    # the JDK 17 and 21 legs keep separate entries instead of evicting one
-    # another. Writes are restricted to the job that passes
+    # the JDK and Flink matrix legs keep separate entries instead of evicting
+    # one another. Writes are restricted to the job that passes
     # cache-read-only: false (see docs/ci.md).
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v4

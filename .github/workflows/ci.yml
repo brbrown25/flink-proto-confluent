@@ -24,28 +24,48 @@ permissions:
   pull-requests: write
 
 jobs:
-  # Single job on the primary JDK: build, unit tests, integration tests and
-  # coverage all execute exactly once against one compiled output.
+  # One job per Flink line on the primary JDK: build, unit tests, integration
+  # tests and coverage all execute exactly once per line against one compiled
+  # output. Only the Flink 1.20 leg verifies coverage and uploads to Codecov,
+  # so Codecov sees a single report per commit.
   build:
-    name: build
+    name: build (flink ${{ matrix.flink }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        flink: ['1.20.5', '2.2.1']
+        include:
+          - flink: '1.20.5'
+            coverage: true
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v7
 
     # The canonical post-merge job is the only writer of the Gradle cache; it
-    # warms the entry that every PR job restores read-only.
+    # warms the entry that every PR job restores read-only. setup-gradle keys
+    # the entry by job and matrix values, so each Flink leg writes its own
+    # entry and the two legs never overwrite each other.
     - name: Setup build environment
       uses: ./.github/actions/setup-build
       with:
         cache-read-only: false
 
-    - name: Build with Gradle
-      run: ./gradlew build -x test -x integrationTest
+    - name: Build with Gradle against Flink ${{ matrix.flink }}
+      run: ./gradlew -PflinkVersion=${{ matrix.flink }} build -x test -x integrationTest
 
     - name: Run unit and integration tests with coverage verification
-      run: ./gradlew test integrationTest jacocoTestReport jacocoTestCoverageVerification
+      if: matrix.coverage
+      run: ./gradlew -PflinkVersion=${{ matrix.flink }} test integrationTest jacocoTestReport jacocoTestCoverageVerification
+      env:
+        TESTCONTAINERS_RYUK_DISABLED: true
+
+    # `test` is finalized by jacocoTestReport; excluding it keeps the non-coverage
+    # leg to one run of each suite with no report.
+    - name: Run unit and integration tests
+      if: ${{ !matrix.coverage }}
+      run: ./gradlew -PflinkVersion=${{ matrix.flink }} test integrationTest -x jacocoTestReport
       env:
         TESTCONTAINERS_RYUK_DISABLED: true
 
@@ -53,7 +73,7 @@ jobs:
       uses: dorny/test-reporter@v3
       if: success() || failure()
       with:
-        name: Unit Test Results
+        name: Unit Test Results (flink ${{ matrix.flink }})
         path: build/test-results/test/*.xml
         reporter: java-junit
 
@@ -61,7 +81,7 @@ jobs:
       uses: dorny/test-reporter@v3
       if: success() || failure()
       with:
-        name: Integration Test Results
+        name: Integration Test Results (flink ${{ matrix.flink }})
         path: build/test-results/integrationTest/*.xml
         reporter: java-junit
 
@@ -69,7 +89,7 @@ jobs:
       uses: actions/upload-artifact@v7
       if: always()
       with:
-        name: test-results
+        name: test-results-flink${{ matrix.flink }}
         path: |
           build/test-results/test/
           build/test-results/integrationTest/
@@ -77,12 +97,13 @@ jobs:
 
     - name: Upload coverage report
       uses: actions/upload-artifact@v7
-      if: always()
+      if: always() && matrix.coverage
       with:
         name: coverage-report
         path: build/reports/jacoco/test/
 
     - name: Upload coverage to Codecov
+      if: matrix.coverage
       uses: codecov/codecov-action@v7
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
