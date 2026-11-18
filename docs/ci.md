@@ -1,13 +1,13 @@
 # CI workflow ownership
 
-Each workflow owns a distinct slice of the pipeline so that no Gradle task runs more than once for the same commit on the same JDK. Testing on multiple JDKs is intentional and is *not* considered duplication — the rule is one run of each task **per JDK** per event.
+Each workflow owns a distinct slice of the pipeline so that no Gradle task runs more than once for the same commit on the same JDK and Flink line. Testing on multiple JDKs and Flink lines is intentional and is *not* considered duplication — the rule is one run of each task **per JDK and Flink line** per event.
 
 ## Workflows
 
 | Workflow | Trigger | Owns |
 | --- | --- | --- |
-| `pr-checks.yml` | `pull_request` | All pull-request signal: lint, build/JAR check, dependency review, the JDK 17 + 21 unit-test matrix, and one integration-test + coverage run on the primary JDK. |
-| `ci.yml` | `push` to `main`/`master`, `workflow_dispatch` | The canonical post-merge build: one job that builds, runs unit + integration tests, verifies coverage and uploads to Codecov, plus a parallel lint job. |
+| `pr-checks.yml` | `pull_request` | All pull-request signal: lint, build/JAR check per Flink line, dependency review, the JDK 17 + 21 × Flink 1.20 + 2.x unit-test matrix, one integration-test run per Flink line on the primary JDK (coverage from the Flink 1.20 leg only), and the `ci-ok` aggregate. |
+| `ci.yml` | `push` to `main`/`master`, `workflow_dispatch` | The canonical post-merge build: one job per Flink line that builds and runs unit + integration tests (the Flink 1.20 leg also verifies coverage and uploads to Codecov), plus a parallel lint job. |
 | `publish-snapshot.yml` | `workflow_run` after a successful **CI** run on `main`/`master`, `workflow_dispatch` | Publishing SHA-qualified snapshots (`X.Y.Z-<shortsha>-SNAPSHOT`). It does not re-test: it is gated on the CI run for the same SHA. Skips release commits. |
 | `release-please.yml` | `push` to `main`, `workflow_dispatch` | Maintaining the `chore(release): X.Y.Z` pull request, and on its merge creating the tag and the GitHub Release. |
 | `docs.yml` | `pull_request` / `push` to `main`/`master` touching `docs/**`, `workflow_dispatch` | Building the MkDocs site with `--strict` (PRs and pushes) and deploying it to GitHub Pages (pushes only). |
@@ -21,17 +21,23 @@ Each workflow owns a distinct slice of the pipeline so that no Gradle task runs 
 
 | Task | On a pull request | On push to `main` |
 | --- | --- | --- |
-| `build -x test -x integrationTest` | `pr-checks.yml` → `build-check` | `ci.yml` → `build` |
-| `test` (unit) | `pr-checks.yml` → `test-matrix` (JDK 17 **and** 21) | `ci.yml` → `build` (primary JDK) |
-| `integrationTest` | `pr-checks.yml` → `coverage` (primary JDK, once) | `ci.yml` → `build` |
-| `jacocoTestReport`, `jacocoTestCoverageVerification` | `pr-checks.yml` → `coverage` | `ci.yml` → `build` |
+| `build -x test -x integrationTest` | `pr-checks.yml` → `build-check` (per Flink line) | `ci.yml` → `build` (per Flink line) |
+| `test` (unit) | `pr-checks.yml` → `test-matrix` (JDK 17 **and** 21, per Flink line) | `ci.yml` → `build` (primary JDK, per Flink line) |
+| `integrationTest` | `pr-checks.yml` → `integration-tests` (primary JDK, per Flink line) | `ci.yml` → `build` (per Flink line) |
+| `jacocoTestReport`, `jacocoTestCoverageVerification` | `pr-checks.yml` → `integration-tests` (Flink 1.20 leg) | `ci.yml` → `build` (Flink 1.20 leg) |
 | Checkstyle / SpotBugs / Spotless | `pr-checks.yml` → `lint` | `ci.yml` → `checkstyle` |
+
+## Flink lines and the `ci-ok` check
+
+The build, unit-test and integration-test jobs run once per supported Flink line (`flink: ['1.20.5', '2.2.1']`, passed as `-PflinkVersion`), with `fail-fast: false` so one line's failure does not hide the other's result. Check names carry the versions, e.g. `build (flink 2.2.1)`, `unit tests (jdk 17, flink 1.20.5)`, `integration tests (flink 2.2.1)`.
+
+Because those names change on every version bump, branch protection requires only `ci-ok`. It needs every gated job, runs with `if: always()`, and fails if any of them failed or was cancelled; when they were all skipped for a docs-only change it passes, so the required check is never left pending. Bumping a Flink or JDK version therefore needs no ruleset change.
 
 ## Two build wiring details that matter
 
 `tasks.test` is wired with `finalizedBy(jacocoTestReport)`, and `jacocoTestReport` depends on both `test` and `integrationTest`. A plain `./gradlew test` therefore also runs the integration suite. Any job that wants unit tests alone must run `./gradlew test -x integrationTest -x jacocoTestReport` — that is why the matrix legs carry those exclusions.
 
-Because of the same wiring, the PR `coverage` job cannot simply run `jacocoTestReport` without re-running `test`. Instead the JDK 21 matrix leg uploads its `build/jacoco/test.exec`, the `coverage` job downloads it, and then runs `./gradlew integrationTest jacocoTestReport jacocoTestCoverageVerification -x test`. `jacocoTestReport` collects every `build/jacoco/*.exec`, so the report and the 80% gate still see unit **and** integration coverage from a single execution of each suite.
+Because of the same wiring, the PR coverage leg cannot simply run `jacocoTestReport` without re-running `test`. Instead the JDK 21 / Flink 1.20 unit-test leg (marked `coverage: true` in the matrix) uploads its `build/jacoco/test.exec`, the Flink 1.20 `integration-tests` leg downloads it, and then runs `./gradlew integrationTest jacocoTestReport jacocoTestCoverageVerification -x test`. `jacocoTestReport` collects every `build/jacoco/*.exec`, so the report and the 80% gate still see unit **and** integration coverage from a single execution of each suite.
 
 ## Gradle version
 
@@ -53,7 +59,7 @@ Two caches are configured explicitly, and both log a HIT/MISS annotation so effe
 
 `setup-build` then prints a `Gradle cache` notice naming the number of restored dependency groups, the cache size on disk and the mode, plus which wrapper distributions were restored. A MISS on a PR branch means the warming run on `main` needs to be investigated — it is not silent any more.
 
-Gradle's own cache key includes the workflow, job and matrix values, so the JDK 17 and 21 matrix legs maintain separate entries instead of evicting one another.
+Gradle's own cache key includes the workflow, job and matrix values, so the JDK and Flink matrix legs maintain separate entries instead of evicting one another. In `ci.yml` both Flink legs of `build` write (each to its own entry), so the cache holds the dependency set of both lines. PR jobs have different job ids, so they fall back to the most recent entry for the runner OS; that entry may belong to the other Flink line, in which case the leg downloads only the Flink artifacts it is missing.
 
 ### Testcontainers Docker images
 
@@ -63,7 +69,7 @@ The suites pull `confluentinc/cp-kafka`, `confluentinc/cp-schema-registry` and `
 
 `ci.yml` and `pr-checks.yml` each declare a `concurrency` group with `cancel-in-progress: true` — keyed on the ref for `ci.yml` and on the pull-request number for `pr-checks.yml` — so pushing several commits in quick succession leaves only the newest pipeline running.
 
-Documentation-only changes skip the heavy jobs. `ci.yml` uses `paths-ignore` on its `push` trigger. `pr-checks.yml` cannot use `paths-ignore` without leaving required checks permanently pending, so it instead runs a cheap `changes` job that diffs the PR against its base and exports `code=true|false`; `lint`, `build-check`, `test-matrix` and `coverage` all gate on it. A docs-only PR therefore reports those checks as skipped rather than absent. Both filters treat `docs/`, any `*.md`, `LICENSE`, `NOTICE` and `.gitignore` as documentation; anything else — including `.github/` itself — counts as code.
+Documentation-only changes skip the heavy jobs. `ci.yml` uses `paths-ignore` on its `push` trigger. `pr-checks.yml` cannot use `paths-ignore` without leaving required checks permanently pending, so it instead runs a cheap `changes` job that diffs the PR against its base and exports `code=true|false`; `lint`, `build-check`, `test-matrix` and `integration-tests` all gate on it. A docs-only PR therefore reports those checks as skipped rather than absent. Both filters treat `docs/`, any `*.md`, `LICENSE`, `NOTICE` and `.gitignore` as documentation; anything else — including `.github/` itself — counts as code.
 
 ## Coverage gates
 
@@ -71,7 +77,7 @@ Three things report on coverage, and only two of them can fail a build. Knowing 
 
 | Mechanism | Can it fail? | What it covers |
 | --- | --- | --- |
-| Gradle `jacocoTestCoverageVerification` | **Yes** — fails the `coverage` job | 80% line coverage project-wide, plus per-package rules on `…confluent.serialize` and `…confluent.deserialize` |
+| Gradle `jacocoTestCoverageVerification` | **Yes** — fails the `integration tests (flink 1.20.x)` leg | 80% line coverage project-wide, plus per-package rules on `…confluent.serialize` and `…confluent.deserialize` |
 | Codecov `project` / `patch` statuses | **Yes**, once required (see below) | Project-wide, and coverage of the lines the PR changed |
 | `madrapps/jacoco-report` PR comment | **No** | Nothing — it is a report only |
 
