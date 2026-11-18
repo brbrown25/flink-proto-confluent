@@ -1,6 +1,7 @@
 # Demo stack for the recorded casts: Kafka + Schema Registry + a Flink session cluster
 # with the proto-confluent format and the Kafka SQL connector on the classpath.
-# Run ./setup.sh first to fetch the JARs into ./lib.
+# Run ./setup.sh first to fetch the JARs into ./lib. FLINK_VERSION (1.20 or 2.2, default 1.20)
+# picks the Flink image; setup.sh writes it to .env so this file and the JARs in ./lib agree.
 name: proto-confluent-demo
 services:
   kafka:
@@ -30,7 +31,7 @@ services:
       SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
 
   jobmanager: &flink
-    image: flink:1.20-java17
+    image: flink:${FLINK_VERSION:-1.20}-java17
     command: jobmanager
     depends_on: [kafka, schema-registry]
     environment:

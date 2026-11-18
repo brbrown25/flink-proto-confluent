@@ -1,11 +1,11 @@
 # Classpath and dependency conflicts
 
-The format is published as two JARs. Which one you use decides who is responsible for the dependencies.
+The format is published as two JARs per Flink line (see [Supported Flink versions](../getting-started.md#supported-flink-versions)). Which one you use decides who is responsible for the dependencies.
 
 | Artifact | Use it for | Dependencies |
 | --- | --- | --- |
-| `flink-proto-confluent-<version>.jar` | A job you build with Gradle, Maven or sbt | Resolved by your build from the POM. Needs the Confluent Maven repository (`https://packages.confluent.io/maven/`). |
-| `flink-proto-confluent-<version>-all.jar` | Flink's `lib/` directory (SQL client, SQL gateway, session clusters) | Bundled. Nothing else to add except the Kafka SQL connector. |
+| `flink-proto-confluent-<version>.jar` (Flink 1.20), `flink-proto-confluent-flink2-<version>.jar` (Flink 2.x) | A job you build with Gradle, Maven or sbt | Resolved by your build from the POM. Needs the Confluent Maven repository (`https://packages.confluent.io/maven/`). |
+| `flink-proto-confluent-<version>-all.jar` (Flink 1.20), `flink-proto-confluent-flink2-<version>-all.jar` (Flink 2.x) | Flink's `lib/` directory (SQL client, SQL gateway, session clusters) | Bundled. Nothing else to add except the Kafka SQL connector. |
 
 Flink itself is in neither: the cluster or your job provides `flink-core` and `flink-table-common`.
 
@@ -44,7 +44,7 @@ The build enforces both lists: `./gradlew verifyJars` (part of `check`) fails if
 
 ### What this means in practice
 
-- **Kafka SQL connector.** `flink-sql-connector-kafka` relocates its own Kafka client under `org.apache.flink.kafka.shaded`, so it does not collide with the `kafka-clients` bundled here. The demo stack runs the `-all` JAR next to `flink-sql-connector-kafka` on `flink:1.20-java17`.
+- **Kafka SQL connector.** `flink-sql-connector-kafka` relocates its own Kafka client under `org.apache.flink.kafka.shaded`, so it does not collide with the `kafka-clients` bundled here. The demo stack runs the `-all` JAR next to `flink-sql-connector-kafka` on `flink:1.20-java17` by default, and on `flink:2.2-java17` with `FLINK_VERSION=2.2`.
 - **Another unrelocated `kafka-clients`, Confluent client or protobuf-java in `lib/`.** These will collide: two versions of the same classes on one classpath, and which one wins depends on file order. Keep only one, or use the library JAR in a job build where your build tool picks a single version.
 - **Other Confluent serde JARs, even at the identical version.** The `-all` JAR cannot share a classpath with `kafka-avro-serializer` or any other JAR that brings the Confluent client under its original package. The bundled `io.confluent` and `org.apache.kafka` classes keep their names but are rewritten to reference the relocated Avro, Jackson and Guava, so their method signatures no longer match upstream and matching the Confluent version does not help. With the `-all` JAR first, the Avro serializer fails with `NoSuchMethodError: 'org.apache.avro.Schema io.confluent.kafka.schemaregistry.avro.AvroSchemaUtils.getSchema(...)'`; with it last, this format fails the same way on a relocated Guava type. A job that needs both uses the library JAR and lets its build resolve one Confluent client.
 - **Flink's `flink-sql-avro-confluent-registry` in `lib/`.** This works next to the `-all` JAR: Flink relocates its Confluent client, Kafka client and Avro under `org.apache.flink.avro...shaded`, so the two formats do not see each other's copies. The only classes both JARs bundle under the same name are zstd-jni and snappy-java.
