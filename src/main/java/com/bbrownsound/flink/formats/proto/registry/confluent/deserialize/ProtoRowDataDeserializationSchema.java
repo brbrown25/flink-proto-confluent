@@ -13,6 +13,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.flink.api.common.serialization.DeserializationSchema;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
+import org.apache.flink.table.api.ValidationException;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.types.logical.RowType;
 import org.slf4j.Logger;
@@ -22,9 +23,10 @@ import com.bbrownsound.flink.formats.proto.registry.confluent.config.DeadLetterD
 import com.bbrownsound.flink.formats.proto.registry.confluent.config.OnDeserializeError;
 import com.bbrownsound.flink.formats.proto.registry.confluent.config.ProtoConfluentFormatConfig;
 import com.bbrownsound.flink.formats.proto.registry.confluent.metrics.SchemaRegistryMetrics;
+import com.google.protobuf.Descriptors.Descriptor;
 import com.google.protobuf.DynamicMessage;
 
-import io.confluent.kafka.schemaregistry.client.CachedSchemaRegistryClient;
+import io.confluent.kafka.schemaregistry.client.SchemaRegistryClient;
 import io.confluent.kafka.serializers.protobuf.KafkaProtobufDeserializer;
 
 import java.nio.charset.StandardCharsets;
@@ -63,7 +65,7 @@ public class ProtoRowDataDeserializationSchema
   private final RowType rowType;
   /** Format and Schema Registry config. */
   private final ProtoConfluentFormatConfig formatConfig;
-  private transient CachedSchemaRegistryClient client;
+  private transient SchemaRegistryClient client;
   private transient KafkaProtobufDeserializer<DynamicMessage> deserializer;
   private transient Map<Integer, ProtoToRowDataConverters.ProtoToRowDataConverter> converters;
   private transient AtomicLong deserializeCount;
@@ -75,6 +77,11 @@ public class ProtoRowDataDeserializationSchema
   private transient Counter deadLetterRecords;
   /** Counts failed dead-letter sends (exposed as the numDeadLetterErrors metric). */
   private transient Counter deadLetterErrors;
+  /**
+   * Full name every record's writer message must have (from {@code message-name} or {@code
+   * message-class}); null when any message is accepted.
+   */
+  private transient String expectedMessageName;
 
   /**
    * Creates a deserialization schema for the given row type and config.
@@ -100,11 +107,8 @@ public class ProtoRowDataDeserializationSchema
           formatConfig.topic,
           formatConfig.isKey);
 
-      this.client =
-          SchemaRegistryMetrics.createClient(
-              formatConfig.schemaRegistryUrl,
-              formatConfig.getProperties(),
-              context != null ? context.getMetricGroup() : null);
+      this.expectedMessageName = resolveExpectedMessage(context);
+      this.client = createSchemaRegistryClient(context);
       this.deserializer = new KafkaProtobufDeserializer<>(client);
       this.deserializer.configure(formatConfig.getProperties(), formatConfig.isKey);
       this.converters = new ConcurrentHashMap<>();
@@ -178,6 +182,7 @@ public class ProtoRowDataDeserializationSchema
         LOG.debug("[proto-confluent] deserialize #{}: schemaId={}", n, id);
       }
       DynamicMessage dynamicMessage = deserializer.deserialize(formatConfig.topic, message);
+      checkMessageType(dynamicMessage, id);
 
       ProtoToRowDataConverters.ProtoToRowDataConverter converter =
           Optional.ofNullable(converters.get(id))
@@ -223,6 +228,78 @@ public class ProtoRowDataDeserializationSchema
         throw new IOException("Proto-confluent deserialize failed: " + e.getMessage(), e);
       }
       return null;
+    }
+  }
+
+  /**
+   * Creates the Schema Registry client the deserializer looks writer schemas up with.
+   * Package-private so tests can substitute an in-memory registry.
+   *
+   * @param context the initialization context, or {@code null}
+   * @return the client
+   */
+  SchemaRegistryClient createSchemaRegistryClient(InitializationContext context) {
+    return SchemaRegistryMetrics.createClient(
+        formatConfig.schemaRegistryUrl,
+        formatConfig.getProperties(),
+        context != null ? context.getMetricGroup() : null);
+  }
+
+  /**
+   * Loads {@code message-class} (if set) with the job's user-code class loader, checks the produced
+   * row type against it, and returns the message full name records must carry.
+   *
+   * @throws org.apache.flink.table.api.ValidationException if the class cannot be loaded, the
+   *     table does not match it, or it conflicts with {@code message-name}
+   */
+  private String resolveExpectedMessage(InitializationContext context) {
+    final String messageClass = formatConfig.getMessageClass();
+    if (messageClass == null) {
+      return formatConfig.messageName;
+    }
+    final ClassLoader classLoader =
+        context != null
+            ? context.getUserCodeClassLoader().asClassLoader()
+            : Optional.ofNullable(Thread.currentThread().getContextClassLoader())
+                .orElse(ProtoRowDataDeserializationSchema.class.getClassLoader());
+    final Descriptor descriptor;
+    try {
+      descriptor = SourceMessageValidator.loadDescriptor(messageClass, classLoader);
+    } catch (ClassNotFoundException e) {
+      throw new ValidationException(
+          "'message-class' = '"
+              + messageClass
+              + "' is not on the classpath of the job. Put the JAR with the generated protobuf "
+              + "classes in Flink's lib/ directory or in the job JAR.",
+          e);
+    }
+    final String expected =
+        SourceMessageValidator.expectedMessageName(
+            formatConfig.messageName, messageClass, descriptor);
+    SourceMessageValidator.validateRowType(descriptor, rowType, messageClass);
+    LOG.info(
+        "[proto-confluent] source checked against message-class {} ({}); records of any other "
+            + "message are deserialize errors",
+        messageClass,
+        expected);
+    return expected;
+  }
+
+  /**
+   * Rejects a record whose writer message is not the expected one. The deserializer picks the
+   * message from the record's own message indexes, so one writer schema ID can carry several
+   * message types; the decoded message's name is therefore compared on every record, which costs
+   * one string comparison.
+   */
+  private void checkMessageType(DynamicMessage dynamicMessage, int schemaId)
+      throws UnexpectedMessageTypeException {
+    if (expectedMessageName == null) {
+      return;
+    }
+    final String actual = dynamicMessage.getDescriptorForType().getFullName();
+    if (!expectedMessageName.equals(actual)) {
+      throw new UnexpectedMessageTypeException(
+          formatConfig.topic, schemaId, actual, expectedMessageName);
     }
   }
 

@@ -195,7 +195,7 @@ public class ProtoToRowDataConverters {
    * Resolve proto field by table column name. Tries exact match, then snake_case to camelCase (e.g.
    * organization_domain -> organizationDomain) since Confluent/registry schema may use either.
    */
-  private static FieldDescriptor findFieldDescriptor(
+  static FieldDescriptor findFieldDescriptor(
       Map<String, FieldDescriptor> byName, String tableFieldName) {
     FieldDescriptor fd = byName.get(tableFieldName);
     if (fd != null) {

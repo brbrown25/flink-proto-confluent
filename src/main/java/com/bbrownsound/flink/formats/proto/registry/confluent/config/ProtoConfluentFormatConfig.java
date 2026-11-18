@@ -62,6 +62,12 @@ public class ProtoConfluentFormatConfig implements Serializable {
   public Duration schemaCacheTtl;
 
   /**
+   * Fully-qualified protobuf message name every record read by a source must carry; {@code null}
+   * (the default) accepts any message.
+   */
+  public String messageName;
+
+  /**
    * Constructs config from explicit parameters.
    *
    * @param schemaRegistryURL Schema Registry base URL
@@ -142,6 +148,11 @@ public class ProtoConfluentFormatConfig implements Serializable {
 
     schemaCacheTtl =
         formatOptions.getOptional(ProtoConfluentFormatOptions.SCHEMA_CACHE_TTL).orElse(null);
+    messageName =
+        formatOptions
+            .getOptional(ProtoConfluentFormatOptions.MESSAGE_NAME)
+            .filter(v -> !v.isEmpty())
+            .orElse(null);
 
     properties = RegistryProtoFormatFactory.buildOptionalPropertiesMap(formatOptions);
     if (properties == null) {
@@ -203,6 +214,21 @@ public class ProtoConfluentFormatConfig implements Serializable {
    */
   public Map<String, String> getProperties() {
     return properties == null ? Collections.emptyMap() : new HashMap<>(properties);
+  }
+
+  /**
+   * Returns the message class pinned for this format's role: {@code message-class}, or a {@code
+   * key.message-class} / {@code value.message-class} tunneled through {@code properties}.
+   *
+   * @return the class name, or {@code null} when none is set
+   */
+  public String getMessageClass() {
+    final String value =
+        properties == null
+            ? null
+            : properties.get(
+                Boolean.TRUE.equals(isKey) ? "key.message-class" : "value.message-class");
+    return value == null || value.isEmpty() ? null : value;
   }
 
   /**
