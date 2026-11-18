@@ -1,5 +1,6 @@
 package com.bbrownsound.flink.formats.proto.registry.confluent.deserialize;
 
+import com.bbrownsound.flink.formats.proto.registry.confluent.util.DeclaredTypes;
 import com.bbrownsound.flink.formats.proto.registry.confluent.util.ProtoToLogicalType;
 import com.google.protobuf.Descriptors.Descriptor;
 import com.google.protobuf.Descriptors.FieldDescriptor;
@@ -255,6 +256,9 @@ public final class SourceMessageValidator {
     if (field.getJavaType() == FieldDescriptor.JavaType.MESSAGE
         && type.getTypeRoot() == LogicalTypeRoot.ROW) {
       checkRow(field.getMessageType(), (RowType) type, path, problems);
+      return;
+    }
+    if (DeclaredTypes.isAlternative(field, type)) {
       return;
     }
     final LogicalType expected;

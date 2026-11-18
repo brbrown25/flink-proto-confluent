@@ -5,6 +5,7 @@ import static org.apache.flink.table.api.DataTypes.BIGINT;
 import static org.apache.flink.table.api.DataTypes.BINARY;
 import static org.apache.flink.table.api.DataTypes.BYTES;
 import static org.apache.flink.table.api.DataTypes.CHAR;
+import static org.apache.flink.table.api.DataTypes.DATE;
 import static org.apache.flink.table.api.DataTypes.FIELD;
 import static org.apache.flink.table.api.DataTypes.INT;
 import static org.apache.flink.table.api.DataTypes.MAP;
@@ -320,11 +321,17 @@ class SourceMessageValidatorTest {
                         FIELD("timestamps", ARRAY(TIMESTAMP_LTZ(3))),
                         FIELD("nested_repeated", ARRAY(ROW(FIELD("value", STRING())))))),
                 CLASS_NAME));
+    // TIMESTAMP (no time zone) is a declared alternative for google.protobuf.Timestamp (#174).
+    assertDoesNotThrow(
+        () ->
+            SourceMessageValidator.validateRowType(
+                TestRepeated.RepeatedTest.getDescriptor(),
+                row(ROW(FIELD("timestamps", ARRAY(TIMESTAMP(3))))),
+                CLASS_NAME));
     String message =
         validationError(
-            TestRepeated.RepeatedTest.getDescriptor(),
-            ROW(FIELD("timestamps", ARRAY(TIMESTAMP(3)))));
-    assertTrue(message.contains("column 'timestamps[]' is TIMESTAMP(3)"), message);
+            TestRepeated.RepeatedTest.getDescriptor(), ROW(FIELD("timestamps", ARRAY(DATE()))));
+    assertTrue(message.contains("column 'timestamps[]' is DATE"), message);
     assertTrue(message.contains("google.protobuf.Timestamp"), message);
   }
 

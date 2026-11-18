@@ -59,6 +59,7 @@ nav:
       - Schema evolution and subjects: how-to/schema-evolution.md
   - Reference:
       - Configuration: reference/configuration.md
+      - Type mapping: reference/type-mapping.md
       - Metrics: reference/metrics.md
       - Classpath and dependency conflicts: reference/classpath.md
       - Benchmarks: reference/benchmarks.md
