@@ -637,4 +637,21 @@ class TypeCoverageTest {
             SourceMessageValidator.validateRowType(
                 COVERAGE, row(field("ts", dayToSecond())), CLASS_NAME));
   }
+
+  @Test
+  void anIntervalForAMessageThatIsNotADurationFailsToRead() {
+    final Descriptor inner = COVERAGE.findFieldByName("inner").getMessageType();
+    final Message message =
+        DynamicMessage.newBuilder(COVERAGE)
+            .setField(
+                COVERAGE.findFieldByName("inner"),
+                DynamicMessage.newBuilder(inner)
+                    .setField(inner.findFieldByName("inner_name"), "x")
+                    .build())
+            .build();
+    final IllegalStateException e =
+        assertThrows(
+            IllegalStateException.class, () -> read(row(field("inner", dayToSecond())), message));
+    assertTrue(e.getMessage().contains("inner_name"), e.getMessage());
+  }
 }

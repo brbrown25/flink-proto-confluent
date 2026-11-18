@@ -50,7 +50,6 @@ public class ProtoToRowDataConverters {
   private static final Logger LOG = LoggerFactory.getLogger(ProtoToRowDataConverters.class);
   private static final String KEY_FIELD = "key";
   private static final String VALUE_FIELD = "value";
-  private static final String UINT64_WRAPPER = "google.protobuf.UInt64Value";
   private static final String UINT32_WRAPPER = "google.protobuf.UInt32Value";
 
   private ProtoToRowDataConverters() {}
@@ -549,7 +548,7 @@ public class ProtoToRowDataConverters {
       // column DECIMAL(20, 0) to read them as unsigned.
       case INT64, UINT64, SINT64, FIXED64, SFIXED64 -> object -> ((Number) object).longValue();
       case MESSAGE -> {
-        if (isMessage(readSchema, UINT32_WRAPPER)) {
+        if (readSchema.getMessageType().getFullName().equals(UINT32_WRAPPER)) {
           yield object -> Integer.toUnsignedLong((Integer) extractValueField(object));
         }
         yield object -> ((Number) extractValueField(object)).longValue();
@@ -568,11 +567,11 @@ public class ProtoToRowDataConverters {
       DecimalType targetType, FieldDescriptor readSchema) {
     final int precision = targetType.getPrecision();
     final int scale = targetType.getScale();
-    if (readSchema.getType() == Type.UINT64 || readSchema.getType() == Type.FIXED64) {
-      return object -> unsignedDecimal((Long) object, precision, scale);
-    }
-    if (isMessage(readSchema, UINT64_WRAPPER)) {
-      return object -> unsignedDecimal((Long) extractValueField(object), precision, scale);
+    if (DeclaredTypes.isAlternative(readSchema, targetType)) {
+      // uint64, fixed64 or google.protobuf.UInt64Value.
+      return readSchema.getType() == Type.MESSAGE
+          ? object -> unsignedDecimal((Long) extractValueField(object), precision, scale)
+          : object -> unsignedDecimal((Long) object, precision, scale);
     }
     return object -> {
       final ByteString valueField = (ByteString) extractValueField(object);
@@ -588,10 +587,6 @@ public class ProtoToRowDataConverters {
   private static DecimalData unsignedDecimal(long value, int precision, int scale) {
     return DecimalData.fromBigDecimal(
         new BigDecimal(Long.toUnsignedString(value)), precision, scale);
-  }
-
-  private static boolean isMessage(FieldDescriptor field, String fullName) {
-    return field.getType() == Type.MESSAGE && field.getMessageType().getFullName().equals(fullName);
   }
 
   private static ProtoToRowDataConverter createDateConverter() {
@@ -633,8 +628,8 @@ public class ProtoToRowDataConverters {
   }
 
   /**
-   * Reads a {@code google.protobuf.Duration} as an {@code INTERVAL DAY TO SECOND}, which Flink holds
-   * in milliseconds: nanoseconds below a millisecond are dropped (toward zero).
+   * Reads a {@code google.protobuf.Duration} as an {@code INTERVAL DAY TO SECOND}, which Flink
+   * holds in milliseconds: nanoseconds below a millisecond are dropped (toward zero).
    */
   private static ProtoToRowDataConverter createDurationConverter() {
     return object -> {

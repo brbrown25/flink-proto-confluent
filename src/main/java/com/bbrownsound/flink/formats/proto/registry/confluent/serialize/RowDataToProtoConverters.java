@@ -300,19 +300,14 @@ public class RowDataToProtoConverters {
       case DOUBLE:
       case BINARY:
       case VARBINARY:
-        if ((type.getTypeRoot() == org.apache.flink.table.types.logical.LogicalTypeRoot.BINARY
-                || type.getTypeRoot()
-                    == org.apache.flink.table.types.logical.LogicalTypeRoot.VARBINARY)
-            && DeclaredTypes.isSerializedMessage(targetSchema)) {
-          final Descriptor messageType = targetSchema.getMessageType();
-          return value -> parseMessage((byte[]) value, messageType);
+        if (DeclaredTypes.isAlternative(targetSchema, type)) {
+          // INT for an enum, or BYTES for a whole message.
+          return targetSchema.getType() == Type.ENUM
+              ? createEnumNumberConverter(targetSchema)
+              : createSerializedMessageConverter(targetSchema);
         }
         if (targetSchema.getType() == Type.MESSAGE) {
           return createWrapperConverter(type, targetSchema);
-        } else if (targetSchema.getType() == Type.ENUM
-            && type.getTypeRoot() == org.apache.flink.table.types.logical.LogicalTypeRoot.INTEGER) {
-          final EnumDescriptor enumType = targetSchema.getEnumType();
-          return value -> enumValue(enumType, (Integer) value, targetSchema);
         } else if (type.getTypeRoot() == org.apache.flink.table.types.logical.LogicalTypeRoot.BIGINT
             && (targetSchema.getType() == Type.UINT32
                 || targetSchema.getType() == Type.FIXED32
@@ -409,11 +404,11 @@ public class RowDataToProtoConverters {
               .build();
         };
       case DECIMAL:
-        if (targetSchema.getType() == Type.UINT64 || targetSchema.getType() == Type.FIXED64) {
-          return value -> toUnsignedLong((DecimalData) value, targetSchema);
-        }
-        if (isMessage(targetSchema, UINT64_WRAPPER)) {
-          return value -> UInt64Value.of(toUnsignedLong((DecimalData) value, targetSchema));
+        if (DeclaredTypes.isAlternative(targetSchema, type)) {
+          // uint64, fixed64 or google.protobuf.UInt64Value.
+          return targetSchema.getType() == Type.MESSAGE
+              ? value -> UInt64Value.of(toUnsignedLong((DecimalData) value, targetSchema))
+              : value -> toUnsignedLong((DecimalData) value, targetSchema);
         }
         return new RowDataToProtoConverter() {
           @Override
@@ -549,6 +544,17 @@ public class RowDataToProtoConverters {
     return enumType.findValueByNumberCreatingIfUnknown(number);
   }
 
+  private static RowDataToProtoConverter createEnumNumberConverter(FieldDescriptor targetSchema) {
+    final EnumDescriptor enumType = targetSchema.getEnumType();
+    return value -> enumValue(enumType, (Integer) value, targetSchema);
+  }
+
+  private static RowDataToProtoConverter createSerializedMessageConverter(
+      FieldDescriptor targetSchema) {
+    final Descriptor messageType = targetSchema.getMessageType();
+    return value -> parseMessage((byte[]) value, messageType);
+  }
+
   private static Message parseMessage(byte[] bytes, Descriptor messageType) {
     try {
       return DynamicMessage.parseFrom(messageType, bytes);
@@ -562,10 +568,6 @@ public class RowDataToProtoConverters {
               + e.getMessage(),
           e);
     }
-  }
-
-  private static boolean isMessage(FieldDescriptor field, String fullName) {
-    return field.getType() == Type.MESSAGE && field.getMessageType().getFullName().equals(fullName);
   }
 
   private static RowDataToProtoConverter createWrapperConverter(
@@ -587,10 +589,11 @@ public class RowDataToProtoConverters {
         };
       case BIGINT:
         // A BIGINT is derived for the unsigned wrappers too; write the wrapper the field holds.
-        if (isMessage(targetSchema, UINT64_WRAPPER)) {
+        final String wrapper = targetSchema.getMessageType().getFullName();
+        if (wrapper.equals(UINT64_WRAPPER)) {
           return value -> UInt64Value.of((Long) value);
         }
-        if (isMessage(targetSchema, UINT32_WRAPPER)) {
+        if (wrapper.equals(UINT32_WRAPPER)) {
           return value -> UInt32Value.of(((Long) value).intValue());
         }
         return new RowDataToProtoConverter() {
