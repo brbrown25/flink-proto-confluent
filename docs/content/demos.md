@@ -4,9 +4,32 @@ Real terminal recordings, captured against a local Kafka + Schema Registry + Fli
 
 ## Quickstart
 
-Protobuf `Order` records sit on a topic in the Confluent wire format. The `ddl` command [generates the table](how-to/generate-ddl.md) from the registered `orders-value` subject, and the Flink table, declared with `'value.format' = 'proto-confluent'`, reads them and aggregates with plain SQL.
+Protobuf `Order` records sit on a topic in the Confluent wire format. A Flink table declared with `'value.format' = 'proto-confluent'` reads them and aggregates with plain SQL.
+
+In the recording, the format JAR's `ddl` command [generates that table](how-to/generate-ddl.md) from the registered `orders-value` subject instead of it being written by hand.
 
 <div class="cast" data-src="../assets/casts/quickstart.cast" data-rows="32"></div>
+
+The equivalent hand-written DDL, which [`sql/quickstart.sql`](https://github.com/brbrown25/flink-proto-confluent/blob/main/docs/demo/sql/quickstart.sql) in the demo stack uses:
+
+```sql
+CREATE TABLE orders (
+  order_id STRING,
+  customer STRING,
+  amount   DOUBLE
+) WITH (
+  'connector' = 'kafka',
+  'topic' = 'orders',
+  'properties.bootstrap.servers' = 'kafka:9092',
+  'properties.group.id' = 'docs-demo',
+  'scan.startup.mode' = 'earliest-offset',
+  'scan.bounded.mode' = 'latest-offset',
+  'value.format' = 'proto-confluent',
+  'value.proto-confluent.url' = 'http://schema-registry:8081',
+  'value.proto-confluent.topic' = 'orders',
+  'value.proto-confluent.is_key' = 'false'
+);
+```
 
 ## Writing Protobuf from Flink
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# flink-sql FILE.sql...  — runs SQL scripts on the demo cluster, concatenated in order, printing only results.
+# flink-sql FILE.sql  — runs a SQL script on the demo cluster, printing only results.
+# flink-sql A.sql B.sql...  — runs several scripts, concatenated in order (e.g. a generated CREATE TABLE, then a query).
 . "$(dirname "$0")/_common.sh"
 cat "$@" >sql/.run.sql
 docker compose cp sql jobmanager:/tmp/ >/dev/null 2>&1
