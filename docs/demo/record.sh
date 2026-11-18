@@ -5,6 +5,8 @@
 #   ./record.sh --reset NAME...  same, but always rebuild and reset the stack first
 # CASTS="a b" ./record.sh is still accepted. Reusing a stack keeps state from earlier casts (topics,
 # schema ids), so do a full or --reset run before committing recordings.
+# FLINK_VERSION=2.2 ./record.sh ... records against the Flink 2.2 stack instead of the default 1.20
+# (see setup.sh). The committed casts are recorded on the default Flink 1.20 stack.
 set -euo pipefail
 cd "$(dirname "$0")"
 OUT=../content/assets/casts
@@ -15,7 +17,7 @@ names=()
 for arg in "$@"; do
   case "$arg" in
     --reset) reset=1 ;;
-    -h|--help) sed -n '2,8p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
     -*) echo "unknown option: $arg" >&2; exit 2 ;;
     *) names+=("$arg") ;;
   esac
@@ -35,15 +37,18 @@ wait_for_stack() {
   until docker compose exec -T jobmanager curl -sf localhost:8081/taskmanagers 2>/dev/null | grep -q '"id"'; do sleep 2; done
 }
 
-# A full run (no names given) always starts clean; a partial run reuses a healthy stack.
+# A full run (no names given) always starts clean; a partial run reuses a healthy stack, unless
+# that stack runs a different Flink version than the one asked for.
 partial=""; [ $# -gt 0 ] && [ ${#names[@]} -gt 0 ] && partial=1
+running=$(sed -n 's/^FLINK_VERSION=//p' .env 2>/dev/null || true)
+[ "$running" = "${FLINK_VERSION:-1.20}" ] || reset=1
 if [ -n "$reset" ] || [ -z "$partial" ] || ! stack_healthy; then
   ./setup.sh >/dev/null
   docker compose down -v >/dev/null 2>&1
   docker compose up -d >/dev/null 2>&1
   wait_for_stack
 else
-  echo "reusing healthy stack (pass --reset for a clean one)"
+  echo "reusing healthy Flink $running stack (pass --reset for a clean one)"
 fi
 
 mkdir -p "$OUT"
