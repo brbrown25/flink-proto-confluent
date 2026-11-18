@@ -26,6 +26,8 @@ import org.apache.flink.table.types.logical.LogicalType;
  *   <li>Any message (other than wrapper-style messages, see {@link #isSerializedMessage}) as {@code
  *       BYTES}: the message's Protobuf encoding. With {@code STRING} and a {@code ROW} nested to a
  *       fixed depth, this is how a table reads a recursive message.
+ *   <li>{@code google.protobuf.Duration} as {@code INTERVAL DAY TO SECOND}: the duration in
+ *       milliseconds, the interval's resolution; nanoseconds below a millisecond are dropped.
  * </ul>
  */
 public final class DeclaredTypes {
@@ -44,6 +46,8 @@ public final class DeclaredTypes {
     switch (type.getTypeRoot()) {
       case TIMESTAMP_WITHOUT_TIME_ZONE:
         return isMessage(field, CommonConstants.PROTOBUF_TIMESTAMP_TYPE);
+      case INTERVAL_DAY_TIME:
+        return isMessage(field, CommonConstants.PROTOBUF_DURATION_TYPE);
       case DECIMAL:
         return field.getType() == FieldDescriptor.Type.UINT64
             || field.getType() == FieldDescriptor.Type.FIXED64

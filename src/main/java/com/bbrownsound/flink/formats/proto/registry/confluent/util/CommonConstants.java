@@ -22,6 +22,8 @@ class CommonConstants {
   static final String PROTOBUF_SCALE_PROP = "scale";
   static final String PROTOBUF_TIMESTAMP_TYPE = "google.protobuf.Timestamp";
   static final String PROTOBUF_TIMESTAMP_LOCATION = "google/protobuf/timestamp.proto";
+  static final String PROTOBUF_DURATION_TYPE = "google.protobuf.Duration";
+  static final String PROTOBUF_DURATION_LOCATION = "google/protobuf/duration.proto";
   static final String MAP_ENTRY_SUFFIX = "Entry"; // Suffix used by protoc
   static final String KEY_FIELD = "key";
   static final String VALUE_FIELD = "value";
