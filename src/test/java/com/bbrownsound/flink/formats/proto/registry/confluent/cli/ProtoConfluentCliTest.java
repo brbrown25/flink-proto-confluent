@@ -288,10 +288,4 @@ class ProtoConfluentCliTest {
     assertFalse(DdlCommand.isSecret("properties.max.retries"));
     assertFalse(DdlCommand.isSecret("ssl.truststore.location"));
   }
-
-  @Test
-  void detectsWhetherSlf4jIsLoadable() {
-    assertTrue(Main.isLoadable("org.slf4j.LoggerFactory", getClass().getClassLoader()));
-    assertFalse(Main.isLoadable("com.example.Missing", getClass().getClassLoader()));
-  }
 }

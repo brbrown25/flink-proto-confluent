@@ -102,7 +102,7 @@ public final class SchemaRegistrySchemaResolver {
       String type = metadata.getSchemaType();
       if (!PROTOBUF.equals(type)) {
         throw new SchemaResolutionException(
-            "Schema of " + what + " is " + (type == null ? "AVRO" : type) + ", not PROTOBUF",
+            "Schema of " + what + " is " + type + ", not PROTOBUF",
             false,
             null);
       }
@@ -132,12 +132,7 @@ public final class SchemaRegistrySchemaResolver {
     if (messageName == null) {
       return schema.toDescriptor();
     }
-    Descriptor descriptor;
-    try {
-      descriptor = schema.toDescriptor(messageName);
-    } catch (IllegalArgumentException e) {
-      descriptor = null;
-    }
+    Descriptor descriptor = schema.toDescriptor(messageName);
     if (descriptor == null) {
       String available =
           schema.toDescriptor().getFile().getMessageTypes().stream()

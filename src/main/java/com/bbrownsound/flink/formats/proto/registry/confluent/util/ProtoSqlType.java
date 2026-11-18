@@ -330,12 +330,10 @@ public final class ProtoSqlType {
       case ARRAY:
         sb.append("ARRAY<").append(elementType.toDdl()).append(">");
         break;
-      case MAP:
+      default: // MAP, the last kind
         sb.append("MAP<").append(keyType.toDdl()).append(", ").append(valueType.toDdl());
         sb.append(">");
         break;
-      default:
-        throw new IllegalStateException("Unhandled kind: " + kind);
     }
     if (!nullable) {
       sb.append(" NOT NULL");

@@ -103,11 +103,9 @@ public class ProtoToLogicalType {
         return new RowType(nullable, fields);
       case ARRAY:
         return new ArrayType(nullable, toLogicalType(type.getElementType()));
-      case MAP:
+      default: // MAP, the last kind
         return new MapType(
             nullable, toLogicalType(type.getKeyType()), toLogicalType(type.getValueType()));
-      default:
-        throw new IllegalArgumentException("Unhandled SQL type: " + type);
     }
   }
 }

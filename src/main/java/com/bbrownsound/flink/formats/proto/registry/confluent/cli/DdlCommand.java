@@ -9,7 +9,6 @@ import com.google.protobuf.Descriptors.Descriptor;
 import io.confluent.kafka.schemaregistry.client.SchemaRegistryClient;
 import java.io.IOException;
 import java.io.PrintStream;
-import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.Path;
@@ -69,7 +68,7 @@ final class DdlCommand {
     ProtoSqlType rowType;
     try {
       rowType = rowType(arguments);
-    } catch (RuntimeException e) {
+    } catch (RuntimeException | IOException e) {
       err.println("error: " + e.getMessage());
       return ProtoConfluentCli.EXIT_FAILURE;
     }
@@ -82,7 +81,7 @@ final class DdlCommand {
     return ProtoConfluentCli.EXIT_OK;
   }
 
-  private ProtoSqlType rowType(DdlArguments arguments) {
+  private ProtoSqlType rowType(DdlArguments arguments) throws IOException {
     Descriptor descriptor =
         arguments.subject != null ? fromRegistry(arguments) : fromMessageClass(arguments);
     ProtoSqlType rowType = ProtoToSqlType.toSqlType(descriptor);
@@ -98,18 +97,20 @@ final class DdlCommand {
         .getDescriptor();
   }
 
-  private static Descriptor fromMessageClass(DdlArguments arguments) {
+  /**
+   * Loads the message class through a class loader over {@code --classpath}.
+   *
+   * @throws IOException if a {@code --classpath} entry is not a valid URL, or the class loader
+   *     cannot be closed
+   */
+  private static Descriptor fromMessageClass(DdlArguments arguments) throws IOException {
     List<URL> urls = new ArrayList<>();
     for (String entry : arguments.classpathEntries()) {
       Path path = Paths.get(entry);
       if (!path.toFile().exists()) {
         throw new IllegalArgumentException("--classpath entry does not exist: " + entry);
       }
-      try {
-        urls.add(path.toUri().toURL());
-      } catch (MalformedURLException e) {
-        throw new IllegalArgumentException("Invalid --classpath entry: " + entry, e);
-      }
+      urls.add(path.toUri().toURL());
     }
     try (URLClassLoader loader =
         new URLClassLoader(urls.toArray(new URL[0]), DdlCommand.class.getClassLoader())) {
@@ -124,8 +125,6 @@ final class DdlCommand {
               + "); add its JAR or class directory with --classpath. Nested classes are "
               + "named with '$', e.g. com.example.Orders$Order",
           e);
-    } catch (IOException e) {
-      throw new IllegalStateException("Cannot close the --classpath class loader", e);
     }
   }
 
