@@ -16,10 +16,14 @@ import com.google.protobuf.Int64Value;
 import com.google.protobuf.Message;
 import com.google.protobuf.StringValue;
 import com.google.protobuf.Timestamp;
+import com.google.protobuf.UInt32Value;
+import com.google.protobuf.UInt64Value;
 import com.google.type.Date;
 import com.google.type.TimeOfDay;
 import io.confluent.protobuf.type.utils.DecimalUtils;
 import java.io.Serializable;
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.ArrayList;
@@ -45,6 +49,9 @@ import org.apache.flink.table.types.logical.RowType;
  * (Apache-2.0). See NOTICE in project root.
  */
 public class RowDataToProtoConverters {
+
+  private static final String UINT64_WRAPPER = "google.protobuf.UInt64Value";
+  private static final String UINT32_WRAPPER = "google.protobuf.UInt32Value";
 
   private RowDataToProtoConverters() {}
 
@@ -288,7 +295,7 @@ public class RowDataToProtoConverters {
       case BINARY:
       case VARBINARY:
         if (targetSchema.getType() == Type.MESSAGE) {
-          return createWrapperConverter(type);
+          return createWrapperConverter(type, targetSchema);
         } else if (type.getTypeRoot() == org.apache.flink.table.types.logical.LogicalTypeRoot.BIGINT
             && (targetSchema.getType() == Type.UINT32
                 || targetSchema.getType() == Type.FIXED32
@@ -310,7 +317,7 @@ public class RowDataToProtoConverters {
       case CHAR:
       case VARCHAR:
         if (targetSchema.getType() == Type.MESSAGE) {
-          return createWrapperConverter(type);
+          return createWrapperConverter(type, targetSchema);
         } else if (targetSchema.getType() == Type.ENUM) {
           return new RowDataToProtoConverter() {
             @Override
@@ -372,6 +379,12 @@ public class RowDataToProtoConverters {
           }
         };
       case DECIMAL:
+        if (targetSchema.getType() == Type.UINT64 || targetSchema.getType() == Type.FIXED64) {
+          return value -> toUnsignedLong((DecimalData) value, targetSchema);
+        }
+        if (isMessage(targetSchema, UINT64_WRAPPER)) {
+          return value -> UInt64Value.of(toUnsignedLong((DecimalData) value, targetSchema));
+        }
         return new RowDataToProtoConverter() {
           @Override
           public Object convert(Object value) {
@@ -459,7 +472,40 @@ public class RowDataToProtoConverters {
     };
   }
 
-  private static RowDataToProtoConverter createWrapperConverter(LogicalType type) {
+  /**
+   * Returns the 64 bits of an unsigned integer for a uint64/fixed64 field (Java holds it in a
+   * signed long). Fails on a value outside 0 to 2^64 - 1 or with a fractional part rather than
+   * wrapping.
+   */
+  private static long toUnsignedLong(DecimalData value, FieldDescriptor field) {
+    final BigDecimal decimal = value.toBigDecimal();
+    final BigInteger integer;
+    try {
+      integer = decimal.toBigIntegerExact();
+    } catch (ArithmeticException e) {
+      throw unsignedOutOfRange(decimal, field);
+    }
+    if (integer.signum() < 0 || integer.bitLength() > Long.SIZE) {
+      throw unsignedOutOfRange(decimal, field);
+    }
+    return integer.longValue();
+  }
+
+  private static IllegalArgumentException unsignedOutOfRange(
+      BigDecimal value, FieldDescriptor field) {
+    return new IllegalArgumentException(
+        String.format(
+            "Value %s does not fit the unsigned 64-bit field '%s': it must be a whole number"
+                + " from 0 to 18446744073709551615.",
+            value.toPlainString(), field.getFullName()));
+  }
+
+  private static boolean isMessage(FieldDescriptor field, String fullName) {
+    return field.getType() == Type.MESSAGE && field.getMessageType().getFullName().equals(fullName);
+  }
+
+  private static RowDataToProtoConverter createWrapperConverter(
+      LogicalType type, FieldDescriptor targetSchema) {
     switch (type.getTypeRoot()) {
       case BOOLEAN:
         return new RowDataToProtoConverter() {
@@ -476,6 +522,13 @@ public class RowDataToProtoConverters {
           }
         };
       case BIGINT:
+        // A BIGINT is derived for the unsigned wrappers too; write the wrapper the field holds.
+        if (isMessage(targetSchema, UINT64_WRAPPER)) {
+          return value -> UInt64Value.of((Long) value);
+        }
+        if (isMessage(targetSchema, UINT32_WRAPPER)) {
+          return value -> UInt32Value.of(((Long) value).intValue());
+        }
         return new RowDataToProtoConverter() {
           @Override
           public Object convert(Object value) {
