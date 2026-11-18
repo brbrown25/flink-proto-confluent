@@ -50,6 +50,9 @@ import java.util.Set;
  * | MESSAGE          | google.protobuf.BoolValue         | -                  | BOOLEAN          |
  * | MESSAGE          | google.protobuf.StringValue       | -                  | VARCHAR          |
  * | MESSAGE          | google.protobuf.BytesValue        | -                  | VARBINARY        |
+ * | MESSAGE          | google.protobuf.Struct            | -                  | VARCHAR (JSON)   |
+ * | MESSAGE          | google.protobuf.Value             | -                  | VARCHAR (JSON)   |
+ * | MESSAGE          | google.protobuf.ListValue         | -                  | VARCHAR (JSON)   |
  * | MESSAGE          | repeated xx.xx.XXEntry(key, val)  | -                  | MAP[type1, type2] |
  * | MESSAGE          | -                                 | -                  | ROW              |
  * | oneOf            | -                                 | -                  | ROW              |
@@ -205,6 +208,11 @@ public final class ProtoToSqlType {
         return ProtoSqlType.time(true, TIME_PRECISION);
       case CommonConstants.PROTOBUF_TIMESTAMP_TYPE:
         return ProtoSqlType.timestampLtz(true, TIMESTAMP_PRECISION);
+      case CommonConstants.PROTOBUF_STRUCT_TYPE:
+      case CommonConstants.PROTOBUF_VALUE_TYPE:
+      case CommonConstants.PROTOBUF_LIST_VALUE_TYPE:
+        // Dynamic JSON: Struct and Value contain each other, so they have no finite ROW type.
+        return ProtoSqlType.of(Kind.STRING, true);
       default:
         return toRecordSchemaWithCycleCheck(schema, cycleContext, fullName);
     }
