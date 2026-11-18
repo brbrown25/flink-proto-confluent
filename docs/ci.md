@@ -63,6 +63,8 @@ Two caches are configured explicitly, and both log a HIT/MISS annotation so effe
 
 Gradle's own cache key includes the workflow, job and matrix values, so the JDK and Flink matrix legs maintain separate entries instead of evicting one another. In `ci.yml` both Flink legs of `build` write (each to its own entry), so the cache holds the dependency set of both lines. PR jobs have different job ids, so they fall back to the most recent entry for the runner OS; that entry may belong to the other Flink line, in which case the leg downloads only the Flink artifacts it is missing.
 
+When the restored entry lacks something many legs need (a dependency bump, a new Flink version), every leg downloads it from Maven Central at once and Central may answer `429 Too Many Requests`. `gradle.properties` therefore raises Gradle's dependency-download retries (`org.gradle.internal.repository.max.tentatives=6`, `org.gradle.internal.repository.initial.backoff=2000`): a transient failure (429, 408, 5xx, dropped connection) is retried after 2, 4, 8, 16 and 32 seconds before the build fails. The similarly named `org.gradle.internal.network.retry.*` properties only cover publishing, not resolution (#202).
+
 ### Testcontainers Docker images
 
 The suites pull `confluentinc/cp-kafka`, `confluentinc/cp-schema-registry` and `clickhouse/clickhouse-server` on every run. These images are deliberately **not** cached: measurement showed an Actions cache restore plus `docker load` is slower than pulling from Docker Hub, and the tarballs would consume roughly 3.7 GB of the 10 GB repository cache budget. See #76 for the numbers.
