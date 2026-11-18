@@ -5,6 +5,7 @@ import com.bbrownsound.flink.formats.proto.registry.confluent.deserialize.InMemo
 import com.bbrownsound.flink.formats.proto.registry.confluent.deserialize.ProtoRowDataDeserializationSchema;
 import io.confluent.kafka.schemaregistry.client.SchemaRegistryClient;
 import java.io.IOException;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.types.logical.RowType;
@@ -34,10 +35,26 @@ import org.openjdk.jmh.annotations.TearDown;
 @OutputTimeUnit(TimeUnit.NANOSECONDS)
 public class DeserializeBenchmark {
 
+  /** How many leading top-level columns a {@link ReadShape#PROJECTED} read keeps. */
+  static final int PROJECTED_COLUMNS = 2;
+
   /** How the table reads the record: which row type and schema the source is built with. */
   public enum ReadShape {
     /** Every field of the message is a column. */
-    FULL;
+    FULL,
+    /**
+     * The query reads only the first {@value DeserializeBenchmark#PROJECTED_COLUMNS} top-level
+     * columns, and the planner pushed that projection into the format: the schema is built for the
+     * projected row type, as {@code ProtoDecodingFormat} builds it (GitHub issue #173). Messages
+     * with no more columns than that read the same as {@link #FULL}.
+     */
+    PROJECTED {
+      @Override
+      public RowType rowType(BenchMessage message) {
+        List<RowType.RowField> fields = message.rowType().getFields();
+        return new RowType(fields.subList(0, Math.min(PROJECTED_COLUMNS, fields.size())));
+      }
+    };
 
     /**
      * The row type the table declares for this shape.
@@ -69,7 +86,7 @@ public class DeserializeBenchmark {
   public BenchMessage message;
 
   /** How the record is read. */
-  @Param({"FULL"})
+  @Param({"FULL", "PROJECTED"})
   public ReadShape shape;
 
   private ProtoRowDataDeserializationSchema schema;
