@@ -143,6 +143,8 @@ dependencies {
     add("integrationTestImplementation", "org.apache.flink:flink-table-runtime:$flinkVersion")
     add("integrationTestImplementation", "org.apache.flink:flink-connector-base:$flinkVersion")
     add("integrationTestImplementation", "org.apache.flink:flink-connector-datagen:$flinkVersion")
+    // The filesystem connector pushes projections into its format (ProjectionPushdown IT, #173).
+    add("integrationTestImplementation", "org.apache.flink:flink-connector-files:$flinkVersion")
     add("integrationTestImplementation", "org.apache.flink:flink-connector-kafka:$kafkaConnectorVersion")
     add("integrationTestImplementation", "org.apache.flink:flink-test-utils:$flinkVersion")
     add("integrationTestImplementation", "org.apache.flink:flink-test-utils-junit:$flinkVersion")

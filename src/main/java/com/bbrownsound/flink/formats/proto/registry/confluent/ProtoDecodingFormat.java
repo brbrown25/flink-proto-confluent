@@ -3,7 +3,8 @@ package com.bbrownsound.flink.formats.proto.registry.confluent;
 import org.apache.flink.api.common.serialization.DeserializationSchema;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.table.connector.ChangelogMode;
-import org.apache.flink.table.connector.format.DecodingFormat;
+import org.apache.flink.table.connector.Projection;
+import org.apache.flink.table.connector.format.ProjectableDecodingFormat;
 import org.apache.flink.table.connector.source.DynamicTableSource;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.types.DataType;
@@ -17,10 +18,19 @@ import com.bbrownsound.flink.formats.proto.registry.confluent.deserialize.Source
 import com.google.protobuf.Descriptors.Descriptor;
 
 /**
- * Derived from https://github.com/amstee/flink-proto-confluent (Apache-2.0). See NOTICE in project
- * root.
+ * Decoding format of the {@code proto-confluent} format.
+ *
+ * <p>The format accepts projection pushdown: a source that supports it (for example the filesystem
+ * connector) hands the format the columns the query reads, and the decoder converts only those
+ * fields of each Protobuf message into the row. Unread columns, however wide or deeply nested, cost
+ * nothing per record. Only top-level columns are pushed down: a query that reads part of a nested
+ * {@code ROW} column still converts the whole column.
+ *
+ * <p>Derived from https://github.com/amstee/flink-proto-confluent (Apache-2.0). See NOTICE in
+ * project root.
  */
-public class ProtoDecodingFormat implements DecodingFormat<DeserializationSchema<RowData>> {
+public class ProtoDecodingFormat
+    implements ProjectableDecodingFormat<DeserializationSchema<RowData>> {
   private static final Logger LOG = LoggerFactory.getLogger(ProtoDecodingFormat.class);
 
   private final ProtoConfluentFormatConfig formatConfig;
@@ -48,9 +58,25 @@ public class ProtoDecodingFormat implements DecodingFormat<DeserializationSchema
     this.classLoader = classLoader;
   }
 
+  /**
+   * Converters match table columns to Protobuf fields by name, and a nested projection would hand
+   * the decoder flattened columns with generated names, so only top-level projection is supported.
+   */
+  @Override
+  public boolean supportsNestedProjection() {
+    return false;
+  }
+
+  /**
+   * Creates the decoder for the projected columns of {@code physicalDataType}. The decoder's row
+   * holds exactly the projected columns, in projection order, and only their Protobuf fields are
+   * converted. Called with every column (as the two-argument {@code createRuntimeDecoder}
+   * does for a source that does not push projections down) it reads the whole table.
+   */
   @Override
   public DeserializationSchema<RowData> createRuntimeDecoder(
-      DynamicTableSource.Context context, DataType producedDataType) {
+      DynamicTableSource.Context context, DataType physicalDataType, int[][] projections) {
+    final DataType producedDataType = Projection.of(projections).project(physicalDataType);
     final RowType rowType = (RowType) producedDataType.getLogicalType();
     validateAgainstMessageClass(rowType);
     final TypeInformation<RowData> rowDataTypeInfo =
