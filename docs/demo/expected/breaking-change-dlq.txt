@@ -1,0 +1,12 @@
+# Expected output of casts/breaking-change-dlq.sh, checked by bin/verify.sh. Each line must appear, as
+# a plain substring of an output line, in this order; lines starting with # are comments.
+compatibility invoices-value = NONE
+# The v1-shaped rows come through; the v3 record (amount as a string) is skipped.
+| order_id | customer | amount |
+|      i-1 |     acme |    5.0 |
+|      i-3 |  initech |    7.5 |
+2 rows in set
+# The v3 record is on the dead-letter topic with the type mismatch as its error.
+error.class:java.lang.IllegalStateException
+error.message:Unsupported protobuf type: STRING for a SQL type: DOUBLE
+source.topic:invoices

@@ -1,0 +1,7 @@
+# Expected output of sql/quickstart.sql (the hand-written table) over the orders quickstart wrote.
+# Checked by bin/verify.sh: each line must appear as a plain substring, in order; # starts a comment.
+| customer | total |
+|     acme |  42.5 |
+|   globex |  99.0 |
+|  initech |  7.25 |
+3 rows in set

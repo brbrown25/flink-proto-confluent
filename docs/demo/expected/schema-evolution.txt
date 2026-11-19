@@ -1,0 +1,16 @@
+# Expected output of casts/schema-evolution.sh on a fresh stack, checked by bin/verify.sh. Each line
+# must appear, as a plain substring of an output line, in this order; lines starting with # are comments.
+subject=orders-value version=1
+# v2 adds a field: compatible and registered.
+is_compatible: true
+registered: schema id
+# The table declared against v2 reads both versions; the v1 row gets NULL.
+| order_id | customer | amount | currency |
+|      o-1 |     acme |    5.0 |   <NULL> |
+|      o-2 |   globex |   12.0 |      USD |
+2 rows in set
+# v3 changes amount's type: incompatible and rejected, so the subject keeps v1 and v2.
+is_compatible: false
+REJECTED (HTTP 409)
+FIELD_SCALAR_KIND_CHANGED
+[1,2]

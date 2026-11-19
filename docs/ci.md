@@ -13,6 +13,7 @@ Each workflow owns a distinct slice of the pipeline so that no Gradle task runs 
 | `docs.yml` | `pull_request` / `push` to `main`/`master` touching `docs/**`, `workflow_dispatch` | Building the MkDocs site with `--strict` (PRs and pushes) and deploying it to GitHub Pages (pushes only). |
 | `release.yml` | tag `v*` | Release verification, publishing to Maven Central, and attaching the library and self-contained `-all` JARs to the GitHub Release. |
 | `benchmarks.yml` | `workflow_dispatch` only | Running the JMH benchmarks (`./gradlew jmh`) on demand and uploading `build/results/jmh/` as an artifact. Not a required check; the benchmark source set is only compiled and linted by `build`. See [Benchmarks](content/reference/benchmarks.md). |
+| `docs-demo.yml` | `pull_request` touching `src/main/**` or `docs/**`, `workflow_dispatch` | Running the docs demo (`docs/demo`) end to end against the format JAR built from the pull request, so the SQL snippets and casts cannot go stale silently. Not a required check and not part of `ci-ok`. See [Docs demo check](#docs-demo-check). |
 
 `ci.yml` deliberately does **not** trigger on `pull_request`; that is what makes the PR path free of same-JDK repeats.
 
@@ -28,6 +29,7 @@ Each workflow owns a distinct slice of the pipeline so that no Gradle task runs 
 | `jacocoTestReport`, `jacocoTestCoverageVerification` | `pr-checks.yml` → `integration-tests` (Flink 1.20 leg) | `ci.yml` → `build` (Flink 1.20 leg) |
 | Checkstyle / SpotBugs / Spotless | `pr-checks.yml` → `lint` (per Flink line) | `ci.yml` → `checkstyle` (per Flink line) |
 | `japicmp` (public API compatibility) | `pr-checks.yml` → `api-compat` (per Flink line) | not run: it guards the change before it lands |
+| Docs demo (`docs/demo/bin/verify.sh`) | `docs-demo.yml` → `demo` (Flink 1.20; touching `src/main/**` or `docs/**` only) | not run |
 
 ## Flink lines and the `ci-ok` check
 
@@ -117,6 +119,31 @@ The task writes `build/reports/japicmp/japicmp.md` (only the incompatible change
 When the baseline does not exist on Maven Central, the comparison is skipped with a log line and a report saying why, rather than failing. That is the case for the Flink 2 line (`flink-proto-confluent-flink2`) until its first release, and for both lines in the short window between merging a release pull request (which moves `releaseVersion`) and the release reaching Central. Any other resolution failure, such as no network, fails the task, so CI never passes a comparison it did not make.
 
 `japicmp` is not part of `check`, because it needs Maven Central. Run it locally with `./gradlew japicmp -PflinkVersion=1.20.5` (and `2.2.1`); add `-Pjapicmp.acceptBreaking=true` to see the report of a declared break without the failure.
+
+## Docs demo check
+
+The recorded casts and the SQL in `docs/demo` show option names and output that the code can change under them (#130). `docs-demo.yml` runs that demo on every pull request touching `src/main/**` or `docs/**` (and on demand), so a renamed or removed option, or changed output, fails a check instead of leaving a stale cast.
+
+The job builds the shadow (`-all`) JAR from the pull request, then runs `docs/demo/bin/verify.sh`, which also works locally (Docker and a JDK, nothing else):
+
+```bash
+docs/demo/bin/verify.sh                 # build the JAR, start a clean stack, run and check every step, tear down
+docs/demo/bin/verify.sh --no-build dead-letter   # reuse ./lib, run one step
+docs/demo/bin/verify.sh --keep          # leave the stack up to poke at it (docker compose -p proto-confluent-demo-verify down -v)
+FLINK_VERSION=2.2 docs/demo/bin/verify.sh        # the same on the Flink 2.2 stack
+```
+
+It starts the `docs/demo` stack (Kafka, Schema Registry, a Flink 1.20 session cluster with the JAR mounted into `lib/`) under its own compose project, runs every cast script with `CAST_FAST=1` and `sql/quickstart.sql` on its own, in the order `verify.sh` lists (`schema-evolution` gets a fresh stack, because it creates the `orders` topic itself). A step fails when it:
+
+- exits non-zero or runs past `STEP_TIMEOUT` (300 seconds);
+- prints a Flink SQL client error (`[ERROR]`, `Could not execute SQL statement`), which is what an unknown or renamed option produces;
+- does not print, in order, every line of `docs/demo/expected/<step>.txt`. Those files hold the facts the docs rely on: the aggregate rows, the rows that survive `on-deserialize-error = skip`, the dead-letter headers (`error.class`, `error.message`, `source.topic`), the schema `auto-register-schemas` registers, the registry's compatibility verdicts. Each line is a plain substring of an output line; `#` starts a comment.
+
+It also fails when a committed `sql/*.sql` file is not run by any cast or step, or a cast has no step, so new snippets cannot go unchecked. Each step's output is kept in `docs/demo/.verify/` and uploaded as the `docs-demo-output-flink<version>` artifact. When a change to the demo output is intended, update the matching `expected/` file (and re-record the cast, see `docs/demo/README.md`).
+
+Cost: the whole job takes about NN minutes on `ubuntu-latest` (about 3 minutes locally with a warm Gradle cache), most of it image pulls, the shadow JAR build and Flink jobs. The job has a 30-minute timeout and the verify step 20 minutes; `verify.sh` and a final `if: always()` step both run `docker compose down -v`. The Kafka SQL connector JAR is cached with `actions/cache`; the images are pulled, not cached, for the reason given for the Testcontainers images above. `workflow_dispatch` takes a `flink-version` input (`1.20` or `2.2`).
+
+The check is **not** required and is not in `ci-ok`'s `needs`. It is path-filtered at the trigger, so on a pull request that touches neither path it is absent, not skipped, and requiring it would leave such pull requests pending forever, the same trap #117 describes for `codecov/patch`. Making it required needs a decision on #117 first (for example moving it into `pr-checks.yml` behind the `changes` job with a docs-or-code filter, so it reports a skip).
 
 ## Coverage gates
 
