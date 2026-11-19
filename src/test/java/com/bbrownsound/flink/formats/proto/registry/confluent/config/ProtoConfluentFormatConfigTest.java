@@ -1,5 +1,8 @@
 package com.bbrownsound.flink.formats.proto.registry.confluent.config;
 
+import java.io.ObjectStreamClass;
+import java.time.Duration;
+import java.util.Base64;
 import java.util.Map;
 
 import org.apache.flink.configuration.Configuration;
@@ -16,6 +19,30 @@ import org.junit.jupiter.api.Test;
 import com.bbrownsound.flink.formats.proto.registry.confluent.ProtoConfluentFormatOptions;
 
 class ProtoConfluentFormatConfigTest {
+
+  /**
+   * A config serialized by the released 1.2.0 JAR (url, topic "events", value side, one
+   * property, on-deserialize-error SKIP, schema cache TTL 5 minutes).
+   */
+  private static final String CONFIG_1_2_0_BASE64 =
+      "rO0ABXNyAFhjb20uYmJyb3duc291bmQuZmxpbmsuZm9ybWF0cy5wcm90by5yZWdpc3RyeS5jb25mbHVl" +
+      "bnQuY29uZmlnLlByb3RvQ29uZmx1ZW50Rm9ybWF0Q29uZmln7Z3ue/oncaYCAAlMABJkZWFkTGV0dGVy" +
+      "RGVsaXZlcnl0AFJMY29tL2Jicm93bnNvdW5kL2ZsaW5rL2Zvcm1hdHMvcHJvdG8vcmVnaXN0cnkvY29u" +
+      "Zmx1ZW50L2NvbmZpZy9EZWFkTGV0dGVyRGVsaXZlcnk7TAAUZGVhZExldHRlclByb3BlcnRpZXN0AA9M" +
+      "amF2YS91dGlsL01hcDtMAA9kZWFkTGV0dGVyVG9waWN0ABJMamF2YS9sYW5nL1N0cmluZztMAAVpc0tl" +
+      "eXQAE0xqYXZhL2xhbmcvQm9vbGVhbjtMABJvbkRlc2VyaWFsaXplRXJyb3J0AFJMY29tL2Jicm93bnNv" +
+      "dW5kL2ZsaW5rL2Zvcm1hdHMvcHJvdG8vcmVnaXN0cnkvY29uZmx1ZW50L2NvbmZpZy9PbkRlc2VyaWFs" +
+      "aXplRXJyb3I7TAAKcHJvcGVydGllc3EAfgACTAAOc2NoZW1hQ2FjaGVUdGx0ABRMamF2YS90aW1lL0R1" +
+      "cmF0aW9uO0wAEXNjaGVtYVJlZ2lzdHJ5VXJscQB+AANMAAV0b3BpY3EAfgADeHB+cgBQY29tLmJicm93" +
+      "bnNvdW5kLmZsaW5rLmZvcm1hdHMucHJvdG8ucmVnaXN0cnkuY29uZmx1ZW50LmNvbmZpZy5EZWFkTGV0" +
+      "dGVyRGVsaXZlcnkAAAAAAAAAABIAAHhyAA5qYXZhLmxhbmcuRW51bQAAAAAAAAAAEgAAeHB0AAVBU1lO" +
+      "Q3NyABFqYXZhLnV0aWwuSGFzaE1hcAUH2sHDFmDRAwACRgAKbG9hZEZhY3RvckkACXRocmVzaG9sZHhw" +
+      "P0AAAAAAAAB3CAAAABAAAAAAeHBzcgARamF2YS5sYW5nLkJvb2xlYW7NIHKA1Zz67gIAAVoABXZhbHVl" +
+      "eHAAfnIAUGNvbS5iYnJvd25zb3VuZC5mbGluay5mb3JtYXRzLnByb3RvLnJlZ2lzdHJ5LmNvbmZsdWVu" +
+      "dC5jb25maWcuT25EZXNlcmlhbGl6ZUVycm9yAAAAAAAAAAASAAB4cQB+AAl0AARTS0lQc3EAfgAMP0AA" +
+      "AAAAAAF3CAAAAAIAAAABdAAdYmFzaWMuYXV0aC5jcmVkZW50aWFscy5zb3VyY2V0AAlVU0VSX0lORk94" +
+      "c3IADWphdmEudGltZS5TZXKVXYS6GyJIsgwAAHhwdw0BAAAAAAAAASwAAAAAeHQADmh0dHA6Ly9zcjo4" +
+      "MDgxdAAGZXZlbnRz";
 
   @Test
   void constructorFromParams() {
@@ -411,5 +438,28 @@ class ProtoConfluentFormatConfigTest {
         new ProtoConfluentFormatConfig(
             "http://sr:8081", "events", false, Map.of("value.message-class", ""));
     assertNull(empty.getMessageClass());
+  }
+
+  @Test
+  void serialVersionUidStaysPinnedToRelease120() {
+    assertEquals(
+        -1324640499131780698L,
+        ObjectStreamClass.lookup(ProtoConfluentFormatConfig.class).getSerialVersionUID());
+  }
+
+  @Test
+  void deserializesAConfigSerializedByRelease120() throws Exception {
+    ProtoConfluentFormatConfig config =
+        InstantiationUtil.deserializeObject(
+            Base64.getDecoder().decode(CONFIG_1_2_0_BASE64),
+            ProtoConfluentFormatConfigTest.class.getClassLoader());
+    assertEquals("http://sr:8081", config.schemaRegistryUrl);
+    assertEquals("events", config.topic);
+    assertFalse(config.isKey);
+    assertEquals(OnDeserializeError.SKIP, config.onDeserializeError);
+    assertEquals(Duration.ofMinutes(5), config.schemaCacheTtl);
+    assertEquals(Map.of("basic.auth.credentials.source", "USER_INFO"), config.getProperties());
+    assertNull(config.subject);
+    assertNull(config.messageName);
   }
 }

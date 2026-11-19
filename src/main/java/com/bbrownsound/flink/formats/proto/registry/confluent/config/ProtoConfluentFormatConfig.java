@@ -20,6 +20,13 @@ import com.bbrownsound.flink.formats.proto.registry.confluent.subject.SubjectNam
  * root.
  */
 public class ProtoConfluentFormatConfig implements Serializable {
+  /**
+   * Pinned to the default UID this class had in 1.2.0, so a config serialized by 1.2.0 still
+   * deserializes. Fields may be added or removed (Java serialization ignores removed ones and
+   * leaves added ones at their default), but do not change this value.
+   */
+  private static final long serialVersionUID = -1324640499131780698L;
+
   private static final Logger LOG = LoggerFactory.getLogger(ProtoConfluentFormatConfig.class);
 
   /** Schema Registry base URL. */
