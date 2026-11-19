@@ -44,6 +44,20 @@ One source tree builds for both supported Flink lines (see the [support matrix](
 - `verifyJars` (part of `check`) fails if the library JAR bundles dependencies or the `-all` JAR contains Flink or unrelocated libraries. If you add a dependency, read the [classpath reference](docs/content/reference/classpath.md) first.
 - `verifyProtobufVersion` (part of `check`) fails if a dependency pulls protobuf-java above `protoVersion` in `gradle.properties`. Raise `protoVersion` to the resolved version and update the pin examples in the classpath reference; `declaredProtobufTest` then runs the format against exactly that version.
 
+### Public API compatibility
+
+`./gradlew japicmp` compares the public API with the last release on Maven Central and fails on any binary or source incompatible change, such as a removed or renamed public class, method or `ConfigOption`, or a changed signature. CI runs it on every pull request for both Flink lines; run it locally with `./gradlew japicmp -PflinkVersion=1.20.5` and `-PflinkVersion=2.2.1`. It needs network access, so it is not part of `check`, and a Flink line with no release on Central yet skips it. The report is `build/reports/japicmp/japicmp.md`.
+
+The public API is the format factory and `ProtoConfluentFormatOptions`, the `config`, `catalog`, `subject` and `schema` packages, `ProtoToTableDDL`, `ProtoToLogicalType`, `ProtoToSqlType`, `RecursionStrategy` and `UnexpectedMessageTypeException`. Everything else (the decoding/encoding formats, converters, (de)serialization schemas, metrics, the `ddl` tool's classes and the rest of `util`) is internal and may change in any release. The list lives in `publicApiPackages` / `publicApiClasses` in `build.gradle.kts`; [docs/ci.md](docs/ci.md#api-compatibility-check) explains each entry.
+
+Prefer compatible changes: add an overload instead of changing a signature, deprecate before removing. If a break is intentional:
+
+1. Mark the pull request as breaking: `!` before the colon (`feat(api)!: remove printTableSchemaFromProto. #123`) in the commit subject and the pull request title, or a `BREAKING CHANGE: <what breaks and what to do instead>` footer in the commit message. release-please then bumps the major version.
+2. Record each break in `acceptedBreaks` in `build.gradle.kts`, under the current `releaseVersion`, with a comment naming the issue. The report lists the exact entries.
+3. If you only changed the title, re-run the failed `api compatibility` jobs; the check reads the current title.
+
+Locally, `./gradlew japicmp -Pjapicmp.acceptBreaking=true` reports a break without failing.
+
 ## Documentation
 
 If your change adds or alters a format option, a default, an error message or any other user-visible behaviour, update `docs/content/` in the same pull request.
@@ -60,6 +74,7 @@ The [docs contributing guide](https://brbrown25.github.io/flink-proto-confluent/
 ## Commits and pull requests
 
 - Commits follow [Conventional Commits](https://www.conventionalcommits.org/) with a scope, and reference the issue: `feat(serialize): support enum-as-int. #123`. The commit type drives the changelog and the next version number through release-please, so choose it deliberately (`feat` for user-visible additions, `fix` or `bug` for bug fixes, both listed under "Bug Fixes", `docs`, `test`, `chore`, `deps`).
+- A change that breaks the public API must say so with `!` (`feat(api)!: …`) or a `BREAKING CHANGE:` footer, so the next release is a major version. See [Public API compatibility](#public-api-compatibility).
 - Use the body to say why the change is being made. The diff already shows what changed.
 - Pull requests are rebase-merged, so each commit lands on `main` as written. Keep them few and meaningful.
 - Fill in the [pull request template](.github/pull_request_template.md), including the authorship confirmation.
