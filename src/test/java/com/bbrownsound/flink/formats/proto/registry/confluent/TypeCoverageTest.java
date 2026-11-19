@@ -639,19 +639,17 @@ class TypeCoverageTest {
   }
 
   @Test
-  void anIntervalForAMessageThatIsNotADurationFailsToRead() {
-    final Descriptor inner = COVERAGE.findFieldByName("inner").getMessageType();
-    final Message message =
-        DynamicMessage.newBuilder(COVERAGE)
-            .setField(
-                COVERAGE.findFieldByName("inner"),
-                DynamicMessage.newBuilder(inner)
-                    .setField(inner.findFieldByName("inner_name"), "x")
-                    .build())
-            .build();
-    final IllegalStateException e =
-        assertThrows(
-            IllegalStateException.class, () -> read(row(field("inner", dayToSecond())), message));
-    assertTrue(e.getMessage().contains("inner_name"), e.getMessage());
+  void timestampOrIntervalForAnotherFieldFailsWhenTheReaderIsBuilt() {
+    for (LogicalType type : new LogicalType[] {new TimestampType(3), dayToSecond()}) {
+      final IllegalStateException e =
+          assertThrows(
+              IllegalStateException.class,
+              () -> ProtoToRowDataConverters.createConverter(COVERAGE, row(field("u64", type))));
+      assertTrue(e.getMessage().contains(type.getTypeRoot().name()), e.getMessage());
+      // A message that is not a Timestamp or Duration is refused the same way.
+      assertThrows(
+          IllegalStateException.class,
+          () -> ProtoToRowDataConverters.createConverter(COVERAGE, row(field("inner", type))));
+    }
   }
 }

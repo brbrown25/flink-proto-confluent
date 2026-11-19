@@ -325,13 +325,16 @@ public class ProtoToRowDataConverters {
       case TIME_WITHOUT_TIME_ZONE:
         return createTimeConverter();
       case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
+        return createTimestampConverter();
       case TIMESTAMP_WITHOUT_TIME_ZONE:
+        requireAlternative(readSchema, targetType);
         // A google.protobuf.Timestamp is an instant; TIMESTAMP (no time zone) reads it as the
         // wall-clock time in UTC, which is what TimestampData.fromEpochMillis holds.
         return createTimestampConverter();
       case DATE:
         return createDateConverter();
       case INTERVAL_DAY_TIME:
+        requireAlternative(readSchema, targetType);
         return createDurationConverter();
       case DECIMAL:
         return createDecimalConverter((DecimalType) targetType, readSchema);
@@ -557,6 +560,13 @@ public class ProtoToRowDataConverters {
     };
   }
 
+  /** Fails when the reader is built, not on the first record, for a declared-only type. */
+  private static void requireAlternative(FieldDescriptor readSchema, LogicalType targetType) {
+    if (!DeclaredTypes.isAlternative(readSchema, targetType)) {
+      throw unexpectedTypeForSchema(readSchema.getType(), targetType.getTypeRoot());
+    }
+  }
+
   private static IllegalStateException unexpectedTypeForSchema(
       Type schemaType, LogicalTypeRoot flinkType) {
     return new IllegalStateException(
@@ -632,18 +642,12 @@ public class ProtoToRowDataConverters {
    * holds in milliseconds: nanoseconds below a millisecond are dropped (toward zero).
    */
   private static ProtoToRowDataConverter createDurationConverter() {
+    // Only built for a google.protobuf.Duration field (see requireAlternative).
     return object -> {
       final Message message = (Message) object;
-      long seconds = 0L;
-      int nanos = 0;
-      for (Map.Entry<FieldDescriptor, Object> entry : message.getAllFields().entrySet()) {
-        final String fieldName = entry.getKey().getName();
-        switch (fieldName) {
-          case "seconds" -> seconds = ((Number) entry.getValue()).longValue();
-          case "nanos" -> nanos = ((Number) entry.getValue()).intValue();
-          default -> throw new IllegalStateException("Unexpected field name: " + fieldName);
-        }
-      }
+      final Descriptor duration = message.getDescriptorForType();
+      final long seconds = (Long) message.getField(duration.findFieldByName("seconds"));
+      final int nanos = (Integer) message.getField(duration.findFieldByName("nanos"));
       return Math.addExact(Math.multiplyExact(seconds, 1000L), nanos / 1000_000L);
     };
   }
