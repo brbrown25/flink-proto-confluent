@@ -49,8 +49,8 @@ final class KafkaTables {
       ResolvedProtoSchema value,
       @Nullable ResolvedProtoSchema key,
       SchemaRegistryCatalogConfig config) {
-    RowType valueRow = rowType(value);
-    RowType keyRow = key == null ? null : rowType(key);
+    RowType valueRow = rowType(value, config);
+    RowType keyRow = key == null ? null : rowType(key, config);
     if (keyRow != null && keyRow.getFieldCount() == 0) {
       keyRow = null;
     }
@@ -94,8 +94,9 @@ final class KafkaTables {
         .build();
   }
 
-  private static RowType rowType(ResolvedProtoSchema schema) {
-    LogicalType type = ProtoToLogicalType.toLogicalType(schema.toSqlType());
+  private static RowType rowType(ResolvedProtoSchema schema, SchemaRegistryCatalogConfig config) {
+    LogicalType type =
+        ProtoToLogicalType.toLogicalType(schema.toSqlType(config.getRecursionStrategy()));
     return (RowType) type;
   }
 

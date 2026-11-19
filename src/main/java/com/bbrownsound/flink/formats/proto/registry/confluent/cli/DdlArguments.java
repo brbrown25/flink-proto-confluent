@@ -1,6 +1,7 @@
 package com.bbrownsound.flink.formats.proto.registry.confluent.cli;
 
 import com.bbrownsound.flink.formats.proto.registry.confluent.schema.SchemaRegistryClients;
+import com.bbrownsound.flink.formats.proto.registry.confluent.util.RecursionStrategy;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -53,6 +54,12 @@ final class DdlArguments {
           "                                   nullable, e.g. customer.email or items[].note",
           "                                   (repeatable)",
           "",
+          "Recursive messages (a message that contains itself):",
+          "  --recursive-message <mode>       how to map the field that closes the cycle:",
+          "                                   fail (default), bytes (the serialized message),",
+          "                                   json (its JSON as STRING) or row:<depth> (a ROW",
+          "                                   unrolled <depth> times, deeper levels left out)",
+          "",
           "Schema Registry connection (same names as the format options):",
           "  --ssl.keystore.location <path>     --ssl.keystore.password <password>",
           "  --ssl.truststore.location <path>   --ssl.truststore.password <password>",
@@ -79,7 +86,8 @@ final class DdlArguments {
           "--table-registry-url",
           "--option",
           "--property",
-          "--keep-nullable");
+          "--keep-nullable",
+          "--recursive-message");
 
   String url;
   String subject;
@@ -95,6 +103,7 @@ final class DdlArguments {
   boolean includeSecrets;
   boolean strictNotNull;
   final Set<String> keepNullable = new LinkedHashSet<>();
+  RecursionStrategy recursion = RecursionStrategy.FAIL;
   final Map<String, String> tableOptions = new LinkedHashMap<>();
 
   /**
@@ -227,6 +236,13 @@ final class DdlArguments {
       case "--property":
         String[] property = keyValue(name, value);
         connectionOptions.put(SchemaRegistryClients.PROPERTIES_PREFIX + property[0], property[1]);
+        break;
+      case "--recursive-message":
+        try {
+          recursion = RecursionStrategy.parse(value);
+        } catch (IllegalArgumentException e) {
+          throw new UsageException(e.getMessage());
+        }
         break;
       case "--keep-nullable":
         for (String path : value.split(",")) {

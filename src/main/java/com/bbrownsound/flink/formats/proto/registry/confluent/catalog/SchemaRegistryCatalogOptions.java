@@ -1,6 +1,7 @@
 package com.bbrownsound.flink.formats.proto.registry.confluent.catalog;
 
 import com.bbrownsound.flink.formats.proto.registry.confluent.schema.SchemaRegistryClients;
+import com.bbrownsound.flink.formats.proto.registry.confluent.util.RecursionStrategy;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -44,6 +45,17 @@ public final class SchemaRegistryCatalogOptions {
           .withDescription(
               "Prefix of the key columns, so a key field and a value field of the same name do not "
                   + "clash. Becomes the table's 'key.fields-prefix'.");
+
+  /** How a table's columns map a field that makes a message contain itself. */
+  public static final ConfigOption<String> RECURSIVE_MESSAGE =
+      ConfigOptions.key(RecursionStrategy.OPTION)
+          .stringType()
+          .defaultValue(RecursionStrategy.FAIL.toString())
+          .withDescription(
+              "How a table maps a field that makes its message contain itself, which has no "
+                  + "finite ROW type: 'fail' (the table fails to load), 'bytes' (BYTES, the "
+                  + "serialized message), 'json' (STRING, the message's JSON) or 'row:<depth>' "
+                  + "(a ROW unrolled <depth> times; deeper levels are left out).");
 
   /**
    * Prefixes of catalog options passed through verbatim to every table: the Kafka connector's

@@ -84,7 +84,7 @@ final class DdlCommand {
   private ProtoSqlType rowType(DdlArguments arguments) throws IOException {
     Descriptor descriptor =
         arguments.subject != null ? fromRegistry(arguments) : fromMessageClass(arguments);
-    ProtoSqlType rowType = ProtoToSqlType.toSqlType(descriptor);
+    ProtoSqlType rowType = ProtoToSqlType.toSqlType(descriptor, arguments.recursion);
     return arguments.strictNotNull ? rowType.toStrictNotNull(arguments.keepNullable) : rowType;
   }
 

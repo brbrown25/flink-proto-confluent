@@ -493,6 +493,62 @@ class SchemaRegistryCatalogTest {
     assertTrue(e.getMessage().startsWith("Cannot read table default.events: "), e.getMessage());
   }
 
+  // ---- recursive messages (issue #216) ------------------------------------------------------
+
+  private static final String TREE_SCHEMA =
+      "syntax = \"proto3\";\npackage rec;\nmessage Tree {\n  string name = 1;\n  Tree child = 2;\n}";
+  private static final ObjectPath TREES = new ObjectPath("default", "trees");
+
+  private List<String> treeColumns(String recursion) throws Exception {
+    client.register("trees-value", new ProtobufSchema(TREE_SCHEMA));
+    client.register("trees-key", new ProtobufSchema(TREE_SCHEMA));
+    SchemaRegistryCatalog c = catalog(Map.of("recursive-message", recursion));
+    try {
+      return columns(c.getTable(TREES).getUnresolvedSchema());
+    } finally {
+      c.close();
+    }
+  }
+
+  @Test
+  void aRecursiveMessageFailsTheTableByDefault() throws Exception {
+    client.register("trees-value", new ProtobufSchema(TREE_SCHEMA));
+    IllegalArgumentException e =
+        assertThrows(IllegalArgumentException.class, () -> catalog.getTable(TREES));
+    assertTrue(e.getMessage().startsWith("Cyclic schemas are not supported."), e.getMessage());
+    assertTrue(e.getMessage().contains("'recursive-message' option"), e.getMessage());
+    assertEquals(List.of("events", "orders", "trees"), catalog.listTables("default"));
+  }
+
+  @Test
+  void recursiveMessageMapsKeyAndValueColumnsAsBytes() throws Exception {
+    assertEquals(
+        List.of(
+            "`key_name` STRING",
+            "`key_child` BYTES",
+            "`name` STRING",
+            "`child` BYTES"),
+        treeColumns("bytes"));
+  }
+
+  @Test
+  void recursiveMessageMapsColumnsAsJson() throws Exception {
+    assertEquals(
+        List.of("`key_name` STRING", "`key_child` STRING", "`name` STRING", "`child` STRING"),
+        treeColumns("json"));
+  }
+
+  @Test
+  void recursiveMessageUnrollsColumnsToADepth() throws Exception {
+    assertEquals(
+        List.of(
+            "`key_name` STRING",
+            "`key_child` ROW<`name` STRING>",
+            "`name` STRING",
+            "`child` ROW<`name` STRING>"),
+        treeColumns("row:1"));
+  }
+
   private static List<String> columns(Schema schema) {
     return schema.getColumns().stream()
         .map(

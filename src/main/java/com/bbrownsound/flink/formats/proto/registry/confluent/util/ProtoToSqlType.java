@@ -9,11 +9,10 @@ import com.google.protobuf.Descriptors.OneofDescriptor;
 import io.confluent.protobuf.MetaProto;
 import io.confluent.protobuf.MetaProto.Meta;
 import java.util.ArrayList;
-import java.util.HashSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * Maps a protobuf {@link Descriptor} to the {@link ProtoSqlType} of its Flink table row, without
@@ -97,7 +96,24 @@ public final class ProtoToSqlType {
    * @throws IllegalArgumentException if the schema is cyclic
    */
   public static ProtoSqlType toSqlType(final Descriptor schema) {
-    final CycleContext context = new CycleContext();
+    return toSqlType(schema, RecursionStrategy.FAIL);
+  }
+
+  /**
+   * Same as {@link #toSqlType(Descriptor)}, mapping each field that makes a message contain itself
+   * as {@code recursion} says instead of failing (unless it is {@link RecursionStrategy#FAIL}).
+   *
+   * @param schema the Protobuf descriptor
+   * @param recursion how to map a recursive field
+   * @return the row type of the message (the top-level row is not nullable)
+   * @throws IllegalArgumentException if the schema is cyclic and {@code recursion} is {@link
+   *     RecursionStrategy#FAIL}, or it maps a recursive field to {@code BYTES} or {@code STRING}
+   *     and the field's message has a field named {@code value}
+   */
+  public static ProtoSqlType toSqlType(final Descriptor schema, final RecursionStrategy recursion) {
+    final CycleContext context = new CycleContext(recursion);
+    // The table's own message counts as the first level of a message that contains it.
+    context.enter(schema.getFullName());
     // top-level row must not be NULLABLE in SQL, thus we change the nullability of the top row
     return toRowNested(schema, context).withNullable(false);
   }
@@ -112,7 +128,7 @@ public final class ProtoToSqlType {
    * @throws IllegalArgumentException if the field's message type is cyclic
    */
   public static ProtoSqlType toValueSqlType(final FieldDescriptor field) {
-    return convertNonRepeated(field, new CycleContext());
+    return convertNonRepeated(field, new CycleContext(RecursionStrategy.FAIL));
   }
 
   private static ProtoSqlType toRowNested(final Descriptor schema, final CycleContext context) {
@@ -126,16 +142,29 @@ public final class ProtoToSqlType {
         // Already added field as oneof
         continue;
       }
-      fields.add(new Field(fieldDescriptor.getName(), toSqlType(fieldDescriptor, context)));
+      final ProtoSqlType type = toSqlType(fieldDescriptor, context);
+      if (type != null) {
+        fields.add(new Field(fieldDescriptor.getName(), type));
+      }
     }
     fields.addAll(oneOfFields);
+    if (fields.isEmpty() && !schema.getFields().isEmpty()) {
+      // Every field closed a cycle at the last level RecursionStrategy.row(n) keeps, so this
+      // message has nothing left to read either: leave it out as well, rather than as ROW<>.
+      return null;
+    }
     return ProtoSqlType.row(true, fields);
   }
 
   private static ProtoSqlType toSqlType(OneofDescriptor oneOfDescriptor, CycleContext context) {
     final List<Field> fields = new ArrayList<>();
     for (FieldDescriptor field : oneOfDescriptor.getFields()) {
-      fields.add(new Field(field.getName(), toSqlType(field, context)));
+      ProtoSqlType type = toSqlType(field, context);
+      if (type == null) {
+        // A oneof's columns are matched to its cases by position, so a case cannot be left out.
+        type = serialized(field, Kind.BYTES, context);
+      }
+      fields.add(new Field(field.getName(), type));
     }
     return ProtoSqlType.row(true, fields);
   }
@@ -241,23 +270,88 @@ public final class ProtoToSqlType {
     }
   }
 
+  /**
+   * Returns the type of a message field, or {@code null} to leave the field out: when it closes a
+   * cycle that {@link RecursionStrategy.Mode#ROW} has unrolled as deep as it may.
+   */
   private static ProtoSqlType toRecordSchemaWithCycleCheck(
       FieldDescriptor schema, CycleContext cycleContext, String fullName) {
-    if (cycleContext.seenMessage.contains(fullName)) {
-      throw new IllegalArgumentException(
-          "Cyclic schemas are not supported. Message '"
-              + fullName
-              + "' contains itself through field '"
-              + schema.getFullName()
-              + "', so it has no finite table type. Declare that column by hand as BYTES (the"
-              + " serialized message), STRING (its JSON) or a ROW nested to the depth you need.");
+    final int levels = cycleContext.levels(fullName);
+    if (levels > 0) {
+      switch (cycleContext.recursion.getMode()) {
+        case BYTES:
+          return serialized(schema, Kind.BYTES, cycleContext);
+        case JSON:
+          return serialized(schema, Kind.STRING, cycleContext);
+        case ROW:
+          if (levels > cycleContext.recursion.getDepth()) {
+            return null;
+          }
+          break;
+        default:
+          throw new IllegalArgumentException(
+              "Cyclic schemas are not supported. Message '"
+                  + fullName
+                  + "' contains itself through field '"
+                  + schema.getFullName()
+                  + "', so it has no finite table type. Declare that column by hand as BYTES (the"
+                  + " serialized message), STRING (its JSON) or a ROW nested to the depth you"
+                  + " need, or derive it with the '"
+                  + RecursionStrategy.OPTION
+                  + "' option ("
+                  + RecursionStrategy.VALUES
+                  + ").");
+      }
     }
-    cycleContext.seenMessage.add(fullName);
+    cycleContext.enter(fullName);
     try {
       return toUnwrappedOrRecordSchema(schema, cycleContext);
     } finally {
-      cycleContext.seenMessage.remove(fullName);
+      cycleContext.leave(fullName);
     }
+  }
+
+  /**
+   * Returns the nullable {@code BYTES} or {@code STRING} type that holds a recursive field's whole
+   * message, serialized or as JSON.
+   *
+   * @throws IllegalArgumentException if the message has a field named {@code value}, which a
+   *     {@code BYTES} or {@code STRING} column reads instead of the whole message
+   */
+  private static ProtoSqlType serialized(FieldDescriptor field, Kind kind, CycleContext context) {
+    if (!isSerializedMessage(field)) {
+      throw new IllegalArgumentException(
+          "Message '"
+              + field.getMessageType().getFullName()
+              + "' contains itself through field '"
+              + field.getFullName()
+              + "', and '"
+              + RecursionStrategy.OPTION
+              + "' = '"
+              + context.recursion
+              + "' cannot map it: the message has a field named 'value', so a "
+              + kind
+              + " column would read that field rather than the whole message. "
+              + (context.recursion.getMode() == RecursionStrategy.Mode.ROW
+                  ? "A field inside a oneof cannot be left out at the last level, so declare"
+                      + " this column by hand."
+                  : "Use '" + RecursionStrategy.OPTION + "' = 'row:<depth>' instead."));
+    }
+    return ProtoSqlType.of(kind, true);
+  }
+
+  /**
+   * Returns whether a message field declared {@code STRING} (or {@code BYTES}) holds the whole
+   * message rather than the {@code value} field of a wrapper; see {@link
+   * DeclaredTypes#isSerializedMessage}, which this backs without depending on Flink.
+   */
+  static boolean isSerializedMessage(FieldDescriptor field) {
+    if (field.getJavaType() != FieldDescriptor.JavaType.MESSAGE) {
+      return false;
+    }
+    final Descriptor message = field.getMessageType();
+    return message.findFieldByName(CommonConstants.VALUE_FIELD) == null
+        || message.getFullName().equals(CommonConstants.PROTOBUF_ANY_TYPE);
   }
 
   private static ProtoSqlType convertRepeated(FieldDescriptor schema, CycleContext context) {
@@ -266,6 +360,9 @@ public final class ProtoToSqlType {
     } else {
       // repeated type is always NOT NULL; array elements (ROW) are NOT NULL by convention
       ProtoSqlType elementType = convertNonRepeated(schema, context);
+      if (elementType == null) {
+        return null;
+      }
       if (elementType.getKind() == Kind.ROW) {
         elementType = elementType.withNullable(false);
       }
@@ -304,11 +401,12 @@ public final class ProtoToSqlType {
 
   private static ProtoSqlType toMapSchema(final Descriptor descriptor, CycleContext context) {
     List<FieldDescriptor> fieldDescriptors = descriptor.getFields();
+    final ProtoSqlType valueType = toSqlType(fieldDescriptors.get(1), context);
+    if (valueType == null) {
+      return null;
+    }
     // repeated type is always NOT NULL
-    return ProtoSqlType.map(
-        false,
-        toSqlType(fieldDescriptors.get(0), context),
-        toSqlType(fieldDescriptors.get(1), context));
+    return ProtoSqlType.map(false, toSqlType(fieldDescriptors.get(0), context), valueType);
   }
 
   private static boolean isMapDescriptor(FieldDescriptor fieldDescriptor) {
@@ -325,7 +423,26 @@ public final class ProtoToSqlType {
         && !fieldDescriptors.get(1).isRepeated();
   }
 
+  /** The messages on the path from the table's message to the field being mapped. */
   private static final class CycleContext {
-    private final Set<String> seenMessage = new HashSet<>();
+    private final RecursionStrategy recursion;
+    private final Map<String, Integer> levelsByMessage = new HashMap<>();
+
+    private CycleContext(RecursionStrategy recursion) {
+      this.recursion = recursion;
+    }
+
+    /** Returns how many times the message is on the path. */
+    private int levels(String fullName) {
+      return levelsByMessage.getOrDefault(fullName, 0);
+    }
+
+    private void enter(String fullName) {
+      levelsByMessage.merge(fullName, 1, Integer::sum);
+    }
+
+    private void leave(String fullName) {
+      levelsByMessage.merge(fullName, -1, Integer::sum);
+    }
   }
 }

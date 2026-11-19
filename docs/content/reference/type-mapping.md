@@ -30,12 +30,13 @@ These are the types the [`ddl` command](../how-to/generate-ddl.md), the [catalog
 | `repeated T` | `ARRAY<T>` |
 | any other `message` | `ROW<...>` of its fields |
 | `oneof` | `ROW<...>` of its cases |
+| a `message` field that makes its message contain itself (a recursive message) | Derivation fails, unless the `recursive-message` option asks for `BYTES`, a JSON `STRING` or a `ROW` unrolled to a fixed depth (see [Recursive messages](#recursive-messages)) |
 
 Message-typed fields and wrapper types are nullable; `repeated` fields and maps are `NOT NULL` (an unset repeated field is an empty array). Scalars are nullable in the derived DDL; `--strict-not-null` on the `ddl` command makes them `NOT NULL`.
 
 ## Declared alternatives
 
-A table can declare one of these types for a field instead of the derived one. The source reads the field into it, the sink writes it back to the same Protobuf value, and the `message-class` check accepts it. Derived DDL never produces them: declare the column yourself, or edit the generated DDL.
+A table can declare one of these types for a field instead of the derived one. The source reads the field into it, the sink writes it back to the same Protobuf value, and the `message-class` check accepts it. Derived DDL never produces them, except for the field that closes the cycle of a [recursive message](#recursive-messages) when you set `recursive-message`: declare the column yourself, or edit the generated DDL.
 
 | Protobuf type | Declared Flink SQL type | Conversion |
 | --- | --- | --- |
@@ -69,7 +70,7 @@ Two kinds of message are not read as JSON:
 
 ## Recursive messages
 
-A message that contains itself, directly (`message Tree { Tree child = 1; }`) or through other messages, has no finite `ROW` type, so derived DDL (the `ddl` command, the catalog and `ProtoToTableDDL`) fails on it with `Cyclic schemas are not supported.`, naming the message and the field that closes the cycle. Write the DDL for that field by hand, choosing one of:
+A message that contains itself, directly (`message Tree { Tree child = 1; }`) or through other messages, has no finite `ROW` type, so by default derived DDL (the `ddl` command, the catalog and `ProtoToTableDDL`) fails on it with `Cyclic schemas are not supported.`, naming the message and the field that closes the cycle. Write the DDL for that field by hand, choosing one of:
 
 - **`ROW` nested to a fixed depth.** Declare as many levels as you need; the source reads those levels and leaves out anything deeper, and the sink writes the levels the row has.
 - **`BYTES`.** The field's Protobuf encoding, every level included. Decode it later, or write it back to a topic unchanged.
@@ -83,4 +84,39 @@ CREATE TABLE trees (
 ) WITH (...);
 ```
 
-Derived DDL has no option to do this for you yet, so a recursive message cannot be read through the catalog; write its table by hand.
+Derived DDL does not do this for you by default, so without the option below a recursive message cannot be read through the catalog; write its table by hand, or set the option.
+
+### Deriving DDL for a recursive message
+
+The `recursive-message` setting makes derived DDL map the field that closes the cycle to one of the three types above instead of failing. Each derived type is one the source reads and the sink writes back, so a table derived this way reads and writes the topic.
+
+| Value | The field that closes the cycle becomes | Levels the table reads and writes |
+| --- | --- | --- |
+| `fail` (default) | nothing: derivation fails with `Cyclic schemas are not supported.`, naming the message, the field and this option | |
+| `bytes` | `BYTES` (`VARBINARY` in the `ddl` command's output), the message's Protobuf encoding | every level |
+| `json` | `STRING`, the message's JSON | every level |
+| `row:<n>` | a `ROW` of the message's fields, unrolled `n` times (`n` ≥ 1); the field is left out of the last level | `n` levels below the table's message |
+
+Set it as:
+
+- the [catalog](../how-to/catalog.md) option `'recursive-message' = 'bytes'`;
+- the [`ddl` command](../how-to/generate-ddl.md) flag `--recursive-message bytes`;
+- the `RecursionStrategy` argument of `ProtoToTableDDL.tableSchemaFromProto(...)` / `tableSchemaFromDescriptor(...)`, `ProtoToLogicalType.toLogicalType(...)` and `ProtoToSqlType.toSqlType(...)` in Java, e.g. `RecursionStrategy.parse("row:2")`.
+
+For `message Tree { string name = 1; Tree child = 2; repeated Tree children = 3; }`:
+
+| Value | Derived columns |
+| --- | --- |
+| `bytes` | `` `name` STRING, `child` BYTES, `children` ARRAY<BYTES> NOT NULL `` |
+| `json` | `` `name` STRING, `child` STRING, `children` ARRAY<STRING> NOT NULL `` |
+| `row:1` | `` `name` STRING, `child` ROW<`name` STRING>, `children` ARRAY<ROW<`name` STRING> NOT NULL> NOT NULL `` |
+| `row:2` | `` `name` STRING `` and, for `child` and each element of `children`, `` ROW<`name` STRING, `child` ROW<`name` STRING>, `children` ARRAY<ROW<`name` STRING> NOT NULL> NOT NULL> `` |
+
+Details:
+
+- The cycle closes at the first field that leads back to a message already on the path from the table's message, which counts as the first level. With mutual recursion (`A` contains `B`, which contains `A`), that is the field of `B` that leads back to `A`.
+- The setting applies wherever the cycle closes: a plain field, the elements of a `repeated` field and the values of a `map`. With `row:<n>`, a `repeated` or `map` field is left out of the last level like any other, and a message left with no fields is left out too.
+- A field inside a `oneof` cannot be left out, because a `oneof` column's fields are matched to its cases by position. With `row:<n>`, such a field becomes `BYTES` at the last level instead, so it keeps every level below it.
+- `bytes` and `json` do not apply to a message with a field named `value`, which a `BYTES` or `STRING` column reads like a wrapper type (see [JSON strings](#json-strings)): derivation fails for it and suggests `row:<n>`.
+- A `ROW` grows with each level and with each recursive field of the message, so keep `n` small.
+- The `message-class` check is unchanged: it accepts all three types for such a field.

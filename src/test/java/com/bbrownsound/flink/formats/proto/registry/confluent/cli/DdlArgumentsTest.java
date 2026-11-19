@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.bbrownsound.flink.formats.proto.registry.confluent.util.RecursionStrategy;
 import java.io.File;
 import java.util.List;
 import java.util.Map;
@@ -181,5 +182,32 @@ class DdlArgumentsTest {
             "--table-registry-url",
             "u",
             "--include-secrets"));
+  }
+
+  @Test
+  void recursiveMessageDefaultsToFailAndParsesEachMode() throws Exception {
+    assertEquals(
+        RecursionStrategy.FAIL,
+        parse("--message-class", "C", "--columns-only").recursion);
+    assertEquals(
+        RecursionStrategy.BYTES,
+        parse("--message-class", "C", "--columns-only", "--recursive-message", "bytes").recursion);
+    assertEquals(
+        RecursionStrategy.JSON,
+        parse("--message-class", "C", "--columns-only", "--recursive-message=json").recursion);
+    assertEquals(
+        RecursionStrategy.row(3),
+        parse("--message-class", "C", "--columns-only", "--recursive-message", "row:3").recursion);
+  }
+
+  @Test
+  void rejectsAnInvalidRecursiveMessage() {
+    assertTrue(
+        usageError("--message-class", "C", "--columns-only", "--recursive-message", "row")
+            .startsWith("'recursive-message' must be 'fail', 'bytes', 'json' or 'row:<depth>'"));
+    assertTrue(
+        usageError("--message-class", "C", "--columns-only", "--recursive-message", "row:0")
+            .contains("at least 1"));
+    assertTrue(DdlArguments.USAGE.contains("--recursive-message <mode>"));
   }
 }
