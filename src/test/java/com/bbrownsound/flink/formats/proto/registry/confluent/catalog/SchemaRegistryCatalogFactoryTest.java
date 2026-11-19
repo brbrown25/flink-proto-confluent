@@ -61,6 +61,27 @@ class SchemaRegistryCatalogFactoryTest {
   }
 
   @Test
+  void acceptsAndValidatesRecursiveMessage() {
+    assertInstanceOf(
+        SchemaRegistryCatalog.class,
+        create(
+            Map.of(
+                "type", "proto-confluent",
+                "url", "http://r:8081",
+                "recursive-message", "row:2")));
+    Exception invalid =
+        assertThrows(
+            Exception.class,
+            () ->
+                create(
+                    Map.of(
+                        "type", "proto-confluent",
+                        "url", "http://r:8081",
+                        "recursive-message", "deep")));
+    assertTrue(rootMessages(invalid).contains("'recursive-message' must be"), rootMessages(invalid));
+  }
+
+  @Test
   void sharesItsIdentifierWithTheFormatWithoutAmbiguity() {
     assertInstanceOf(
         SchemaRegistryCatalogFactory.class,

@@ -1,7 +1,11 @@
 package com.bbrownsound.flink.formats.proto.registry.confluent.util;
 
+import com.google.protobuf.DescriptorProtos;
+import com.google.protobuf.Descriptors.Descriptor;
+import io.confluent.kafka.schemaregistry.protobuf.ProtobufSchema;
 import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -91,5 +95,52 @@ class ProtoToTableDDLTest {
         ProtoToTableDDL.tableSchemaFromDescriptor(
             TestRepeated.RepeatedTest.getDescriptor());
     assertTrue(ddl.equals(again), "DDL from descriptor should be deterministic within repetition");
+  }
+
+  // ---- recursive messages (issue #216) -------------------------------------------------------
+
+  @Test
+  void tableSchemaFromProto_recursiveMessageFailsByDefault() {
+    // DescriptorProto contains itself through nested_type.
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> ProtoToTableDDL.tableSchemaFromProto(DescriptorProtos.DescriptorProto.class));
+    assertTrue(e.getMessage().contains("google.protobuf.DescriptorProto.nested_type"), e.getMessage());
+  }
+
+  @Test
+  void tableSchemaFromProto_recursiveMessageEachStrategy() {
+    assertTrue(
+        ProtoToTableDDL.tableSchemaFromProto(
+                DescriptorProtos.DescriptorProto.class, false, null, RecursionStrategy.BYTES)
+            .contains("`nested_type` ARRAY<VARBINARY> NOT NULL"));
+    assertTrue(
+        ProtoToTableDDL.tableSchemaFromProto(
+                DescriptorProtos.DescriptorProto.class, false, null, RecursionStrategy.JSON)
+            .contains("`nested_type` ARRAY<STRING> NOT NULL"));
+    String row =
+        ProtoToTableDDL.tableSchemaFromProto(
+            DescriptorProtos.DescriptorProto.class, true, null, RecursionStrategy.row(1));
+    assertTrue(row.contains("`nested_type` ARRAY<ROW<`name` STRING NOT NULL, "), row);
+  }
+
+  @Test
+  void tableSchemaFromDescriptor_recursiveMessageEachStrategy() {
+    Descriptor tree =
+        new ProtobufSchema("syntax = \"proto3\"; message Tree { string name = 1; Tree child = 2; }")
+            .toDescriptor();
+    assertThrows(
+        IllegalArgumentException.class, () -> ProtoToTableDDL.tableSchemaFromDescriptor(tree));
+    assertEquals(
+        "`name` STRING, `child` VARBINARY",
+        ProtoToTableDDL.tableSchemaFromDescriptor(tree, false, null, RecursionStrategy.BYTES));
+    assertEquals(
+        "`name` STRING, `child` STRING",
+        ProtoToTableDDL.tableSchemaFromDescriptor(tree, false, null, RecursionStrategy.JSON));
+    assertEquals(
+        "`name` STRING NOT NULL, `child` ROW<`name` STRING NOT NULL, `child` ROW<`name` STRING NOT"
+            + " NULL>>",
+        ProtoToTableDDL.tableSchemaFromDescriptor(tree, true, null, RecursionStrategy.row(2)));
   }
 }

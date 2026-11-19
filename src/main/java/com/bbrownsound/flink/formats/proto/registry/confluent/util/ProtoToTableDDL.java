@@ -56,12 +56,28 @@ public final class ProtoToTableDDL {
    */
   public static String tableSchemaFromProto(
       Class<? extends Message> messageClass, boolean strictNotNull, Set<String> keepNullablePaths) {
-    Descriptor descriptor = getDescriptor(messageClass);
-    LogicalType logicalType = ProtoToLogicalType.toLogicalType(descriptor);
-    if (strictNotNull) {
-      logicalType = LogicalTypeToDDL.toStrictNotNull(logicalType, "", keepNullablePaths);
-    }
-    return LogicalTypeToDDL.toTableSchemaDDL(logicalType);
+    return tableSchemaFromProto(
+        messageClass, strictNotNull, keepNullablePaths, RecursionStrategy.FAIL);
+  }
+
+  /**
+   * Same as {@link #tableSchemaFromProto(Class, boolean, Set)}, mapping each field that makes a
+   * message contain itself as {@code recursion} says instead of failing: {@code BYTES}, JSON
+   * {@code STRING} or a {@code ROW} unrolled to a fixed depth (see {@link RecursionStrategy}).
+   *
+   * @param messageClass a generated protobuf message class
+   * @param strictNotNull whether to apply strict NOT NULL
+   * @param keepNullablePaths paths that remain nullable, or null
+   * @param recursion how to map a recursive field, e.g. {@code RecursionStrategy.parse("row:2")}
+   * @return the DDL column list string
+   */
+  public static String tableSchemaFromProto(
+      Class<? extends Message> messageClass,
+      boolean strictNotNull,
+      Set<String> keepNullablePaths,
+      RecursionStrategy recursion) {
+    return tableSchemaFromDescriptor(
+        getDescriptor(messageClass), strictNotNull, keepNullablePaths, recursion);
   }
 
   /**
@@ -98,7 +114,27 @@ public final class ProtoToTableDDL {
    */
   public static String tableSchemaFromDescriptor(
       Descriptor descriptor, boolean strictNotNull, Set<String> keepNullablePaths) {
-    LogicalType logicalType = ProtoToLogicalType.toLogicalType(descriptor);
+    return tableSchemaFromDescriptor(
+        descriptor, strictNotNull, keepNullablePaths, RecursionStrategy.FAIL);
+  }
+
+  /**
+   * Same as {@link #tableSchemaFromDescriptor(Descriptor, boolean, Set)}, mapping each field that
+   * makes a message contain itself as {@code recursion} says (see {@link
+   * #tableSchemaFromProto(Class, boolean, Set, RecursionStrategy)}).
+   *
+   * @param descriptor the Protobuf descriptor
+   * @param strictNotNull whether to apply strict NOT NULL
+   * @param keepNullablePaths paths that remain nullable, or null
+   * @param recursion how to map a recursive field
+   * @return the DDL column list string
+   */
+  public static String tableSchemaFromDescriptor(
+      Descriptor descriptor,
+      boolean strictNotNull,
+      Set<String> keepNullablePaths,
+      RecursionStrategy recursion) {
+    LogicalType logicalType = ProtoToLogicalType.toLogicalType(descriptor, recursion);
     if (strictNotNull) {
       logicalType = LogicalTypeToDDL.toStrictNotNull(logicalType, "", keepNullablePaths);
     }

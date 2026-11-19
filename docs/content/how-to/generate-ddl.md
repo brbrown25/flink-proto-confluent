@@ -89,6 +89,32 @@ java -jar flink-proto-confluent-<version>-all.jar ddl \
 
 These are the `strictNotNull` and `keepNullablePaths` arguments of `ProtoToTableDDL` in Java.
 
+## Recursive messages
+
+A message that contains itself (`message Tree { Tree child = 1; }`, directly or through other messages) has no finite `ROW` type, so by default the command fails on it with exit status `1` and `error: Cyclic schemas are not supported.`, naming the message and the field that closes the cycle. `--recursive-message` derives a column for that field instead:
+
+| Flag | The field becomes |
+| --- | --- |
+| `--recursive-message fail` | Nothing: the command fails (the default). |
+| `--recursive-message bytes` | `VARBINARY`, the message's Protobuf encoding, every level included. |
+| `--recursive-message json` | `STRING`, the message's JSON, every level included. |
+| `--recursive-message row:<n>` | A `ROW` unrolled `n` times; deeper levels are left out. |
+
+```bash
+java -jar flink-proto-confluent-<version>-all.jar ddl \
+  --url http://schema-registry:8081 --subject trees-value \
+  --recursive-message row:2 --columns-only
+```
+
+For `message Tree { string name = 1; Tree child = 2; }` this prints:
+
+```sql
+`name` STRING,
+`child` ROW<`name` STRING, `child` ROW<`name` STRING>>
+```
+
+The table reads and writes every column the statement declares. [Recursive messages](../reference/type-mapping.md#recursive-messages) in the type mapping describes each mode, including `oneof` and `map` fields. This is the `RecursionStrategy` argument of `ProtoToTableDDL` in Java, and the catalog's `recursive-message` option.
+
 ## From a compiled message class
 
 Instead of a subject, name a generated message class with `--message-class` and point `--classpath` at the JAR or class directory that holds it (separate several entries with `:`, or `;` on Windows). Nested generated classes use `$`:

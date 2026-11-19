@@ -1,6 +1,7 @@
 package com.bbrownsound.flink.formats.proto.registry.confluent.catalog;
 
 import com.bbrownsound.flink.formats.proto.registry.confluent.schema.SchemaRegistryClients;
+import com.bbrownsound.flink.formats.proto.registry.confluent.util.RecursionStrategy;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -17,6 +18,7 @@ public final class SchemaRegistryCatalogConfig {
   private final String defaultDatabase;
   private final boolean keyEnabled;
   private final String keyFieldsPrefix;
+  private final RecursionStrategy recursion;
   private final Map<String, String> formatConnectionOptions;
   private final Map<String, String> tableOptions;
 
@@ -25,12 +27,14 @@ public final class SchemaRegistryCatalogConfig {
       String defaultDatabase,
       boolean keyEnabled,
       String keyFieldsPrefix,
+      RecursionStrategy recursion,
       Map<String, String> formatConnectionOptions,
       Map<String, String> tableOptions) {
     this.url = url;
     this.defaultDatabase = defaultDatabase;
     this.keyEnabled = keyEnabled;
     this.keyFieldsPrefix = keyFieldsPrefix;
+    this.recursion = recursion;
     this.formatConnectionOptions = Collections.unmodifiableMap(formatConnectionOptions);
     this.tableOptions = Collections.unmodifiableMap(tableOptions);
   }
@@ -42,7 +46,8 @@ public final class SchemaRegistryCatalogConfig {
    *
    * @param options the {@code CREATE CATALOG} options, without {@code type}
    * @return the config
-   * @throws IllegalArgumentException if {@code url} is missing
+   * @throws IllegalArgumentException if {@code url} is missing or {@code recursive-message} is not
+   *     a valid value
    */
   public static SchemaRegistryCatalogConfig fromOptions(Map<String, String> options) {
     String url = options.get(SchemaRegistryCatalogOptions.URL.key());
@@ -65,6 +70,11 @@ public final class SchemaRegistryCatalogConfig {
         options.getOrDefault(
             SchemaRegistryCatalogOptions.KEY_FIELDS_PREFIX.key(),
             SchemaRegistryCatalogOptions.KEY_FIELDS_PREFIX.defaultValue());
+    RecursionStrategy recursion =
+        RecursionStrategy.parse(
+            options.getOrDefault(
+                SchemaRegistryCatalogOptions.RECURSIVE_MESSAGE.key(),
+                SchemaRegistryCatalogOptions.RECURSIVE_MESSAGE.defaultValue()));
 
     Map<String, String> connection = new LinkedHashMap<>();
     Map<String, String> table = new LinkedHashMap<>();
@@ -88,7 +98,8 @@ public final class SchemaRegistryCatalogConfig {
         });
     // A table.<option> wins over a pass-through option of the same name.
     table.putAll(tableOverrides);
-    return new SchemaRegistryCatalogConfig(url, database, keyEnabled, keyPrefix, connection, table);
+    return new SchemaRegistryCatalogConfig(
+        url, database, keyEnabled, keyPrefix, recursion, connection, table);
   }
 
   /** Returns the Schema Registry URL. */
@@ -109,6 +120,11 @@ public final class SchemaRegistryCatalogConfig {
   /** Returns the prefix of key columns (may be empty). */
   public String getKeyFieldsPrefix() {
     return keyFieldsPrefix;
+  }
+
+  /** Returns how table columns map a field that makes a message contain itself. */
+  public RecursionStrategy getRecursionStrategy() {
+    return recursion;
   }
 
   /**

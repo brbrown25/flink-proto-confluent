@@ -66,6 +66,7 @@ CREATE TABLE orders (
 | `default-database` | no | `default` | Name of the catalog's only database. |
 | `key.enabled` | no | `true` | Whether a protobuf `<topic>-key` subject adds key columns. |
 | `key.fields-prefix` | no | `key_` | Prefix of the key columns, so a key field and a value field of the same name do not clash. The table fails to load if a prefixed key column still has a value column's name; pick another prefix or set `key.enabled` to `false`. |
+| `recursive-message` | no | `fail` | How a table maps the field that makes a [recursive message](../reference/type-mapping.md#recursive-messages) contain itself: `fail` (the table fails to load, naming the message, the field and this option), `bytes` (`BYTES`, the serialized message), `json` (`STRING`, its JSON) or `row:<n>` (a `ROW` unrolled `n` times; deeper levels are left out). Applies to key and value columns. |
 | `ssl.keystore.location`, `ssl.keystore.password`, `ssl.truststore.location`, `ssl.truststore.password` | no | | TLS to the Schema Registry, as in the [format](ssl-and-auth.md). |
 | `basic-auth.credentials-source`, `basic-auth.user-info` | no | | HTTP Basic authentication to the Schema Registry, as in the format. |
 | `bearer-auth.credentials-source`, `bearer-auth.token` | no | | Bearer-token authentication to the Schema Registry, as in the format. |
@@ -107,6 +108,7 @@ FROM sr.`default`.orders WHERE order_id = 'o-1';
 - **Read-only.** `CREATE`, `ALTER` and `DROP` of databases, tables, partitions and functions are rejected with `Catalog '<name>' is a read-only view of the Schema Registry`. To add a table, register a protobuf schema under `<topic>-value`. There are no views, functions or partitions, and statistics are unknown.
 - **No watermarks, metadata columns or primary keys.** To add a watermark or Kafka metadata columns (`timestamp`, `partition`, `offset`), use `CREATE TABLE ... LIKE sr.`default`.orders` in another catalog, or the [`ddl` command](generate-ddl.md).
 - **One message per subject.** The first message in the schema is used.
+- **Recursive messages need `recursive-message`.** A topic whose message contains itself fails to load as a table until the catalog sets `recursive-message` to `bytes`, `json` or `row:<n>`; the same setting applies to every table of the catalog. Create a second catalog to read another topic with another setting.
 - **Schema changes are picked up when a query is planned.** A running job keeps the columns and the write schema ID it was planned with.
 - **`SHOW TABLES` asks the registry about every `-value` subject.** On a registry with many subjects, listing tables takes one request per subject.
 - **Credentials appear in table options.** Schema Registry credentials given to the catalog are set on each table so its format can connect, so `SHOW CREATE TABLE` prints them, as it would for a hand-written table. Flink masks options whose names contain `password`, `token`, `basic-auth` and similar in its error messages and logs.

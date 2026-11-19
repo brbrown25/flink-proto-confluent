@@ -48,6 +48,20 @@ public class ProtoToLogicalType {
   }
 
   /**
+   * Same as {@link #toLogicalType(Descriptor)}, mapping each field that makes a message contain
+   * itself as {@code recursion} says (see {@link ProtoToSqlType#toSqlType(Descriptor,
+   * RecursionStrategy)}).
+   *
+   * @param schema the Protobuf descriptor
+   * @param recursion how to map a recursive field
+   * @return the corresponding Flink logical type (top-level row is not nullable)
+   */
+  public static LogicalType toLogicalType(
+      final Descriptor schema, final RecursionStrategy recursion) {
+    return toLogicalType(ProtoToSqlType.toSqlType(schema, recursion));
+  }
+
+  /**
    * Returns the Flink type of a single value of the given field, ignoring {@code repeated}: for a
    * {@code repeated int64} field this is {@code BIGINT}, the element type of the array the field
    * maps to.

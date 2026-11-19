@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.bbrownsound.flink.formats.proto.registry.confluent.schema.OrderSchemas;
 import io.confluent.kafka.schemaregistry.client.MockSchemaRegistryClient;
+import io.confluent.kafka.schemaregistry.protobuf.ProtobufSchema;
 import io.confluent.kafka.schemaregistry.protobuf.ProtobufSchemaProvider;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
@@ -287,5 +288,49 @@ class ProtoConfluentCliTest {
     assertTrue(DdlCommand.isSecret("properties.sasl.jaas.config"));
     assertFalse(DdlCommand.isSecret("properties.max.retries"));
     assertFalse(DdlCommand.isSecret("ssl.truststore.location"));
+  }
+
+  private static final String TREE_SCHEMA =
+      "syntax = \"proto3\";\npackage rec;\nmessage Tree {\n  string name = 1;\n  Tree child = 2;\n}";
+
+  private int treeColumns(String... extra) throws Exception {
+    registry.register("trees-value", new ProtobufSchema(TREE_SCHEMA));
+    List<String> args =
+        new ArrayList<>(List.of("ddl", "--url", URL, "--subject", "trees-value", "--columns-only"));
+    args.addAll(List.of(extra));
+    return cli.run(args.toArray(new String[0]));
+  }
+
+  @Test
+  void failsOnARecursiveMessageByDefault() throws Exception {
+    assertEquals(1, treeColumns());
+    assertTrue(err().startsWith("error: Cyclic schemas are not supported."), err());
+    assertTrue(err().contains("'recursive-message' option"), err());
+    assertEquals("", out());
+  }
+
+  @Test
+  void mapsARecursiveMessageAsBytes() throws Exception {
+    assertEquals(0, treeColumns("--recursive-message", "bytes"));
+    assertEquals("`name` STRING,\n`child` VARBINARY\n", out());
+  }
+
+  @Test
+  void mapsARecursiveMessageAsJson() throws Exception {
+    assertEquals(0, treeColumns("--recursive-message", "json"));
+    assertEquals("`name` STRING,\n`child` STRING\n", out());
+  }
+
+  @Test
+  void unrollsARecursiveMessageToADepth() throws Exception {
+    assertEquals(0, treeColumns("--recursive-message", "row:2"));
+    assertEquals(
+        "`name` STRING,\n`child` ROW<`name` STRING, `child` ROW<`name` STRING>>\n", out());
+  }
+
+  @Test
+  void rejectsAnInvalidRecursiveMessage() throws Exception {
+    assertEquals(2, treeColumns("--recursive-message", "deep"));
+    assertTrue(err().startsWith("error: 'recursive-message' must be"), err());
   }
 }

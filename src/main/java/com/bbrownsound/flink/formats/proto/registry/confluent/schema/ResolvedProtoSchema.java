@@ -2,6 +2,7 @@ package com.bbrownsound.flink.formats.proto.registry.confluent.schema;
 
 import com.bbrownsound.flink.formats.proto.registry.confluent.util.ProtoSqlType;
 import com.bbrownsound.flink.formats.proto.registry.confluent.util.ProtoToSqlType;
+import com.bbrownsound.flink.formats.proto.registry.confluent.util.RecursionStrategy;
 import com.google.protobuf.Descriptors.Descriptor;
 import io.confluent.kafka.schemaregistry.protobuf.ProtobufSchema;
 import java.util.Objects;
@@ -72,5 +73,17 @@ public final class ResolvedProtoSchema {
    */
   public ProtoSqlType toSqlType() {
     return ProtoToSqlType.toSqlType(descriptor);
+  }
+
+  /**
+   * Returns the table row type of the selected message, mapping each field that makes a message
+   * contain itself as {@code recursion} says (see {@link ProtoToSqlType#toSqlType(Descriptor,
+   * RecursionStrategy)}).
+   *
+   * @param recursion how to map a recursive field
+   * @return the row type
+   */
+  public ProtoSqlType toSqlType(RecursionStrategy recursion) {
+    return ProtoToSqlType.toSqlType(descriptor, recursion);
   }
 }

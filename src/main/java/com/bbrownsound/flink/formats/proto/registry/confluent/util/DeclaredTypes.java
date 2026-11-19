@@ -1,6 +1,5 @@
 package com.bbrownsound.flink.formats.proto.registry.confluent.util;
 
-import com.google.protobuf.Descriptors.Descriptor;
 import com.google.protobuf.Descriptors.FieldDescriptor;
 import org.apache.flink.table.types.logical.LogicalType;
 
@@ -8,7 +7,9 @@ import org.apache.flink.table.types.logical.LogicalType;
  * Column types a table may declare for a Protobuf field in place of the one {@link ProtoToSqlType}
  * derives. The converters read and write these whenever the table declares them; derived DDL (the
  * catalog, the {@code ddl} command and {@link ProtoToTableDDL}) never produces them, so a table
- * only gets one by asking for it.
+ * only gets one by asking for it. The one exception is a field that makes a message contain itself,
+ * which derived DDL maps to {@code BYTES}, {@code STRING} or a {@code ROW} nested to a fixed depth
+ * when asked to by {@link RecursionStrategy}.
  *
  * <ul>
  *   <li>{@code google.protobuf.Timestamp} as {@code TIMESTAMP(p)}: the instant's wall-clock time in
@@ -76,12 +77,7 @@ public final class DeclaredTypes {
    * @return true if the field is a message the converters serialize whole
    */
   public static boolean isSerializedMessage(FieldDescriptor field) {
-    if (field.getJavaType() != FieldDescriptor.JavaType.MESSAGE) {
-      return false;
-    }
-    final Descriptor message = field.getMessageType();
-    return message.findFieldByName(CommonConstants.VALUE_FIELD) == null
-        || message.getFullName().equals(CommonConstants.PROTOBUF_ANY_TYPE);
+    return ProtoToSqlType.isSerializedMessage(field);
   }
 
   private static boolean isMessage(FieldDescriptor field, String fullName) {
