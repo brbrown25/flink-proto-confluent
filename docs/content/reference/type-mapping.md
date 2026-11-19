@@ -47,6 +47,94 @@ A table can declare one of these types for a field instead of the derived one. T
 | any `message` except wrapper-style messages | `BYTES` | The message's Protobuf encoding, kept serialized. Writing fails on bytes that do not parse as the message. For `google.protobuf.Any` this is the whole `Any`, type URL included. |
 | `google.protobuf.Duration` | `INTERVAL DAY TO SECOND` (any precision, e.g. `INTERVAL DAY(2) TO SECOND(3)`) | The duration in milliseconds, the interval's resolution in Flink: nanoseconds below a millisecond are dropped when reading (toward zero). Negative durations work. When the sink derives a schema, an `INTERVAL DAY TO SECOND` column becomes a `google.protobuf.Duration` field. Derived DDL keeps reading a `Duration` as `ROW<seconds BIGINT, nanos INT>`. |
 
+## Flink to Protobuf: the schema a sink derives
+
+A sink writes with the latest schema registered under its subject, or with the class named by [`message-class`](../how-to/message-class.md). Only when the Schema Registry answers that the subject does not exist (and no `message-class` is set) does it derive a schema from the table's row type, as below, and register it when `auto-register-schemas` is `true`. The derived message is `com.flink.proto.confluent.Row`, in a `proto3` file.
+
+| Flink SQL type | Protobuf field |
+| --- | --- |
+| `BOOLEAN` | `bool` |
+| `TINYINT` | `int32` with the Confluent `connect.type` = `int8` annotation |
+| `SMALLINT` | `int32` with the Confluent `connect.type` = `int16` annotation |
+| `INT` | `int32` |
+| `BIGINT` | `int64` |
+| `FLOAT` | `float` |
+| `DOUBLE` | `double` |
+| `CHAR`, `VARCHAR`, `STRING` | `string` |
+| `BINARY`, `VARBINARY`, `BYTES` | `bytes` |
+| `TIMESTAMP_LTZ(p)` | `google.protobuf.Timestamp` |
+| `TIMESTAMP(p)` | `google.protobuf.Timestamp`, the wall-clock time read as UTC |
+| `INTERVAL DAY TO SECOND` | `google.protobuf.Duration`, in milliseconds |
+| `DATE` | `google.type.Date` |
+| `TIME(p)` | `google.type.TimeOfDay` |
+| `DECIMAL(p, s)` | `confluent.type.Decimal` with `precision` = `p` and `scale` = `s` annotations |
+| `ROW<...>` | a nested message named `<field>_Row` |
+| `ARRAY<T>` | `repeated T` |
+| `MAP<K, V>` | `repeated` `<Field>Entry { K key = 1; V value = 2; }`, the shape `protoc` gives a `map<K, V>` |
+| `MULTISET<T>` | as `MAP<T, INT>`: each element with its count |
+| `TIMESTAMP WITH TIME ZONE`, `INTERVAL YEAR TO MONTH`, `RAW`, structured and distinct types | not supported: deriving the schema fails with `Unsupported to derive Schema for type` |
+
+Fields are numbered 1, 2, … in column order. A nullable column becomes a proto3 `optional` field and a `NOT NULL` column a plain proto3 field (without `optional`, so it has no presence); `ARRAY` and `MAP` columns are `repeated` either way, and a map entry's `key` and `value` are `optional`. To control the schema exactly (field numbers, enums, `oneof`s, imports), register it yourself before the sink first writes, or pin a `message-class`.
+
+## Nullability
+
+Protobuf and SQL disagree about `NULL`: most Protobuf fields cannot be unset, only left at their default value. The format applies these rules.
+
+**Derived DDL** (the `ddl` command, the catalog and `ProtoToTableDDL`):
+
+| Protobuf field | Derived nullability |
+| --- | --- |
+| Scalar (`int32`, `string`, `bool`, `bytes`, `enum`, …), proto3 plain or `optional`, proto2 `optional` | nullable |
+| Scalar with the proto2 `required` label | `NOT NULL` |
+| Message, including wrapper types, `Timestamp`, `Date`, `TimeOfDay`, `Decimal`, `Struct` / `Value` / `ListValue` | nullable |
+| `oneof` | nullable `ROW`, and so is each of its cases |
+| `repeated` | `ARRAY<...> NOT NULL`; a message element type is `ROW<...> NOT NULL` |
+| `map` | `MAP<...> NOT NULL` |
+| The table's own message (the top-level row) | `NOT NULL` |
+
+**`--strict-not-null`** on the [`ddl` command](../how-to/generate-ddl.md) (and the `strictNotNull` argument of `ProtoToTableDDL`) rewrites the derived types for hand-written DDL that declares most columns `NOT NULL`: every type becomes `NOT NULL` (wrapper types and `DECIMAL` included) except `TIMESTAMP_LTZ`, `DATE` and `TIME`, which stay nullable, and `ROW`s, which keep their nullability. `ARRAY` and `MAP` stay `NOT NULL`. `--keep-nullable <path>[,<path>]` keeps the named fields nullable; a path is dot-separated field names, with `[]` for an array's element and `.key` / `.value` for a map's key and value.
+
+**Reading.** A field without presence (a proto3 scalar without `optional`, a `repeated` field or a map) is never `NULL`: an unset value reads as its default (`0`, `''`, `false`, the enum's default value, an empty array or map), because the wire format cannot tell it from a value set to that default. A field with presence (a message, a wrapper type, a proto3 `optional` or proto2 scalar, a `oneof` case) reads as `NULL` when unset. A `oneof` column is `NULL` when no case is set; otherwise only the case that is set is non-`NULL`. A column with no field of its name in the writer's schema reads as `NULL` (and the format logs a warning), so a table declared against a newer schema can read records written with an older one. The format does not check a column's `NOT NULL` on reading: declare `NOT NULL` only for fields that are always present.
+
+**Writing.** A `NULL` column leaves its field unset. For a field without presence the reader then sees the default value, not `NULL`; to round-trip `NULL`, use a field with presence (proto3 `optional`, a wrapper type or a message). In a `oneof` column the first non-`NULL` case is written and the others are ignored; a `oneof` column whose cases are all `NULL` sets none. Protobuf has no `NULL` inside a `repeated` field or a map, so a `NULL` array element or map value fails the row with a `NullPointerException`.
+
+## Well-known types
+
+| Protobuf message | Derived Flink type | Other declared types | Notes |
+| --- | --- | --- | --- |
+| `google.protobuf.Timestamp` | `TIMESTAMP_LTZ(9)` | `TIMESTAMP(p)`, `BYTES`, `STRING` (JSON) | Nanosecond precision is kept. |
+| `google.protobuf.Duration` | `ROW<seconds BIGINT, nanos INT>` | `INTERVAL DAY TO SECOND`, `BYTES`, `STRING` (JSON) | The interval holds milliseconds. |
+| `google.type.Date` | `DATE` | `BYTES`, `STRING` (JSON) | Read as a calendar date: a month or day of `0` (a partial date) fails the record. |
+| `google.type.TimeOfDay` | `TIME(3)` | `BYTES`, `STRING` (JSON) | Read to the millisecond: nanoseconds below a millisecond are dropped. |
+| `confluent.type.Decimal` | `DECIMAL(p, s)` | | See [Confluent annotations](#confluent-annotations). Declare it `DECIMAL`: it has a field named `value`, so `BYTES` and `STRING` columns treat it as a wrapper-style message (see [JSON strings](#json-strings)) rather than holding the whole message. |
+| `google.protobuf.DoubleValue`, `FloatValue`, `Int64Value`, `UInt64Value`, `Int32Value`, `UInt32Value`, `BoolValue`, `StringValue`, `BytesValue` | the wrapped type (`DOUBLE`, `FLOAT`, `BIGINT`, `BIGINT`, `INT`, `BIGINT`, `BOOLEAN`, `STRING`, `BYTES`), nullable | `DECIMAL(20, 0)` for `UInt64Value` | An unset wrapper reads as `NULL`, a wrapper holding `0` or `''` as that value. |
+| `google.protobuf.Struct`, `Value`, `ListValue` | `STRING` (JSON) | `BYTES` | See [JSON strings](#json-strings). |
+| `google.protobuf.Any` | `ROW<type_url STRING, value BYTES>` | `BYTES` | Not unpacked; see [JSON strings](#json-strings). |
+| any other message (e.g. `google.protobuf.FieldMask`) | `ROW<...>` of its fields | `BYTES`, `STRING` (JSON) | Like any message of your own. |
+
+## Confluent annotations
+
+Confluent's Protobuf converter records types that Protobuf lacks as `params` of the `(confluent.field_meta)` field option from `confluent/meta.proto`. The format reads and writes these.
+
+```protobuf
+import "confluent/meta.proto";
+import "confluent/type/decimal.proto";
+
+message Reading {
+  int32 level = 1 [(confluent.field_meta) = { params: [
+    { key: "connect.type", value: "int8" } ] }];
+  int32 count = 2 [(confluent.field_meta) = { params: [
+    { key: "connect.type", value: "int16" } ] }];
+  confluent.type.Decimal price = 3 [(confluent.field_meta) = { params: [
+    { key: "precision", value: "10" }, { key: "scale", value: "2" } ] }];
+}
+```
+
+derives `` `level` TINYINT, `count` SMALLINT, `price` DECIMAL(10, 2) ``.
+
+- **`connect.type` = `int8` / `int16`** on an `int32`, `sint32` or `sfixed32` field derives `TINYINT` / `SMALLINT`. Reading narrows the 32-bit value to the column's type without a range check, so a value outside it wraps; writing widens it back to `int32`. Without the annotation the field is `INT`, and a table may still declare it `TINYINT` or `SMALLINT`. A sink-derived schema adds the annotation for `TINYINT` and `SMALLINT` columns. Other `connect.type` values are ignored.
+- **`precision` / `scale`** on a `confluent.type.Decimal` field derive `DECIMAL(precision, scale)`; a missing (or non-numeric) value falls back to precision `10` and scale `0`, Flink's defaults. Reading takes the message's unscaled `value` bytes with the column's declared scale, without rescaling from the message's own `scale` field, so declare the scale the producer writes with. Writing sets `value`, `precision` and `scale` from the column's value. A sink-derived schema adds both annotations from the column's `DECIMAL(p, s)`.
+
 ## Unsigned integers in `BIGINT`
 
 Java has no unsigned 64-bit type, so a `uint64` or `fixed64` value above 9223372036854775807 (`Long.MAX_VALUE`) reads into the derived `BIGINT` column as a negative number: the same 64 bits, read as two's complement (18446744073709551615 reads as `-1`). Writing that negative `BIGINT` back writes the original unsigned value, so values round-trip unchanged, but arithmetic and comparisons in SQL see the negative number. Declare the column `DECIMAL(20, 0)` (see above) to read the unsigned value. `google.protobuf.UInt64Value` behaves the same way.
@@ -120,3 +208,17 @@ Details:
 - `bytes` and `json` do not apply to a message with a field named `value`, which a `BYTES` or `STRING` column reads like a wrapper type (see [JSON strings](#json-strings)): derivation fails for it and suggests `row:<n>`.
 - A `ROW` grows with each level and with each recursive field of the message, so keep `n` small.
 - The `message-class` check is unchanged: it accepts all three types for such a field.
+
+## Known limitations
+
+- **No `NULL` for fields without presence.** An unset proto3 scalar (without `optional`), `repeated` field or map reads as its default value, and a `NULL` written to one reads back as that default (see [Nullability](#nullability)). An empty array and a `NULL` array are the same on the wire. A `NULL` array element or map value cannot be written.
+- **Unsigned 64-bit integers in `BIGINT`** read values above `Long.MAX_VALUE` as negative numbers; declare `DECIMAL(20, 0)` instead (see [Unsigned integers in `BIGINT`](#unsigned-integers-in-bigint)).
+- **`TINYINT` / `SMALLINT`** narrow an `int32` without a range check (see [Confluent annotations](#confluent-annotations)).
+- **`DECIMAL`** reads with the column's declared scale, not the scale in each message.
+- **Millisecond resolution** for `google.type.TimeOfDay` (`TIME(3)`) and `google.protobuf.Duration` (`INTERVAL DAY TO SECOND`): finer digits are dropped on reading.
+- **Partial dates.** A `google.type.Date` with a month or day of `0` fails the record.
+- **`google.protobuf.Any`** stays packed: no JSON, no unpacking into the packed message's columns.
+- **Recursive messages** need a `recursive-message` setting or a hand-written column (see [Recursive messages](#recursive-messages)).
+- **Sink-derived schemas** cannot hold `TIMESTAMP WITH TIME ZONE`, `INTERVAL YEAR TO MONTH`, `RAW` or user-defined types, and never contain enums, `oneof`s or imports other than those of the [types above](#flink-to-protobuf-the-schema-a-sink-derives); register the schema yourself, or pin a `message-class`, when you need those.
+
+Type coverage was extended in [#174](https://github.com/brbrown25/flink-proto-confluent/issues/174). If a Protobuf type you use is missing here or does not convert as described, [open an issue](https://github.com/brbrown25/flink-proto-confluent/issues).
