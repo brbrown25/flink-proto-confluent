@@ -41,9 +41,6 @@ markdown_extensions:
       base_path: !relative $config_dir/..
       check_paths: true
   - pymdownx.superfences
-  - pymdownx.snippets:
-      base_path: [".."]
-      check_paths: true
   - pymdownx.tabbed:
       alternate_style: true
 
