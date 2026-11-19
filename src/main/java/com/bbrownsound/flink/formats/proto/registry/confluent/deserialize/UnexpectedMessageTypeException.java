@@ -14,7 +14,9 @@ public class UnexpectedMessageTypeException extends IOException {
   /**
    * Creates the exception.
    *
-   * @param topic the topic the record was read from
+   * @param topic the topic the record was read from, or {@code null} when the source has no single
+   *     topic (for example a {@code topic-pattern} table that sets {@code subject}); the message
+   *     then names no topic
    * @param schemaId the writer schema ID from the record's wire header
    * @param actual the full name of the record's writer message
    * @param expected the full name the source expects
@@ -22,9 +24,8 @@ public class UnexpectedMessageTypeException extends IOException {
   public UnexpectedMessageTypeException(
       String topic, int schemaId, String actual, String expected) {
     super(
-        "record on topic '"
-            + topic
-            + "' is a '"
+        (topic == null ? "record" : "record on topic '" + topic + "'")
+            + " is a '"
             + actual
             + "' (writer schema id "
             + schemaId
