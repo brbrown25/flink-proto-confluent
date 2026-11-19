@@ -1,0 +1,12 @@
+# Expected output of casts/dead-letter.sh, checked by bin/verify.sh. Each line must appear, as a plain
+# substring of an output line, in this order; lines starting with # are comments.
+# The job skips the poison record and returns both valid rows.
+| order_id | customer | amount |
+|      e-1 |     acme |    5.0 |
+|      e-2 |   globex |   12.0 |
+2 rows in set
+# The poison record's raw bytes are on the dead-letter topic with the error headers.
+error.class:org.apache.kafka.common.errors.SerializationException
+error.message:Error deserializing Protobuf message
+source.topic:events
+this is not protobuf

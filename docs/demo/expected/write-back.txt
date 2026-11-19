@@ -1,0 +1,12 @@
+# Expected output of casts/write-back.sh, checked by bin/verify.sh. Each line must appear, as a plain
+# substring of an output line, in this order; lines starting with # are comments.
+SQL update statement has been successfully submitted to the cluster
+# Only the orders over 10 reach big-orders, as Protobuf any Confluent consumer can read.
+{"orderId":"o-1001","customer":"acme","amount":42.5}
+{"orderId":"o-1002","customer":"globex","amount":99.0}
+# auto-register-schemas registered the schema derived from the table's row type.
+subject=big-orders-value version=1
+message Row {
+optional string order_id = 1;
+optional string customer = 2;
+optional double amount = 3;

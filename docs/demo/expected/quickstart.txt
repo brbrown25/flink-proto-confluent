@@ -1,0 +1,15 @@
+# Expected output of casts/quickstart.sh, checked by bin/verify.sh. Each line must appear, as a plain
+# substring of an output line, in this order; lines starting with # are comments.
+subject=orders-value version=1
+double amount = 3;
+# The table bin/generate-ddl derives from the subject (the ddl command emits the format options).
+`amount` DOUBLE
+'value.format' = 'proto-confluent',
+'value.proto-confluent.url' = 'http://schema-registry:8081',
+'value.proto-confluent.topic' = 'orders',
+# The aggregate over the generated table.
+| customer | total |
+|     acme |  42.5 |
+|   globex |  99.0 |
+|  initech |  7.25 |
+3 rows in set

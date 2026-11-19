@@ -1,0 +1,76 @@
+name: Docs demo
+
+# Runs the docs demo (docs/demo) end to end against a format JAR built from this commit, so the SQL
+# snippets and recorded casts cannot go stale silently when an option name or behaviour changes (#130).
+# The checks live in docs/demo/bin/verify.sh, which runs the same way locally. It is a heavy Docker
+# job and deliberately not a required check: it is path-filtered at the trigger, so it is absent
+# rather than skipped on other pull requests, and it is not part of pr-checks.yml's ci-ok (#117).
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'src/main/**'
+      - 'docs/**'
+      - '.github/workflows/docs-demo.yml'
+  workflow_dispatch:
+    inputs:
+      flink-version:
+        description: 'Flink line the demo stack runs (FLINK_VERSION in docs/demo/setup.sh)'
+        type: choice
+        options: ['1.20', '2.2']
+        default: '1.20'
+
+# A new push to a PR cancels the run for the superseded commit.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  demo:
+    name: docs demo (flink ${{ inputs.flink-version || '1.20' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      FLINK_VERSION: ${{ inputs.flink-version || '1.20' }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v7
+
+    - name: Setup build environment
+      uses: ./.github/actions/setup-build
+
+    # setup.sh downloads the Kafka SQL connector from Maven Central into .cache/ unless it is there.
+    - name: Cache the Kafka SQL connector JAR
+      uses: actions/cache@v4
+      with:
+        path: docs/demo/.cache
+        key: docs-demo-connector-${{ env.FLINK_VERSION }}-${{ hashFiles('docs/demo/setup.sh') }}
+
+    # Pulled in a step of their own so the log shows pull time apart from the demo itself. Not
+    # cached, for the reason docs/ci.md gives for the Testcontainers images.
+    - name: Pull demo images
+      working-directory: docs/demo
+      run: docker compose pull --quiet
+
+    - name: Build the format JAR, start the demo stack and verify every cast and SQL file
+      timeout-minutes: 20
+      run: docs/demo/bin/verify.sh
+
+    - name: Upload demo output
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: docs-demo-output-flink${{ env.FLINK_VERSION }}
+        path: docs/demo/.verify/
+        include-hidden-files: true
+        if-no-files-found: ignore
+
+    # verify.sh already tears the stack down on exit; this covers a cancelled or timed-out step.
+    - name: Tear down the demo stack
+      if: always()
+      working-directory: docs/demo
+      run: docker compose -p proto-confluent-demo-verify down -v

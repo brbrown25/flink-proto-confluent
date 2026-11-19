@@ -47,3 +47,14 @@ Each `casts/<name>.sh` is a script of `say` (comment) and `run` (typed + execute
 Keep casts short (under ~45 seconds) and re-record when option names or output change.
 
 `SCHEMA=... bin/check SUBJECT` asks the registry about the latest version only. Add `--all-versions` (`bin/check --all-versions SUBJECT`) to check every registered version, which is the transitive verdict. The casts have not been re-recorded to show it yet: `casts/compat-modes.sh` still uses the latest-only check (follow-up for #135).
+
+## Verifying the demo
+
+`bin/verify.sh` runs every cast (with `CAST_FAST=1`) and `sql/quickstart.sql` against a clean stack under its own compose project: it builds the JAR first, tears the stack down afterwards, and fails on a Flink SQL error or when a step's output lacks a line listed in `expected/<step>.txt`. CI runs it on pull requests touching `src/main/**` or `docs/**` (see [CI](../ci.md#docs-demo-check)).
+
+```bash
+bin/verify.sh                         # build, start, run and check everything, tear down
+bin/verify.sh --no-build --keep quickstart write-back   # reuse ./lib, run two steps, leave the stack up
+```
+
+When a change to the output is intended, update the matching `expected/` file along with the re-recorded cast. A new cast needs a step in `STEPS` in `bin/verify.sh` and an `expected/<step>.txt`, and a new `sql/*.sql` file must be run by a cast or be a step itself; the script fails until they are.

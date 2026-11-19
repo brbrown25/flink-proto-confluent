@@ -53,6 +53,14 @@ fi
 
 mkdir -p "$OUT"
 for name in "${names[@]}"; do
+  # schema-evolution creates the orders topic itself: on a stack where quickstart already wrote
+  # orders, its read would show those rows too, so it gets a clean stack.
+  if [ "$name" = schema-evolution ] &&
+    docker compose exec -T kafka kafka-topics --bootstrap-server kafka:9092 --list 2>/dev/null | grep -qx orders; then
+    docker compose down -v >/dev/null 2>&1
+    docker compose up -d >/dev/null 2>&1
+    wait_for_stack
+  fi
   asciinema rec --overwrite --quiet --cols 110 --rows 32 --idle-time-limit 2 \
     --command "./casts/$name.sh" "$OUT/$name.cast"
 done
