@@ -6,7 +6,7 @@ The stack runs **Flink 1.20** by default. Set `FLINK_VERSION=2.2` when running `
 
 | `FLINK_VERSION` | Flink image | Format JAR in `lib/` | Kafka SQL connector in `lib/` |
 | --- | --- | --- | --- |
-| `1.20` (default) | `flink:1.20-java17` | `flink-proto-confluent-<version>-all.jar`, built with `-PflinkVersion=1.20.0` | `flink-sql-connector-kafka-3.4.0-1.20.jar` |
+| `1.20` (default) | `flink:1.20-java17` | `flink-proto-confluent-<version>-all.jar`, built with `-PflinkVersion=1.20.5` (the CI matrix version; the build's own default, from `gradle.properties`, is 1.20.0) | `flink-sql-connector-kafka-3.4.0-1.20.jar` |
 | `2.2` | `flink:2.2-java17` | `flink-proto-confluent-flink2-<version>-all.jar`, built with `-PflinkVersion=2.2.1` | `flink-sql-connector-kafka-5.0.0-2.2.jar` |
 
 `setup.sh` writes the chosen version to `.env`, so the `docker compose` and `bin/` commands that follow use the same image without repeating the variable. The recorded casts are captured on the default Flink 1.20 stack.

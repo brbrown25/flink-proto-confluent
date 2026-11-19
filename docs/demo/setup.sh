@@ -7,8 +7,10 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 FLINK_VERSION=${FLINK_VERSION:-1.20}
+# BUILD_FLINK matches the Flink versions CI builds and tests (pr-checks.yml / ci.yml matrix), so the
+# docs-demo job reuses the Flink artifacts already in the shared Gradle cache.
 case "$FLINK_VERSION" in
-  1.20) BUILD_FLINK=1.20.0; ARTIFACT=flink-proto-confluent; KAFKA_CONNECTOR=3.4.0-1.20 ;;
+  1.20) BUILD_FLINK=1.20.5; ARTIFACT=flink-proto-confluent; KAFKA_CONNECTOR=3.4.0-1.20 ;;
   2.2) BUILD_FLINK=2.2.1; ARTIFACT=flink-proto-confluent-flink2; KAFKA_CONNECTOR=5.0.0-2.2 ;;
   *) echo "FLINK_VERSION must be 1.20 or 2.2, got '$FLINK_VERSION'" >&2; exit 2 ;;
 esac
