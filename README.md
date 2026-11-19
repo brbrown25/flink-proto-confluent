@@ -342,7 +342,7 @@ Which SQL type to declare for each protobuf field, and how `NULL` is read and wr
 
 The docs site lives in `docs/` (MkDocs Material) and is published to <https://brbrown25.github.io/flink-proto-confluent/>. Preview with `make docs-serve` and run the strict build CI uses with `make docs`; both use a virtualenv with the pinned `docs/requirements.txt`, because a globally installed `mkdocs` lacks the Material theme and fails with `Unrecognised theme name: 'material'`. The terminal demos are recorded with `docs/demo/record.sh`. See [Contributing](docs/content/contributing.md) for how to edit pages, re-record casts and what to update when options change.
 
-New to the library? [Why this format](docs/content/index.md#why-this-format) compares it with Flink's built-in `protobuf` and `avro-confluent` formats and lists what it adds over upstream; the [type mapping reference](docs/content/reference/type-mapping.md) covers both conversion directions, nullability, well-known types and Confluent annotations; and [Use the DataStream API](docs/content/how-to/datastream-api.md) shows the format outside SQL.
+New to the library? [Why this format](docs/content/index.md#why-this-format) says when to use it and lists what it adds over upstream; the [type mapping reference](docs/content/reference/type-mapping.md) covers both conversion directions, nullability, well-known types and Confluent annotations; and [Use the DataStream API](docs/content/how-to/datastream-api.md) shows the format outside SQL.
 
 ## Contributing
 

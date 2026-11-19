@@ -14,16 +14,6 @@ This project is an improved, standalone derivative of [amstee/flink-proto-conflu
 
 ## Why this format
 
-Open-source Flink ships two formats near this one, and neither reads Protobuf topics written by Confluent's serializers:
-
-| | Flink [`protobuf`](https://nightlies.apache.org/flink/flink-docs-stable/docs/connectors/table/formats/protobuf/) | Flink [`avro-confluent`](https://nightlies.apache.org/flink/flink-docs-stable/docs/connectors/table/formats/avro-confluent/) | `proto-confluent` (this library) |
-| --- | --- | --- | --- |
-| Serialization | Protobuf | Avro | Protobuf |
-| Confluent Schema Registry | No | Yes | Yes |
-| Confluent wire format (magic byte, schema ID) | No: plain Protobuf bytes | Yes | Yes, with Protobuf message indexes |
-| Generated classes on the classpath | Required (`protobuf.message-class-name`) | Not applicable | Not needed: schemas come from the registry ([`message-class`](how-to/message-class.md) is optional) |
-| Records written with several schema versions | Read with the one compiled class | Each record read with its writer schema | Each record read with its writer schema ([schema evolution](how-to/schema-evolution.md)) |
-
 Use `proto-confluent` when your topics hold Protobuf records produced with Confluent's `KafkaProtobufSerializer` (or anything else that writes the Confluent wire format), and you want Flink SQL, the Table API or the [DataStream API](how-to/datastream-api.md) to read and write them without compiling the `.proto` files into your job.
 
 ### What it adds over upstream
