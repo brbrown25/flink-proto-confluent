@@ -54,6 +54,35 @@ public class DeserializeBenchmark {
         List<RowType.RowField> fields = message.rowType().getFields();
         return new RowType(fields.subList(0, Math.min(PROJECTED_COLUMNS, fields.size())));
       }
+    },
+    /**
+     * The query reads the same columns as {@link #PROJECTED}, except that of a {@code ROW} column
+     * it reads only the first field ({@code payload.a} rather than {@code payload}), and the
+     * planner pushed that nested projection into the format, as a connector that supports nested
+     * projection does (GitHub issue #217). Messages with no {@code ROW} column among those read the
+     * same as {@link #PROJECTED}.
+     */
+    NESTED_PROJECTED {
+      @Override
+      public ProtoRowDataDeserializationSchema create(
+          BenchMessage message, ProtoConfluentFormatConfig config, SchemaRegistryClient registry) {
+        RowType physical = message.rowType();
+        int columns = Math.min(PROJECTED_COLUMNS, physical.getFieldCount());
+        int[][] paths = new int[columns][];
+        boolean nested = false;
+        for (int i = 0; i < columns; i++) {
+          if (physical.getTypeAt(i) instanceof RowType) {
+            paths[i] = new int[] {i, 0};
+            nested = true;
+          } else {
+            paths[i] = new int[] {i};
+          }
+        }
+        // As ProtoDecodingFormat does: a projection with no nested path is read by column name.
+        return nested
+            ? new InMemoryDeserializationSchema(physical, paths, config, registry)
+            : PROJECTED.create(message, config, registry);
+      }
     };
 
     /**
@@ -82,11 +111,11 @@ public class DeserializeBenchmark {
   }
 
   /** The message the record carries. */
-  @Param({"SIMPLE", "BIG", "REPEATED_NESTED", "MAP"})
+  @Param({"SIMPLE", "BIG", "REPEATED_NESTED", "MAP", "NESTED"})
   public BenchMessage message;
 
   /** How the record is read. */
-  @Param({"FULL", "PROJECTED"})
+  @Param({"FULL", "PROJECTED", "NESTED_PROJECTED"})
   public ReadShape shape;
 
   private ProtoRowDataDeserializationSchema schema;

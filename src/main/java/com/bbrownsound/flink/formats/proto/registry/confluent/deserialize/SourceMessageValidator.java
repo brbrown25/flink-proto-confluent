@@ -131,6 +131,50 @@ public final class SourceMessageValidator {
   public static void validateRowType(Descriptor descriptor, RowType rowType, String messageClass) {
     final List<String> problems = new ArrayList<>();
     checkRow(descriptor, rowType, "", problems);
+    throwIfProblems(descriptor, messageClass, problems);
+  }
+
+  /**
+   * Checks that every column of a nested projection can be read from the message: each projected
+   * path must lead, through the message's fields, to a field (or oneof) its column's type can be
+   * read from. Columns of the table that the projection does not read are not checked.
+   *
+   * @param descriptor the expected message
+   * @param physicalRowType the table's physical row type the projection paths index into
+   * @param projections the projected paths, one per produced column, or {@code null} to check
+   *     every column of {@code physicalRowType} (as {@link #validateRowType} does)
+   * @param messageClass the {@code message-class} value the descriptor came from, for the error
+   * @throws ValidationException naming each offending column if the table does not match
+   */
+  public static void validateProjection(
+      Descriptor descriptor,
+      RowType physicalRowType,
+      @Nullable int[][] projections,
+      String messageClass) {
+    if (projections == null) {
+      validateRowType(descriptor, physicalRowType, messageClass);
+      return;
+    }
+    final List<String> problems = new ArrayList<>();
+    for (int[] path : projections) {
+      final ProjectedPath projected = ProjectedPath.resolve(descriptor, physicalRowType, path);
+      if (projected.problem != null) {
+        problems.add(projected.problem);
+      } else if (projected.oneof != null) {
+        checkOneof(projected.oneof, projected.type, projected.columnPath, problems);
+      } else {
+        checkField(
+            projected.fields[projected.fields.length - 1],
+            projected.type,
+            projected.columnPath,
+            problems);
+      }
+    }
+    throwIfProblems(descriptor, messageClass, problems);
+  }
+
+  private static void throwIfProblems(
+      Descriptor descriptor, String messageClass, List<String> problems) {
     if (!problems.isEmpty()) {
       throw new ValidationException(
           "The table does not match 'message-class' = '"
@@ -178,7 +222,7 @@ public final class SourceMessageValidator {
     }
   }
 
-  private static List<String> fieldNames(Descriptor descriptor) {
+  static List<String> fieldNames(Descriptor descriptor) {
     final List<String> names = new ArrayList<>();
     descriptor.getRealOneofs().forEach(o -> names.add(o.getName()));
     descriptor.getFields().stream()
@@ -273,7 +317,7 @@ public final class SourceMessageValidator {
     }
   }
 
-  private static String mismatch(
+  static String mismatch(
       String path, LogicalType type, FieldDescriptor field, String readsAs) {
     final String protoType =
         field.getJavaType() == FieldDescriptor.JavaType.MESSAGE

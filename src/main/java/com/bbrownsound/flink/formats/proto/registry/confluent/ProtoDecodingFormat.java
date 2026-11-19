@@ -23,8 +23,9 @@ import com.google.protobuf.Descriptors.Descriptor;
  * <p>The format accepts projection pushdown: a source that supports it (for example the filesystem
  * connector) hands the format the columns the query reads, and the decoder converts only those
  * fields of each Protobuf message into the row. Unread columns, however wide or deeply nested, cost
- * nothing per record. Only top-level columns are pushed down: a query that reads part of a nested
- * {@code ROW} column still converts the whole column.
+ * nothing per record. Nested projections are accepted too: for a query that reads {@code
+ * payload.a}, a source that pushes nested projections down asks for that field alone, and the
+ * decoder walks the message to it without converting the rest of {@code payload}.
  *
  * <p>Derived from https://github.com/amstee/flink-proto-confluent (Apache-2.0). See NOTICE in
  * project root.
@@ -59,41 +60,57 @@ public class ProtoDecodingFormat
   }
 
   /**
-   * Converters match table columns to Protobuf fields by name, and a nested projection would hand
-   * the decoder flattened columns with generated names, so only top-level projection is supported.
+   * Nested projections are supported: the decoder resolves each projected path against the
+   * message's fields (by the declared column names along the path, not the flattened column names
+   * the planner generates) and reads only the projected values. Whether a query's nested projection
+   * reaches the format is up to the connector.
    */
   @Override
   public boolean supportsNestedProjection() {
-    return false;
+    return true;
   }
 
   /**
    * Creates the decoder for the projected columns of {@code physicalDataType}. The decoder's row
    * holds exactly the projected columns, in projection order, and only their Protobuf fields are
-   * converted. Called with every column (as the two-argument {@code createRuntimeDecoder}
-   * does for a source that does not push projections down) it reads the whole table.
+   * converted. A nested path (for example {@code payload.a}) produces one column holding the value
+   * at its end, and the sibling fields along the path are not converted. Called with every column
+   * (as the two-argument {@code createRuntimeDecoder} does for a source that does not push
+   * projections down) it reads the whole table.
    */
   @Override
   public DeserializationSchema<RowData> createRuntimeDecoder(
       DynamicTableSource.Context context, DataType physicalDataType, int[][] projections) {
-    final DataType producedDataType = Projection.of(projections).project(physicalDataType);
-    final RowType rowType = (RowType) producedDataType.getLogicalType();
-    validateAgainstMessageClass(rowType);
+    final Projection projection = Projection.of(projections);
+    final DataType producedDataType = projection.project(physicalDataType);
+    // Top-level columns keep their declared names, so the produced row is read by column name. A
+    // nested path's column has a name the planner generates, so a nested projection is read by
+    // path into the physical row type instead.
+    final boolean nested = projection.isNested();
+    final RowType readType =
+        (RowType)
+            (nested ? physicalDataType.getLogicalType() : producedDataType.getLogicalType());
+    final int[][] paths = nested ? projections : null;
+    validateAgainstMessageClass(readType, paths);
     final TypeInformation<RowData> rowDataTypeInfo =
         context.createTypeInformation(producedDataType);
     LOG.debug(
-        "[proto-confluent] createRuntimeDecoder: topic={}, rowTypeFields={}",
+        "[proto-confluent] createRuntimeDecoder: topic={}, rowTypeFields={}, projection={}",
         formatConfig.topic,
-        rowType.getFieldNames());
-    return new ProtoRowDataDeserializationSchema(rowType, rowDataTypeInfo, formatConfig);
+        readType.getFieldNames(),
+        nested ? projection : "top-level");
+    return new ProtoRowDataDeserializationSchema(readType, paths, rowDataTypeInfo, formatConfig);
   }
 
   /**
    * Checks the produced row type against {@code message-class} while the query is planned. A class
    * the planner cannot load (for example one shipped only in the job JAR) is checked when the
    * source opens instead.
+   *
+   * @param rowType the produced row type, or the physical one when {@code projections} is set
+   * @param projections the nested projection paths into {@code rowType}, or {@code null}
    */
-  private void validateAgainstMessageClass(RowType rowType) {
+  private void validateAgainstMessageClass(RowType rowType, int[][] projections) {
     final String messageClass = formatConfig.getMessageClass();
     if (messageClass == null) {
       return;
@@ -112,7 +129,7 @@ public class ProtoDecodingFormat
       return;
     }
     SourceMessageValidator.expectedMessageName(formatConfig.messageName, messageClass, descriptor);
-    SourceMessageValidator.validateRowType(descriptor, rowType, messageClass);
+    SourceMessageValidator.validateProjection(descriptor, rowType, projections, messageClass);
   }
 
   @Override

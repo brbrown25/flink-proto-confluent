@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+package com.bbrownsound.flink.formats.proto.test.v1;
+option java_package = "com.bbrownsound.flink.formats.proto.test.v1";
+
+import "google/protobuf/wrappers.proto";
+
+// Nested projection pushdown (GitHub issue #217): a message whose columns a query reads part of.
+message NestedProjectionTest {
+  string id = 1;
+  Payload payload = 2;
+  oneof choice {
+    int32 code = 3;
+    Inner detail = 4;
+  }
+  google.protobuf.StringValue note = 5;
+  repeated Inner items = 6;
+
+  // A wide nested message: a query that reads one of its fields skips the rest.
+  message Payload {
+    int64 a = 1;
+    string b = 2;
+    optional int32 c = 3;
+    Inner inner = 4;
+    oneof kind {
+      string text = 5;
+      Inner nested = 6;
+    }
+    string f7 = 7;
+    string f8 = 8;
+    string f9 = 9;
+    string f10 = 10;
+    int64 f11 = 11;
+    int64 f12 = 12;
+    int64 f13 = 13;
+    int64 f14 = 14;
+    double f15 = 15;
+    double f16 = 16;
+    double f17 = 17;
+    double f18 = 18;
+    bool f19 = 19;
+    bool f20 = 20;
+    bytes f21 = 21;
+    bytes f22 = 22;
+    repeated string f23 = 23;
+    map<string, string> f24 = 24;
+  }
+
+  message Inner {
+    string x = 1;
+    optional int32 y = 2;
+  }
+}

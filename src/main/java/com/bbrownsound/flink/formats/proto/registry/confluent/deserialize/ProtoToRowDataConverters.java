@@ -102,6 +102,91 @@ public class ProtoToRowDataConverters {
     }
   }
 
+  /**
+   * Creates a converter that produces a nested projection of a table: one column per projection
+   * path, holding the value at the end of that path. Each path is resolved against the message's
+   * fields once, here; a record is then read by walking those fields, and only the projected values
+   * are converted, so the sibling fields of a projected nested field cost nothing.
+   *
+   * <p>A column is NULL when a message along its path is unset (as reading the enclosing {@code
+   * ROW} column and then its field would give), when its oneof case is not the one set, and when
+   * the writer's message has no field for it (as for a top-level column, see {@link
+   * #createConverter(Descriptor, RowType)}).
+   *
+   * @param readSchema the Protobuf descriptor for the source message
+   * @param physicalType the table's physical row type the projection paths index into
+   * @param projections the projected paths, one per produced column, as Flink's {@code Projection}
+   *     holds them
+   * @return a converter producing a row of the projected columns, in projection order
+   * @throws IllegalStateException if a column along a path cannot be read from its field
+   */
+  public static ProtoToRowDataConverter createProjectedConverter(
+      Descriptor readSchema, RowType physicalType, int[][] projections) {
+    final int arity = projections.length;
+    final ProjectedReader[] readers = new ProjectedReader[arity];
+    for (int i = 0; i < arity; i++) {
+      readers[i] = createProjectedReader(ProjectedPath.resolve(readSchema, physicalType, projections[i]));
+    }
+    return object -> {
+      final GenericRowData row = new GenericRowData(arity);
+      final Message message = (Message) object;
+      for (int i = 0; i < arity; i++) {
+        row.setField(i, readers[i].read(message));
+      }
+      return row;
+    };
+  }
+
+  /** Reads one projected column from the top-level message. */
+  @FunctionalInterface
+  private interface ProjectedReader {
+    Object read(Message message) throws IOException;
+  }
+
+  private static ProjectedReader createProjectedReader(ProjectedPath path) {
+    if (path.problem != null) {
+      if (!path.missing) {
+        throw new IllegalStateException(path.problem);
+      }
+      LOG.warn("[proto-confluent] Projected {} - reading it as NULL", path.problem);
+      return message -> null;
+    }
+    final FieldDescriptor[] fields = path.fields;
+    if (path.oneof != null) {
+      final OneofDescriptor oneof = path.oneof;
+      final ProtoToRowDataConverter converter = createConverter(oneof, (RowType) path.type);
+      return message -> {
+        final Message holder = descend(message, fields, fields.length);
+        return holder != null && holder.hasOneof(oneof) ? converter.convert(holder) : null;
+      };
+    }
+    final FieldDescriptor leaf = fields[fields.length - 1];
+    final ProtoToRowDataConverter converter = createFieldConverter(leaf, path.type);
+    return message -> {
+      final Message holder = descend(message, fields, fields.length - 1);
+      if (holder == null || (leaf.hasPresence() && !holder.hasField(leaf))) {
+        return null;
+      }
+      return converter.convert(holder.getField(leaf));
+    };
+  }
+
+  /**
+   * Follows the first {@code count} fields, each a singular message field, from {@code message}.
+   *
+   * @return the message the fields lead to, or {@code null} if one of them is unset
+   */
+  private static Message descend(Message message, FieldDescriptor[] fields, int count) {
+    Message current = message;
+    for (int k = 0; k < count; k++) {
+      if (!current.hasField(fields[k])) {
+        return null;
+      }
+      current = (Message) current.getField(fields[k]);
+    }
+    return current;
+  }
+
   private static ProtoToRowDataConverter createOneOfRowConverter(
       Descriptor readSchema, RowType targetType) {
     final Map<String, OneofDescriptor> oneOfDescriptors =

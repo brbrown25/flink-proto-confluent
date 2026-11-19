@@ -3,10 +3,12 @@ package com.bbrownsound.flink.formats.proto.registry.confluent.bench;
 import com.bbrownsound.flink.formats.proto.registry.confluent.util.ProtoToLogicalType;
 import com.bbrownsound.flink.formats.proto.test.v1.TestBig;
 import com.bbrownsound.flink.formats.proto.test.v1.TestMap;
+import com.bbrownsound.flink.formats.proto.test.v1.TestNestedProjection;
 import com.bbrownsound.flink.formats.proto.test.v1.TestRepeatedNested;
 import com.bbrownsound.flink.formats.proto.test.v1.TestSimple;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.Message;
+import com.google.protobuf.StringValue;
 import org.apache.flink.table.types.logical.RowType;
 
 /**
@@ -90,6 +92,54 @@ public enum BenchMessage {
     public boolean pinMessageClass() {
       // MapTest is the second message in test_map.proto, after NestedMap.
       return true;
+    }
+  },
+
+  /**
+   * A wide nested message: a {@code payload} of 24 fields (scalars, a nested message, a oneof, a
+   * repeated field and a map) next to an ID, a oneof, a wrapper and a repeated message.
+   */
+  NESTED {
+    @Override
+    public Message sample() {
+      TestNestedProjection.NestedProjectionTest.Inner inner =
+          TestNestedProjection.NestedProjectionTest.Inner.newBuilder()
+              .setX("inner")
+              .setY(7)
+              .build();
+      return TestNestedProjection.NestedProjectionTest.newBuilder()
+          .setId("order-1234")
+          .setPayload(
+              TestNestedProjection.NestedProjectionTest.Payload.newBuilder()
+                  .setA(42L)
+                  .setB("payload b")
+                  .setC(3)
+                  .setInner(inner)
+                  .setText("payload text")
+                  .setF7("field seven")
+                  .setF8("field eight")
+                  .setF9("field nine")
+                  .setF10("field ten")
+                  .setF11(11L)
+                  .setF12(12L)
+                  .setF13(13L)
+                  .setF14(14L)
+                  .setF15(15.5d)
+                  .setF16(16.5d)
+                  .setF17(17.5d)
+                  .setF18(18.5d)
+                  .setF19(true)
+                  .setF20(false)
+                  .setF21(ByteString.copyFromUtf8("field twenty-one"))
+                  .setF22(ByteString.copyFromUtf8("field twenty-two"))
+                  .addF23("one")
+                  .addF23("two")
+                  .putF24("k1", "v1")
+                  .putF24("k2", "v2"))
+          .setCode(5)
+          .setNote(StringValue.of("a note"))
+          .addItems(inner)
+          .build();
     }
   };
 
