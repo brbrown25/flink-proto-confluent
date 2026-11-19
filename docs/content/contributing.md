@@ -61,6 +61,10 @@ cd docs
 
 Keep SQL snippets in the docs identical to the SQL in `docs/demo/sql/` where both exist.
 
+Where a page shows the same SQL as a demo script, include it rather than copy it: the site enables [`pymdownx.snippets`](https://facelessuser.github.io/pymdown-extensions/extensions/snippets/) with paths relative to the repository root, so a code block whose only line is `--8<-- "docs/demo/sql/quickstart.sql:create-table"` renders the `create-table` section of that script, marked in it by a `-- ;--8<-- [start:create-table]` comment line and a matching `[end:create-table]` one (see [`docs/demo/README.md`](https://github.com/brbrown25/flink-proto-confluent/blob/main/docs/demo/README.md)). A missing file or section fails `make docs`. SQL that intentionally differs from the demo, such as a shorter example, stays written in the page.
+
+The option tables in `reference/configuration.md` and `how-to/catalog.md` are checked by `OptionsDocumentationTest`, part of `./gradlew test`: it fails when an option has no row, a row names a key that is not an option, a Default cell differs from the option's default, or the "Fallback key" a row names differs from the option's fallback keys. An option without a default must not show a bare value such as `` `topic` `` as its Default; write `*(none)*` and describe the effective behaviour.
+
 ### Terminal demos (asciinema)
 
 Casts in `docs/content/assets/casts/` are recorded against a real Kafka + Schema Registry + Flink stack defined in `docs/demo/`. The stack runs Flink 1.20 (`flink:1.20-java17`) by default, and the committed casts are recorded on it; `FLINK_VERSION=2.2 ./record.sh ...` records against Flink 2.2 (`flink:2.2-java17`) instead, which is useful for checking a cast still behaves the same on the other line. Requires Docker, `asciinema` 3.x and a JDK.

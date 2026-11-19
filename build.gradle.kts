@@ -190,7 +190,14 @@ tasks.withType<Test>().configureEach {
     systemProperty("flinkLine.ciExpectedFlinkVersion", ciExpectedFlinkVersion)
 }
 
+// OptionsDocumentationTest checks the option tables of these pages against the ConfigOptions. It
+// reads them relative to the test working directory (the project directory), and they are inputs
+// of the unit tests, so editing a table reruns them.
+val optionsDocsDir = layout.projectDirectory.dir("docs/content")
 tasks.named<Test>("test").configure {
+    inputs.files(optionsDocsDir.file("reference/configuration.md"), optionsDocsDir.file("how-to/catalog.md"))
+        .withPropertyName("optionsDocs")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
     extensions.getByType<org.gradle.testing.jacoco.plugins.JacocoTaskExtension>().apply {
         destinationFile = layout.buildDirectory.file("jacoco/test.exec").get().asFile
     }

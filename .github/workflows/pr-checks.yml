@@ -42,6 +42,11 @@ jobs:
         printf '%s\n' "$changed"
         code=$(printf '%s\n' "$changed" \
           | grep -vE '(^docs/|\.md$|^LICENSE$|^NOTICE$|^\.gitignore$)' || true)
+        # OptionsDocumentationTest checks the option tables on these pages against the code, so
+        # editing them needs the unit tests.
+        options_docs=$(printf '%s\n' "$changed" \
+          | grep -E '^docs/content/(reference/configuration|how-to/catalog)\.md$' || true)
+        code="$code$options_docs"
         if [ -n "$code" ]; then
           echo 'code=true' >> "$GITHUB_OUTPUT"
         else
