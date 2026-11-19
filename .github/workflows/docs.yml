@@ -5,10 +5,14 @@ on:
     branches: [main, master]
     paths:
       - "docs/**"
+      # Included in the docs by pymdownx.snippets.
+      - "src/integration-test/java/com/bbrownsound/flink/formats/proto/registry/confluent/docs/**"
       - ".github/workflows/docs.yml"
   pull_request:
     paths:
       - "docs/**"
+      # Included in the docs by pymdownx.snippets.
+      - "src/integration-test/java/com/bbrownsound/flink/formats/proto/registry/confluent/docs/**"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 

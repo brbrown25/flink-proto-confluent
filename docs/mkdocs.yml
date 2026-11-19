@@ -41,6 +41,9 @@ markdown_extensions:
       base_path: !relative $config_dir/..
       check_paths: true
   - pymdownx.superfences
+  - pymdownx.snippets:
+      base_path: [".."]
+      check_paths: true
   - pymdownx.tabbed:
       alternate_style: true
 
@@ -61,6 +64,7 @@ nav:
       - Handle bad records (dead-letter topic): how-to/dead-letter-topic.md
       - SSL and authentication: how-to/ssl-and-auth.md
       - Schema evolution and subjects: how-to/schema-evolution.md
+      - Use the DataStream API: how-to/datastream-api.md
   - Reference:
       - Configuration: reference/configuration.md
       - Type mapping: reference/type-mapping.md
