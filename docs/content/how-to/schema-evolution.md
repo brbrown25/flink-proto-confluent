@@ -105,12 +105,14 @@ The subject is `<topic>-value` by default, or the [`subject`](#subject-naming) y
 
 | Answer to the lookup | What the sink does |
 | --- | --- |
-| A schema | Serializes with it. Nothing is registered under the subject. |
+| A schema | Serializes with it, under the schema ID the registry returned with it. Nothing is registered under the subject. |
 | Subject not found (HTTP 404, error code `40401`) | Derives a schema from the table columns. With `auto-register-schemas = true` that schema is registered as the subject's first version; with `false` the write fails because the subject has no schema. |
 | Anything else: `401`, `403`, `429`, `5xx`, a timeout, a refused or reset connection, an unknown host | The write fails with the registry's error as the cause. Nothing is registered. |
 | Version not found (HTTP 404, error code `40402`) | Fails, like any other error. The registry is saying the subject exists, so the sink does not treat it as missing. |
 | A 404 that does not carry error code `40401` (an HTML page from a proxy or ingress, a wrong path prefix in `url`) | Fails, like any other error. It is not the registry saying the subject is missing. |
 | A schema that is not Protobuf, or cannot be parsed | Fails. |
+
+The record carries the ID of the schema the lookup returned, whatever `auto-register-schemas` is set to. The sink does not ask the registry for the ID of a schema rebuilt from the descriptor: Confluent renders a `map` field of a descriptor as a nested `map_entry` message, so that text differs from the registered one and the lookup failed with `Schema not found; error code: 40403` (or, with `auto-register-schemas = true`, registered a new version), even with `normalize-schemas` on ([issue #210](https://github.com/brbrown25/flink-proto-confluent/issues/210)). `use-schema-id` and `use.latest.with.metadata` still choose the ID when set.
 
 A subject whose versions were all soft-deleted also answers "subject not found" (checked against `cp-schema-registry` 7.5.0), so the sink treats it as missing: with `auto-register-schemas = true` it registers the table-derived schema under it.
 

@@ -84,7 +84,7 @@ public final class RowDataProtoSerializer extends KafkaProtobufSerializer<Dynami
    * When set via {@value #KEY_MESSAGE_CLASS_CONFIG} (key) or {@value #VALUE_MESSAGE_CLASS_CONFIG}
    * (value), used for serialization and registration in place of a dynamic schema.
    */
-  private volatile Descriptors.Descriptor messageClassDescriptor;
+  private volatile WriteSchema messageClassSchema;
 
   /**
    * Creates a serializer that keeps the first schema it resolves for a subject until the job
@@ -140,12 +140,13 @@ public final class RowDataProtoSerializer extends KafkaProtobufSerializer<Dynami
       String className = (String) messageClassObj;
       if (!className.isEmpty()) {
         try {
-          this.messageClassDescriptor = descriptorFromMessageClass(className);
+          Descriptors.Descriptor descriptor = descriptorFromMessageClass(className);
+          this.messageClassSchema = WriteSchema.unregistered(descriptor);
           LOG.info(
               "[proto-confluent] Using message class for {} serialization: {} -> {}",
               isKey ? "key" : "value",
               className,
-              messageClassDescriptor.getFullName());
+              descriptor.getFullName());
         } catch (Exception e) {
           throw new ValidationException(
               "Failed to resolve descriptor for " + configKey + "=" + className, e);
@@ -163,31 +164,32 @@ public final class RowDataProtoSerializer extends KafkaProtobufSerializer<Dynami
   }
 
   /**
-   * Resolves the Protobuf descriptor to serialize with. An explicit message class always wins.
-   * Otherwise the descriptor comes from the latest schema registered under the subject that the
-   * configured subject-naming strategy derives from the topic. Strategies that name the subject
-   * after the record rather than the topic (e.g. {@code RecordNameStrategy}) cannot produce a
-   * subject before a schema exists, so in that case the Row-derived schema is used and the
-   * underlying serializer resolves the subject from the message it is handed.
+   * Resolves the schema to serialize with. An explicit message class always wins. Otherwise the
+   * schema is the latest one registered under the subject that the configured subject-naming
+   * strategy derives from the topic. Strategies that name the subject after the record rather than
+   * the topic (e.g. {@code RecordNameStrategy}) cannot produce a subject before a schema exists, so
+   * in that case the Row-derived schema is used and the underlying serializer resolves the subject
+   * from the message it is handed.
    */
-  private Descriptors.Descriptor resolveDescriptor(String topic, RowType rowType) {
-    if (messageClassDescriptor != null) {
-      return messageClassDescriptor;
+  private WriteSchema resolveSchema(String topic, RowType rowType) {
+    WriteSchema messageClass = messageClassSchema;
+    if (messageClass != null) {
+      return messageClass;
     }
     String subject = getSubjectName(topic, isKey, null, null);
     if (subject == null) {
-      return rowDerivedDescriptor(rowType);
+      return rowDerived(rowType);
     }
     CachedSchema cached = schemaCache.get(subject);
     if (cached != null && schemaCacheTtlNanos == 0L) {
       // No TTL: the entry never expires, so the clock is not read on the per-record path.
-      return cached.descriptor;
+      return cached.schema;
     }
     long now = nanoClock.getAsLong();
     if (cached != null && !cached.isDue(now)) {
-      return cached.descriptor;
+      return cached.schema;
     }
-    return lookupDescriptor(subject, rowType, cached, now);
+    return lookupSchema(subject, rowType, cached, now);
   }
 
   /**
@@ -203,21 +205,26 @@ public final class RowDataProtoSerializer extends KafkaProtobufSerializer<Dynami
    *
    * @param cached the expired entry being refreshed, or {@code null} on a first lookup
    */
-  private Descriptors.Descriptor lookupDescriptor(
+  private WriteSchema lookupSchema(
       String subject, RowType rowType, @Nullable CachedSchema cached, long now) {
     try {
       SchemaMetadata schemaMetadata = schemaRegistry.getLatestSchemaMetadata(subject);
       if (cached != null && cached.isSameSchema(schemaMetadata)) {
-        schemaCache.put(subject, cached.checkedAt(now, schemaCacheTtlNanos));
-        return cached.descriptor;
+        CachedSchema refreshed = cached.confirmedAt(now, schemaCacheTtlNanos);
+        schemaCache.put(subject, refreshed);
+        return refreshed.schema;
       }
-      Descriptors.Descriptor desc = toDescriptor(subject, schemaMetadata);
+      WriteSchema resolved = toWriteSchema(subject, schemaMetadata);
       schemaCache.put(
           subject,
           new CachedSchema(
-              desc, schemaMetadata.getId(), schemaMetadata.getVersion(), now, schemaCacheTtlNanos));
+              resolved,
+              schemaMetadata.getId(),
+              schemaMetadata.getVersion(),
+              now,
+              schemaCacheTtlNanos));
       if (cached != null) {
-        converters.remove(cached.descriptor);
+        converters.remove(cached.schema.descriptor);
         LOG.info(
             "[proto-confluent] Subject {} moved from schema id {} (version {}) to id {} "
                 + "(version {}); serializing with the new schema.",
@@ -227,16 +234,20 @@ public final class RowDataProtoSerializer extends KafkaProtobufSerializer<Dynami
             schemaMetadata.getId(),
             schemaMetadata.getVersion());
       }
-      return desc;
+      return resolved;
     } catch (RestClientException e) {
       if (e.getErrorCode() == SUBJECT_NOT_FOUND_ERROR_CODE && cached == null) {
-        return rowDerivedDescriptor(rowType);
+        return rowDerived(rowType);
       }
       // A subject that disappears after the sink resolved a schema from it (cached != null) is
       // not a reason to switch to the Row-derived schema mid-stream, let alone register it: an
       // operator deleting the subject to re-register it would find the sink's guess in its place.
+      // Nor is the ID read before the deletion still known to be valid under the subject: until
+      // the subject is back, the parent looks the schema up (or registers it) as for any write.
+      CachedSchema current =
+          e.getErrorCode() == SUBJECT_NOT_FOUND_ERROR_CODE ? cached.withoutConfirmedId() : cached;
       return staleOrFail(
-          subject, cached, e, "HTTP status " + e.getStatus() + ", error code " + e.getErrorCode());
+          subject, current, e, "HTTP status " + e.getStatus() + ", error code " + e.getErrorCode());
     } catch (IOException e) {
       return staleOrFail(subject, cached, e, "I/O error");
     } catch (RuntimeException e) {
@@ -248,7 +259,12 @@ public final class RowDataProtoSerializer extends KafkaProtobufSerializer<Dynami
     }
   }
 
-  private Descriptors.Descriptor toDescriptor(String subject, SchemaMetadata schemaMetadata)
+  /**
+   * Parses the registered schema, with its references, into the schema the sink writes with. The
+   * registered schema and its ID are kept along with the descriptor, so the record is written under
+   * that ID (see {@link #serializeRegistered}).
+   */
+  private WriteSchema toWriteSchema(String subject, SchemaMetadata schemaMetadata)
       throws IOException {
     Optional<ParsedSchema> optSchema =
         schemaRegistry.parseSchema(
@@ -272,11 +288,12 @@ public final class RowDataProtoSerializer extends KafkaProtobufSerializer<Dynami
               + schemaMetadata.getSchemaType()
               + ", not PROTOBUF");
     }
-    Descriptors.Descriptor desc = ((ProtobufSchema) latestVersion).toDescriptor();
+    ProtobufSchema registered = (ProtobufSchema) latestVersion;
+    Descriptors.Descriptor desc = registered.toDescriptor();
     if (desc == null) {
       throw new ValidationException("Could not find schema for subject: " + subject);
     }
-    return desc;
+    return WriteSchema.registered(desc, subject, registered, schemaMetadata.getId());
   }
 
   /**
@@ -286,7 +303,7 @@ public final class RowDataProtoSerializer extends KafkaProtobufSerializer<Dynami
    * one the failure is rethrown with the registry exception as its cause; nothing is cached, so the
    * next record asks the registry again.
    */
-  private Descriptors.Descriptor staleOrFail(
+  private WriteSchema staleOrFail(
       String subject, @Nullable CachedSchema cached, Exception cause, String detail) {
     if (cached != null) {
       long retryAfterNanos = Math.min(schemaCacheTtlNanos, REFRESH_RETRY_BACKOFF.toNanos());
@@ -302,7 +319,7 @@ public final class RowDataProtoSerializer extends KafkaProtobufSerializer<Dynami
           cached.version,
           TimeUnit.NANOSECONDS.toMillis(retryAfterNanos),
           cause);
-      return cached.descriptor;
+      return cached.schema;
     }
     throw new SerializationException(
         "Schema Registry lookup of the latest schema for subject '"
@@ -317,18 +334,19 @@ public final class RowDataProtoSerializer extends KafkaProtobufSerializer<Dynami
         cause);
   }
 
-  private Descriptors.Descriptor rowDerivedDescriptor(RowType rowType) {
+  private WriteSchema rowDerived(RowType rowType) {
     RowDerivedSchema current = rowDerivedSchema;
     if (current != null && current.rowType.equals(rowType)) {
-      return current.descriptor;
+      return current.schema;
     }
     Descriptors.Descriptor desc =
         RowTypeToProto.fromRowType(rowType, ROW_MESSAGE_NAME, ROW_PACKAGE_NAME);
     if (current != null) {
-      converters.remove(current.descriptor);
+      converters.remove(current.schema.descriptor);
     }
-    rowDerivedSchema = new RowDerivedSchema(rowType, desc);
-    return desc;
+    WriteSchema schema = WriteSchema.unregistered(desc);
+    rowDerivedSchema = new RowDerivedSchema(rowType, schema);
+    return schema;
   }
 
   /**
@@ -342,10 +360,48 @@ public final class RowDataProtoSerializer extends KafkaProtobufSerializer<Dynami
    *     registry's exception is the cause) or the record cannot be encoded
    */
   public byte[] serializeRowData(String topic, RowType rowType, RowData row) {
-    Descriptors.Descriptor desc = resolveDescriptor(topic, rowType);
+    WriteSchema schema = resolveSchema(topic, rowType);
     RowDataToProtoConverters.RowDataToProtoConverter converter =
-        converters.computeIfAbsent(desc, d -> RowDataToProtoConverters.createConverter(rowType, d));
-    return serialize(topic, (DynamicMessage) converter.convert(row));
+        converters.computeIfAbsent(
+            schema.descriptor, d -> RowDataToProtoConverters.createConverter(rowType, d));
+    DynamicMessage message = (DynamicMessage) converter.convert(row);
+    if (schema.registered == null) {
+      return serialize(topic, message);
+    }
+    return serializeRegistered(topic, schema, message);
+  }
+
+  /**
+   * Writes a record with a schema the sink read from the registry, under the ID the registry gave
+   * for it.
+   *
+   * <p>The parent serializer would otherwise rebuild a schema from the message's descriptor and ask
+   * the registry for its ID, by registering it (auto-registration on) or by looking it up. The
+   * rebuilt text need not match the registered text: Confluent renders a {@code map} field of a
+   * descriptor as a repeated {@code option map_entry} message, and with {@code normalize-schemas}
+   * (on by default) a lookup did not even find the registered text (cp-schema-registry 7.5.0).
+   * The lookup then fails with "Schema not found" (error code 40403), and registration adds a new
+   * version (#210). The schema already came from the subject, so there is nothing to look up or
+   * register: the record is written as if {@code use-schema-id} named that ID.
+   *
+   * <p>The parent still picks the ID, from the registered schema rather than a rebuilt one, when
+   * {@code use-schema-id} or {@code use.latest.with.metadata} is configured, and while the subject
+   * the schema was read from is gone from the registry (see {@link #lookupSchema}).
+   */
+  private synchronized byte[] serializeRegistered(
+      String topic, WriteSchema schema, DynamicMessage message) {
+    if (schema.schemaId < 0 || useSchemaId >= 0 || metadata != null) {
+      return serializeImpl(schema.subject, topic, isKey, null, message, schema.registered);
+    }
+    boolean autoRegister = autoRegisterSchema;
+    autoRegisterSchema = false;
+    useSchemaId = schema.schemaId;
+    try {
+      return serializeImpl(schema.subject, topic, isKey, null, message, schema.registered);
+    } finally {
+      useSchemaId = -1;
+      autoRegisterSchema = autoRegister;
+    }
   }
 
   /** Number of cached converters; exposed for tests that check the cache stays bounded. */
@@ -353,9 +409,49 @@ public final class RowDataProtoSerializer extends KafkaProtobufSerializer<Dynami
     return converters.size();
   }
 
+  /**
+   * A descriptor to encode rows with and, when it was read from the registry, the subject, the
+   * schema as registered there and its ID.
+   */
+  private static final class WriteSchema {
+    private final Descriptors.Descriptor descriptor;
+    @Nullable
+    private final String subject;
+    @Nullable
+    private final ProtobufSchema registered;
+    private final int schemaId;
+
+    private WriteSchema(
+        Descriptors.Descriptor descriptor,
+        @Nullable String subject,
+        @Nullable ProtobufSchema registered,
+        int schemaId) {
+      this.descriptor = descriptor;
+      this.subject = subject;
+      this.registered = registered;
+      this.schemaId = schemaId;
+    }
+
+    /** A schema the sink did not read from the registry: a message class or the Row type. */
+    static WriteSchema unregistered(Descriptors.Descriptor descriptor) {
+      return new WriteSchema(descriptor, null, null, -1);
+    }
+
+    /** The schema registered under {@code subject} with ID {@code schemaId}. */
+    static WriteSchema registered(
+        Descriptors.Descriptor descriptor, String subject, ProtobufSchema schema, int schemaId) {
+      return new WriteSchema(descriptor, subject, schema, schemaId);
+    }
+
+    /** This schema with another ID; {@code -1} when no ID is known to be valid for the subject. */
+    WriteSchema withSchemaId(int id) {
+      return id == schemaId ? this : new WriteSchema(descriptor, subject, registered, id);
+    }
+  }
+
   /** The latest schema of a subject as last read from the registry. */
   private static final class CachedSchema {
-    private final Descriptors.Descriptor descriptor;
+    private final WriteSchema schema;
     private final int schemaId;
     private final int version;
     private final long checkedAtNanos;
@@ -364,12 +460,12 @@ public final class RowDataProtoSerializer extends KafkaProtobufSerializer<Dynami
     private final long recheckAfterNanos;
 
     CachedSchema(
-        Descriptors.Descriptor descriptor,
+        WriteSchema schema,
         int schemaId,
         int version,
         long checkedAtNanos,
         long recheckAfterNanos) {
-      this.descriptor = descriptor;
+      this.schema = schema;
       this.schemaId = schemaId;
       this.version = version;
       this.checkedAtNanos = checkedAtNanos;
@@ -386,18 +482,30 @@ public final class RowDataProtoSerializer extends KafkaProtobufSerializer<Dynami
     }
 
     CachedSchema checkedAt(long nowNanos, long nextRecheckAfterNanos) {
-      return new CachedSchema(descriptor, schemaId, version, nowNanos, nextRecheckAfterNanos);
+      return new CachedSchema(schema, schemaId, version, nowNanos, nextRecheckAfterNanos);
+    }
+
+    /** This entry, checked now against a registry that still has the schema under the subject. */
+    CachedSchema confirmedAt(long nowNanos, long nextRecheckAfterNanos) {
+      return new CachedSchema(
+          schema.withSchemaId(schemaId), schemaId, version, nowNanos, nextRecheckAfterNanos);
+    }
+
+    /** This entry, serving its schema without an ID once the subject is gone from the registry. */
+    CachedSchema withoutConfirmedId() {
+      return new CachedSchema(
+          schema.withSchemaId(-1), schemaId, version, checkedAtNanos, recheckAfterNanos);
     }
   }
 
-  /** A Row type and the descriptor derived from it. */
+  /** A Row type and the schema derived from it. */
   private static final class RowDerivedSchema {
     private final RowType rowType;
-    private final Descriptors.Descriptor descriptor;
+    private final WriteSchema schema;
 
-    RowDerivedSchema(RowType rowType, Descriptors.Descriptor descriptor) {
+    RowDerivedSchema(RowType rowType, WriteSchema schema) {
       this.rowType = rowType;
-      this.descriptor = descriptor;
+      this.schema = schema;
     }
   }
 }
