@@ -1,6 +1,7 @@
 package com.bbrownsound.flink.formats.proto.registry.confluent.deserialize;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -135,6 +136,26 @@ class ProtoRowDataDeserializationSchemaMessageTypeTest {
         cause.getMessage().contains("'com.bbrownsound.flink.formats.proto.test.v1.MapTest'"),
         cause.getMessage());
     assertTrue(cause.getMessage().contains("expects '" + SIMPLE + "'"), cause.getMessage());
+  }
+
+  @Test
+  void messageName_otherMessageWithoutATopic_namesNoTopic() {
+    // GitHub issue #212: a source with 'subject' and no 'topic' (for example a 'topic-pattern'
+    // table) does not know the record's topic, so the error must not claim the topic is 'null'.
+    ProtoConfluentFormatConfig config = config(SIMPLE, null);
+    config.topic = null;
+    config.subject = "orders-value";
+    var schema = schema(SIMPLE_ROW, config);
+    schema.open(null);
+    IOException e = assertThrows(IOException.class, () -> schema.deserialize(mapRecord));
+    UnexpectedMessageTypeException cause =
+        assertInstanceOf(UnexpectedMessageTypeException.class, e.getCause());
+    assertTrue(
+        cause
+            .getMessage()
+            .startsWith("record is a 'com.bbrownsound.flink.formats.proto.test.v1.MapTest'"),
+        cause.getMessage());
+    assertFalse(cause.getMessage().contains("null"), cause.getMessage());
   }
 
   @Test

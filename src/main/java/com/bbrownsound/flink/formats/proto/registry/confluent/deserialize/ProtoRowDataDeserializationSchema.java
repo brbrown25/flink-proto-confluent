@@ -407,8 +407,14 @@ public class ProtoRowDataDeserializationSchema
     dlqRecord
         .headers()
         .add(new RecordHeader("error.class", utf8(error.getClass().getName())))
-        .add(new RecordHeader("error.message", utf8(String.valueOf(error.getMessage()))))
-        .add(new RecordHeader("source.topic", utf8(String.valueOf(formatConfig.topic))));
+        .add(new RecordHeader("error.message", utf8(String.valueOf(error.getMessage()))));
+    // A value format is handed only the record's bytes, never the topic it was read from, so the
+    // header holds the configured topic. A source with 'subject' and no 'topic' (for example a
+    // 'topic-pattern' table) has none: the header is left out rather than set to "null" (GitHub
+    // issue #212).
+    if (formatConfig.topic != null) {
+      dlqRecord.headers().add(new RecordHeader("source.topic", utf8(formatConfig.topic)));
+    }
     final boolean sync = formatConfig.deadLetterDelivery == DeadLetterDelivery.SYNC;
     try {
       final Future<RecordMetadata> ack =

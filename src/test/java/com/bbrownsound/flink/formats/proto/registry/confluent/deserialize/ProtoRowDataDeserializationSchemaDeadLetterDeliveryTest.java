@@ -33,6 +33,7 @@ import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.errors.TimeoutException;
+import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -105,6 +106,53 @@ class ProtoRowDataDeserializationSchemaDeadLetterDeliveryTest {
     assertArrayEquals(POISON, sent.value());
     assertEquals("source-topic", header(sent, "source.topic"));
     assertFalse(header(sent, "error.class").isEmpty());
+  }
+
+  @Test
+  void subjectWithoutTopic_leavesTheSourceTopicHeaderOut() throws IOException {
+    // GitHub issue #212: a 'topic-pattern' table names its subject and has no single topic. The
+    // format is never told which topic a record came from, so there is no topic to report, and the
+    // header used to hold the string "null".
+    Fixture f =
+        new Fixture(
+            null,
+            OnDeserializeError.SKIP,
+            true,
+            new RecordingClassLoader(),
+            null,
+            "orders-value");
+    assertNull(f.config.topic);
+    assertEquals("orders-value", f.config.subject);
+    f.open();
+
+    assertNull(f.schema.deserialize(POISON));
+
+    ProducerRecord<byte[], byte[]> sent = f.producer.history().get(0);
+    assertArrayEquals(POISON, sent.value());
+    assertNull(sent.headers().lastHeader("source.topic"), "No topic, so no source.topic header");
+    for (Header h : sent.headers()) {
+      assertNotEquals("null", new String(h.value(), StandardCharsets.UTF_8), h.key());
+    }
+    assertFalse(header(sent, "error.class").isEmpty());
+    assertFalse(header(sent, "error.message").isEmpty());
+    assertEquals(1L, f.count(RECORDS));
+  }
+
+  @Test
+  void topicAndSubject_keepTheConfiguredTopicInTheSourceTopicHeader() throws IOException {
+    Fixture f =
+        new Fixture(
+            null,
+            OnDeserializeError.SKIP,
+            true,
+            new RecordingClassLoader(),
+            "orders",
+            "orders-value");
+    f.open();
+
+    assertNull(f.schema.deserialize(POISON));
+
+    assertEquals("orders", header(f.producer.history().get(0), "source.topic"));
   }
 
   @Test
@@ -362,9 +410,24 @@ class ProtoRowDataDeserializationSchemaDeadLetterDeliveryTest {
         OnDeserializeError onError,
         boolean autoComplete,
         RecordingClassLoader loader) {
+      this(delivery, onError, autoComplete, loader, "source-topic", null);
+    }
+
+    Fixture(
+        String delivery,
+        OnDeserializeError onError,
+        boolean autoComplete,
+        RecordingClassLoader loader,
+        String topic,
+        String subject) {
       Configuration options = new Configuration();
       options.set(ProtoConfluentFormatOptions.URL, "http://localhost:8081");
-      options.set(ProtoConfluentFormatOptions.TOPIC, "source-topic");
+      if (topic != null) {
+        options.set(ProtoConfluentFormatOptions.TOPIC, topic);
+      }
+      if (subject != null) {
+        options.set(ProtoConfluentFormatOptions.SUBJECT, subject);
+      }
       options.set(ProtoConfluentFormatOptions.ON_DESERIALIZE_ERROR, onError);
       options.set(ProtoConfluentFormatOptions.DEAD_LETTER_TOPIC, "dlq");
       options.set(
