@@ -6,7 +6,7 @@ Each workflow owns a distinct slice of the pipeline so that no Gradle task runs 
 
 | Workflow | Trigger | Owns |
 | --- | --- | --- |
-| `pr-checks.yml` | `pull_request` | All pull-request signal: lint, build/JAR check per Flink line, dependency review, the JDK 17 + 21 × Flink 1.20 + 2.x unit-test matrix, one integration-test run per Flink line on the primary JDK (coverage from the Flink 1.20 leg only), and the `ci-ok` aggregate. |
+| `pr-checks.yml` | `pull_request` | All pull-request signal: lint, build/JAR check per Flink line, dependency review, the JDK 17 + 21 × Flink 1.20 + 2.x unit-test matrix, one integration-test run per Flink line on the primary JDK (coverage from the Flink 1.20 leg only), the public API compatibility check per Flink line, and the `ci-ok` aggregate. |
 | `ci.yml` | `push` to `main`/`master`, `workflow_dispatch` | The canonical post-merge build: one job per Flink line that builds and runs unit + integration tests (the Flink 1.20 leg also verifies coverage and uploads to Codecov), plus a parallel lint job. |
 | `publish-snapshot.yml` | `workflow_run` after a successful **CI** run on `main`/`master`, `workflow_dispatch` | Publishing SHA-qualified snapshots (`X.Y.Z-<shortsha>-SNAPSHOT`). It does not re-test: it is gated on the CI run for the same SHA. Skips release commits. |
 | `release-please.yml` | `push` to `main`, `workflow_dispatch` | Maintaining the `chore(release): X.Y.Z` pull request, and on its merge creating the tag and the GitHub Release. |
@@ -27,6 +27,7 @@ Each workflow owns a distinct slice of the pipeline so that no Gradle task runs 
 | `integrationTest` | `pr-checks.yml` → `integration-tests` (primary JDK, per Flink line) | `ci.yml` → `build` (per Flink line) |
 | `jacocoTestReport`, `jacocoTestCoverageVerification` | `pr-checks.yml` → `integration-tests` (Flink 1.20 leg) | `ci.yml` → `build` (Flink 1.20 leg) |
 | Checkstyle / SpotBugs / Spotless | `pr-checks.yml` → `lint` (per Flink line) | `ci.yml` → `checkstyle` (per Flink line) |
+| `japicmp` (public API compatibility) | `pr-checks.yml` → `api-compat` (per Flink line) | not run: it guards the change before it lands |
 
 ## Flink lines and the `ci-ok` check
 
@@ -74,7 +75,48 @@ The suites pull `confluentinc/cp-kafka`, `confluentinc/cp-schema-registry` and `
 
 `ci.yml` and `pr-checks.yml` each declare a `concurrency` group with `cancel-in-progress: true` — keyed on the ref for `ci.yml` and on the pull-request number for `pr-checks.yml` — so pushing several commits in quick succession leaves only the newest pipeline running.
 
-Documentation-only changes skip the heavy jobs. `ci.yml` uses `paths-ignore` on its `push` trigger. `pr-checks.yml` cannot use `paths-ignore` without leaving required checks permanently pending, so it instead runs a cheap `changes` job that diffs the PR against its base and exports `code=true|false`; `lint`, `build-check`, `test-matrix` and `integration-tests` all gate on it. A docs-only PR therefore reports those checks as skipped rather than absent. Both filters treat `docs/`, any `*.md`, `LICENSE`, `NOTICE` and `.gitignore` as documentation; anything else — including `.github/` itself — counts as code.
+Documentation-only changes skip the heavy jobs. `ci.yml` uses `paths-ignore` on its `push` trigger. `pr-checks.yml` cannot use `paths-ignore` without leaving required checks permanently pending, so it instead runs a cheap `changes` job that diffs the PR against its base and exports `code=true|false`; `lint`, `build-check`, `api-compat`, `test-matrix` and `integration-tests` all gate on it. A docs-only PR therefore reports those checks as skipped rather than absent. Both filters treat `docs/`, any `*.md`, `LICENSE`, `NOTICE` and `.gitignore` as documentation; anything else — including `.github/` itself — counts as code.
+
+## API compatibility check
+
+A minor or patch release must not break code written against the previous one. release-please derives the next version from the commit types, so nothing but this check stops a `feat(...)` that removes a public method from shipping as a minor release (#220).
+
+`pr-checks.yml` → `api-compat` runs `./gradlew japicmp` once per Flink line. The task compares the thin JAR built for that line with the last release of the same line on Maven Central: `com.bbrownsound:<artifactId>:<releaseVersion>`, where the artifactId is `flink1.artifactId` or `flink2.artifactId` and `releaseVersion` is the line release-please maintains in `gradle.properties`. The self-contained `-all` JAR is never compared; its relocated packages are not API. It checks binary **and** source compatibility of the public API (below) and fails on any incompatible change: a removed or renamed class, method, field or `ConfigOption` constant, a changed signature, a method that now throws a checked exception, a new abstract method, and so on. Additions never fail it.
+
+### What counts as public API
+
+The public API is listed in one place, `publicApiPackages` and `publicApiClasses` in `build.gradle.kts`. It is what users reference from Java, from SQL option strings or from the documentation:
+
+| Public | Why |
+| --- | --- |
+| `RegistryProtoFormatFactory`, `ProtoConfluentFormatOptions` | The format's entry point and its `ConfigOption`s. |
+| `config.*` (`ProtoConfluentFormatConfig`, `OnDeserializeError`, `DeadLetterDelivery`) | The format configuration and the values its options map to. |
+| `catalog.*` (`SchemaRegistryCatalog`, its factory, options and config) | The Schema Registry catalog, created from SQL or Java. |
+| `subject.*` (`SubjectNameStrategies`, `FixedSubjectNameStrategy`) | Named by class in subject-name-strategy options. |
+| `schema.*` (`SchemaRegistrySchemaResolver`, `ResolvedProtoSchema`, `SchemaRegistryClients`, `SchemaResolutionException`) | Documented Java API for resolving a schema outside a job ([Generate DDL](content/how-to/generate-ddl.md)). |
+| `util.ProtoToTableDDL`, `util.ProtoToLogicalType`, `util.ProtoToSqlType`, `util.RecursionStrategy` | Documented Java API for deriving DDL and Flink types ([Type mapping](content/reference/type-mapping.md)). |
+| `deserialize.UnexpectedMessageTypeException` | Reaches users as the cause of a deserialize error. |
+
+Everything else is internal and may change in any release: the decoding and encoding formats the factory hands to Flink (`ProtoDecodingFormat`, `ProtoEncodingFormat`), the (de)serialization schemas and converters, `metrics`, the `ddl` command line tool (`cli`; its command line is its interface, not its classes), and the rest of `util`. Only public and protected members of public classes are compared. To make something public API, add it to the lists in the same pull request that documents it.
+
+### Declaring an intentional break
+
+The check passes with incompatible changes only when the pull request declares a breaking change the way Conventional Commits does, which is also what makes release-please bump the **major** version:
+
+- `!` right before the colon, in the pull request title or a commit subject: `feat(api)!: remove printTableSchemaFromProto. #123`;
+- or a `BREAKING CHANGE: <what breaks and what to do instead>` footer in a commit message.
+
+`.github/scripts/breaking-change-declared.sh` makes that decision (its tests, `breaking-change-declared.test.sh`, run first in the same job) and the job passes `-Pjapicmp.acceptBreaking=true` to Gradle when a marker is present. The job reads the title from the GitHub API, not from the event that started the run, so after adding `!` to the title, re-run the failed `api compatibility` jobs (and with them `ci-ok`); a new push works too. release-please reads the commits that land on `main`, so the marker must be in what lands: a rebase merge lands the commits as written, while a squash merge takes its subject from the title when the pull request has several commits (and from the commit when it has one). When only the title carries the marker the job prints a warning saying so.
+
+A declared break still has to be recorded. Add each incompatible element to `acceptedBreaks` in `build.gradle.kts`, under the baseline version it breaks, with a comment naming the issue or pull request; the job summary and `build/reports/japicmp/japicmp.md` list the exact entries to paste. Entries for a baseline stop applying once release-please moves `releaseVersion` past it, so they never hide a later change to the same element.
+
+### Reports and skipped runs
+
+The task writes `build/reports/japicmp/japicmp.md` (only the incompatible changes, or a line saying there are none) and `japicmp.html` / `japicmp.xml` (every changed element of the public API, each marked compatible or not). The job appends the Markdown report to its job summary and uploads the directory as the `japicmp-flink<version>` artifact.
+
+When the baseline does not exist on Maven Central, the comparison is skipped with a log line and a report saying why, rather than failing. That is the case for the Flink 2 line (`flink-proto-confluent-flink2`) until its first release, and for both lines in the short window between merging a release pull request (which moves `releaseVersion`) and the release reaching Central. Any other resolution failure, such as no network, fails the task, so CI never passes a comparison it did not make.
+
+`japicmp` is not part of `check`, because it needs Maven Central. Run it locally with `./gradlew japicmp -PflinkVersion=1.20.5` (and `2.2.1`); add `-Pjapicmp.acceptBreaking=true` to see the report of a declared break without the failure.
 
 ## Coverage gates
 

@@ -1,5 +1,6 @@
 import java.util.jar.Manifest as JarManifest
 import java.util.zip.ZipFile
+import me.champeau.gradle.japicmp.JapicmpTask
 
 plugins {
     java
@@ -12,6 +13,7 @@ plugins {
     id("com.diffplug.spotless") version "8.11.0"
     id("com.github.spotbugs") version "6.5.13"
     id("me.champeau.jmh") version "0.7.3"
+    id("me.champeau.gradle.japicmp") version "0.4.6"
 }
 
 group = "com.bbrownsound"
@@ -372,6 +374,256 @@ val declaredProtobufTest = tasks.register<Test>("declaredProtobufTest") {
     // execution data to the coverage report.
     extensions.configure<org.gradle.testing.jacoco.plugins.JacocoTaskExtension> {
         isEnabled = false
+    }
+}
+
+// API compatibility check (issue #220). `japicmp` compares the thin JAR of the current Flink line
+// with the last release of that line's artifact on Maven Central (`releaseVersion`, owned by
+// release-please) and fails on any binary or source incompatible change to the public API. The
+// shadow (-all) JAR is never compared: the relocated packages in it are not API. CI runs it on
+// every pull request for both Flink lines and lets it pass only when the pull request declares the
+// break (`!` after the type/scope, or a `BREAKING CHANGE:` footer), which makes release-please bump
+// the major version; locally, -Pjapicmp.acceptBreaking=true does the same. It is not part of
+// `check`, because it needs Maven Central. See docs/ci.md and CONTRIBUTING.md.
+//
+// The public API is listed here, and only here. Everything else in the JAR (the decoding and
+// encoding formats the factory hands to Flink, the converters, the (de)serialization schemas, the
+// metrics, the `ddl` command line tool and the rest of `util`) is internal and may change in any
+// release. A class or package added to the list below becomes subject to the check.
+val apiBasePackage = "com.bbrownsound.flink.formats.proto.registry.confluent"
+val publicApiPackages = listOf(
+    // ProtoConfluentFormatConfig and the enums its options map to.
+    "$apiBasePackage.config",
+    // SchemaRegistryCatalog, its factory, options and config.
+    "$apiBasePackage.catalog",
+    // SubjectNameStrategies and FixedSubjectNameStrategy, which users name in option strings.
+    "$apiBasePackage.subject",
+    // SchemaRegistrySchemaResolver, ResolvedProtoSchema, SchemaRegistryClients: documented Java API
+    // for deriving a schema outside a Flink job (docs/content/how-to/generate-ddl.md).
+    "$apiBasePackage.schema",
+)
+val publicApiClasses = listOf(
+    "$apiBasePackage.RegistryProtoFormatFactory",
+    "$apiBasePackage.ProtoConfluentFormatOptions",
+    // Surfaces to users as the cause of a deserialize error.
+    "$apiBasePackage.deserialize.UnexpectedMessageTypeException",
+    // Documented Java API for deriving DDL and Flink types (generate-ddl.md, type-mapping.md).
+    "$apiBasePackage.util.ProtoToTableDDL",
+    "$apiBasePackage.util.ProtoToLogicalType",
+    "$apiBasePackage.util.ProtoToSqlType",
+    "$apiBasePackage.util.RecursionStrategy",
+).flatMap { listOf(it, "$it\$*") }
+
+// Intentional breaks, keyed by the baseline version they break. An entry is a japicmp method,
+// field or class exclusion, with a comment naming the issue or pull request that made the break.
+// Entries for a baseline stop applying once release-please moves `releaseVersion` past it, so the
+// list never hides a later change to the same member. Record a break here only together with a
+// breaking-change marker on the pull request (see CONTRIBUTING.md).
+data class AcceptedBreaks(
+    val methods: List<String> = emptyList(),
+    val fields: List<String> = emptyList(),
+    val classes: List<String> = emptyList(),
+)
+val acceptedBreaks: Map<String, AcceptedBreaks> = mapOf(
+    // None: nothing on main since 1.2.0 changes the public API incompatibly (checked for #220).
+    // Shape of an entry, as the japicmp report prints it:
+    //   methods = listOf(
+    //       // #123: printTableSchemaFromProto removed, use tableSchemaFromProto.
+    //       "com.bbrownsound.flink.formats.proto.registry.confluent.util.ProtoToTableDDL" +
+    //           "#printTableSchemaFromProto(java.lang.Class)",
+    //   ),
+    "1.2.0" to AcceptedBreaks(),
+)
+val acceptedForBaseline = acceptedBreaks[releaseVersion] ?: AcceptedBreaks()
+
+val japicmpBaselineCoordinates = "${project.group}:$publishedArtifactId:$releaseVersion"
+// Detached, so the baseline's own coordinates never resolve to this project, and non-transitive:
+// only the JAR is compared. Resolution is lenient, so a line with no release yet (the artifact is
+// absent from Central) skips the check instead of failing it.
+val japicmpBaseline = configurations.detachedConfiguration(
+    dependencies.create("$japicmpBaselineCoordinates@jar")
+).apply { isTransitive = false }
+val japicmpBaselineArtifacts = japicmpBaseline.incoming.artifactView { isLenient = true }.artifacts
+
+/**
+ * One element of the public API with incompatible changes: the element, the japicmp change types,
+ * and the acceptedBreaks entry that would exclude it.
+ */
+data class ApiBreak(
+    val element: String,
+    val changes: List<String>,
+    val binaryCompatible: Boolean,
+    val sourceCompatible: Boolean,
+    val exclusion: String,
+)
+
+/**
+ * Reads the incompatible changes out of japicmp's XML report. The XML is the source of truth
+ * because japicmp's own "only incompatible" filter and failure flag see binary changes only, and
+ * miss changes that are only source incompatible, such as a method that now throws a checked
+ * exception.
+ */
+fun readApiBreaks(xml: File): List<ApiBreak> {
+    val doc = javax.xml.parsers.DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(xml)
+    fun org.w3c.dom.Node.ancestor(vararg tags: String): org.w3c.dom.Element? =
+        generateSequence(parentNode) { it.parentNode }
+            .filterIsInstance<org.w3c.dom.Element>()
+            .firstOrNull { it.tagName in tags }
+    fun org.w3c.dom.Element.parameterTypes(): String {
+        val parameters = getElementsByTagName("parameters").item(0) as? org.w3c.dom.Element
+            ?: return ""
+        val list = parameters.getElementsByTagName("parameter")
+        return (0 until list.length).joinToString(",") {
+            (list.item(it) as org.w3c.dom.Element).getAttribute("type")
+        }
+    }
+    val changes = doc.getElementsByTagName("compatibilityChange")
+    val byElement = linkedMapOf<String, ApiBreak>()
+    for (i in 0 until changes.length) {
+        val change = changes.item(i) as org.w3c.dom.Element
+        val binary = change.getAttribute("binaryCompatible").toBoolean()
+        val source = change.getAttribute("sourceCompatible").toBoolean()
+        if (binary && source) continue
+        val owner = change.ancestor("method", "constructor", "field", "class") ?: continue
+        val classElement = (if (owner.tagName == "class") owner else owner.ancestor("class"))
+            ?: continue
+        // A class that is new since the baseline cannot break a caller; japicmp still reports,
+        // for example, the abstract methods of the interfaces it implements as "added".
+        if (classElement.getAttribute("changeStatus") == "NEW") continue
+        val cls = classElement.getAttribute("fullyQualifiedName")
+        val (list, element) = when (owner.tagName) {
+            "method", "constructor" ->
+                "methods" to "$cls#${owner.getAttribute("name")}(${owner.parameterTypes()})"
+            "field" -> "fields" to "$cls#${owner.getAttribute("name")}"
+            else -> "classes" to cls
+        }
+        // Written as a Kotlin string literal, ready to paste into acceptedBreaks.
+        val exclusion = "$list: \"${element.replace("$", "\\$")}\""
+        val previous = byElement[element]
+        byElement[element] = ApiBreak(
+            element,
+            ((previous?.changes ?: emptyList()) + change.getAttribute("type")).distinct(),
+            (previous?.binaryCompatible ?: true) && binary,
+            (previous?.sourceCompatible ?: true) && source,
+            exclusion,
+        )
+    }
+    return byElement.values.toList()
+}
+
+tasks.register<JapicmpTask>("japicmp") {
+    description = "Checks the public API for incompatible changes against the last release."
+    group = "verification"
+    val baseline = japicmpBaselineArtifacts
+    val coordinates = japicmpBaselineCoordinates
+    val baselineVersion = releaseVersion
+    oldArchives.from(baseline.artifactFiles)
+    oldClasspath.from(configurations.compileClasspath)
+    newArchives.from(tasks.jar.flatMap { it.archiveFile })
+    newClasspath.from(configurations.compileClasspath)
+    packageIncludes.set(publicApiPackages)
+    classIncludes.set(publicApiClasses)
+    methodExcludes.set(acceptedForBaseline.methods)
+    fieldExcludes.set(acceptedForBaseline.fields)
+    classExcludes.set(acceptedForBaseline.classes)
+    accessModifier.set("protected")
+    onlyModified.set(true)
+    // japicmp's own failure flags and "only incompatible" filter see binary changes only. The
+    // action below fails on binary and source incompatible changes alike, read from the XML report.
+    onlyBinaryIncompatibleModified.set(false)
+    failOnModification.set(false)
+    failOnSourceIncompatibility.set(false)
+    val acceptBreaking = providers.gradleProperty("japicmp.acceptBreaking")
+        .map { it.toBoolean() }.orElse(false)
+    inputs.property("acceptBreaking", acceptBreaking)
+    val reports = layout.buildDirectory.dir("reports/japicmp")
+    // Every changed element of the public API, each marked binary/source compatible or not.
+    htmlOutputFile.set(reports.map { it.file("japicmp.html") })
+    xmlOutputFile.set(reports.map { it.file("japicmp.xml") })
+    // Only the incompatible changes. CI posts it as the job summary.
+    val markdown = reports.map { it.file("japicmp.md") }
+    outputs.file(markdown)
+    onlyIf("the baseline $coordinates is on Maven Central") {
+        val failures = baseline.failures
+        if (failures.isEmpty()) {
+            return@onlyIf true
+        }
+        // Only "this version does not exist" means there is no baseline. Anything else (no network,
+        // a 5xx after Gradle's retries) fails, so CI never passes a check it did not run.
+        val notFound = failures.all { failure ->
+            generateSequence(failure) { it.cause }
+                .any { it.javaClass.simpleName == "ModuleVersionNotFoundException" }
+        }
+        if (!notFound) {
+            throw GradleException(
+                "japicmp: could not resolve the baseline $coordinates. Check the network or " +
+                    "the Maven Central status and retry.",
+                failures.first()
+            )
+        }
+        val reason = "$coordinates is not on Maven Central, so this Flink line has no released " +
+            "API to compare with yet. The check starts with the line's first release."
+        logger.lifecycle("japicmp: SKIPPED. $reason")
+        // Replaces any earlier report, which would describe a different build.
+        markdown.get().asFile.apply { parentFile.mkdirs() }.writeText(
+            "## Public API compatibility with $coordinates\n\nSkipped: $reason\n"
+        )
+        false
+    }
+    doLast {
+        val breaks = readApiBreaks(xmlOutputFile.get().asFile)
+        fun verdict(compatible: Boolean) = if (compatible) "compatible" else "**incompatible**"
+        val report = buildString {
+            appendLine("## Public API compatibility with $coordinates")
+            appendLine()
+            if (breaks.isEmpty()) {
+                appendLine("No binary or source incompatible changes to the public API.")
+                return@buildString
+            }
+            appendLine(
+                "${breaks.size} element(s) of the public API changed incompatibly. Merging needs " +
+                    "a breaking-change marker on the pull request, so that the next release is a " +
+                    "major version (see CONTRIBUTING.md)."
+            )
+            appendLine()
+            appendLine("| Element | Change | Binary | Source |")
+            appendLine("| --- | --- | --- | --- |")
+            breaks.forEach {
+                appendLine(
+                    "| `${it.element}` | ${it.changes.joinToString(", ")} | " +
+                        "${verdict(it.binaryCompatible)} | ${verdict(it.sourceCompatible)} |"
+                )
+            }
+            appendLine()
+            appendLine(
+                "To accept an intentional break, add its entry to " +
+                    "`acceptedBreaks[\"$baselineVersion\"]` in `build.gradle.kts`, with a comment " +
+                    "naming the issue:"
+            )
+            appendLine()
+            appendLine("```")
+            breaks.forEach { appendLine(it.exclusion) }
+            appendLine("```")
+        }
+        markdown.get().asFile.writeText(report)
+        if (breaks.isEmpty()) {
+            logger.lifecycle("japicmp: no incompatible changes to the public API since $coordinates.")
+            return@doLast
+        }
+        val list = breaks.joinToString("\n") { "  - ${it.element}: ${it.changes.joinToString()}" }
+        if (acceptBreaking.get()) {
+            logger.warn(
+                "japicmp: ${breaks.size} incompatible change(s) since $coordinates, accepted " +
+                    "because japicmp.acceptBreaking=true:\n$list"
+            )
+        } else {
+            throw GradleException(
+                "japicmp: ${breaks.size} incompatible change(s) to the public API since " +
+                    "$coordinates:\n$list\nSee ${markdown.get().asFile}. Restore compatibility, " +
+                    "or declare the break (see CONTRIBUTING.md) and run with " +
+                    "-Pjapicmp.acceptBreaking=true."
+            )
+        }
     }
 }
 

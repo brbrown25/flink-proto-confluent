@@ -122,6 +122,77 @@ jobs:
         ./gradlew -PflinkVersion=${{ matrix.flink }} verifyJars
         ls -l build/libs
 
+  # Public API compatibility per Flink line (#220): japicmp compares the thin JAR with the line's
+  # last release on Maven Central and fails on a binary or source incompatible change, unless the
+  # pull request declares a breaking change (`!` after the type/scope in the title or a commit
+  # subject, or a `BREAKING CHANGE:` footer), which makes release-please bump the major version.
+  # A line with no release yet skips the comparison. The title is read from the API rather than the
+  # event payload, so re-running the job after adding `!` to the title picks it up.
+  api-compat:
+    name: api compatibility (flink ${{ matrix.flink }})
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        flink: ['1.20.5', '2.2.1']
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Test the breaking-change detection
+      run: .github/scripts/breaking-change-declared.test.sh
+
+    - name: Detect a declared breaking change
+      id: breaking
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      run: |
+        set -euo pipefail
+        title=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json title --jq .title)
+        status=0
+        git log --format='%B%x1e' "$BASE_SHA..$HEAD_SHA" \
+          | .github/scripts/breaking-change-declared.sh "$title" || status=$?
+        case "$status" in
+          0) echo 'declared=true' >> "$GITHUB_OUTPUT" ;;
+          1) echo 'declared=false' >> "$GITHUB_OUTPUT" ;;
+          *) exit "$status" ;;
+        esac
+
+    - name: Setup build environment
+      uses: ./.github/actions/setup-build
+
+    - name: Check API compatibility against the last release (Flink ${{ matrix.flink }})
+      run: ./gradlew -PflinkVersion=${{ matrix.flink }} japicmp -Pjapicmp.acceptBreaking=${{ steps.breaking.outputs.declared }}
+
+    - name: Add the report to the job summary
+      if: always()
+      run: |
+        report=build/reports/japicmp/japicmp.md
+        if [ -f "$report" ]; then
+          cat "$report" >> "$GITHUB_STEP_SUMMARY"
+        else
+          echo 'No API compatibility report: the comparison did not run. See the japicmp step log.' >> "$GITHUB_STEP_SUMMARY"
+        fi
+        if [ '${{ steps.breaking.outputs.declared }}' = 'true' ]; then
+          printf '\nThis pull request declares a breaking change, so incompatible changes do not fail the check.\n' >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+    - name: Upload API compatibility reports
+      uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: japicmp-flink${{ matrix.flink }}
+        path: build/reports/japicmp/
+        if-no-files-found: ignore
+
   # Unit tests only, once per supported JDK x Flink line. integrationTest and
   # jacocoTestReport are excluded because `test` is wired to finalize with
   # jacocoTestReport, which depends on integrationTest -- without the
@@ -266,7 +337,7 @@ jobs:
   ci-ok:
     name: ci-ok
     runs-on: ubuntu-latest
-    needs: [changes, lint, build-check, test-matrix, integration-tests]
+    needs: [changes, lint, build-check, api-compat, test-matrix, integration-tests]
     if: always()
 
     steps:
