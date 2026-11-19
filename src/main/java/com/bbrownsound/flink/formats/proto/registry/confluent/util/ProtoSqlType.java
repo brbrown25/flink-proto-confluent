@@ -309,11 +309,10 @@ public final class ProtoSqlType {
       case FLOAT:
       case DOUBLE:
       case STRING:
-      case DATE:
-        sb.append(kind.name());
-        break;
       case BYTES:
-        sb.append("VARBINARY");
+      case DATE:
+        // BYTES is VARBINARY(2147483647); a bare VARBINARY would mean VARBINARY(1) (issue #222).
+        sb.append(kind.name());
         break;
       case DECIMAL:
         sb.append("DECIMAL(").append(precision).append(",").append(scale).append(")");

@@ -312,7 +312,7 @@ class ProtoConfluentCliTest {
   @Test
   void mapsARecursiveMessageAsBytes() throws Exception {
     assertEquals(0, treeColumns("--recursive-message", "bytes"));
-    assertEquals("`name` STRING,\n`child` VARBINARY\n", out());
+    assertEquals("`name` STRING,\n`child` BYTES\n", out());
   }
 
   @Test

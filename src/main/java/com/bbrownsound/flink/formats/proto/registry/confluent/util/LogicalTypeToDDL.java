@@ -136,7 +136,8 @@ public final class LogicalTypeToDDL {
         break;
       case VARBINARY:
       case BINARY:
-        sb.append("VARBINARY");
+        // BYTES is VARBINARY(2147483647); a bare VARBINARY would mean VARBINARY(1) (issue #222).
+        sb.append("BYTES");
         break;
       case BOOLEAN:
         sb.append("BOOLEAN");
