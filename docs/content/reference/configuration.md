@@ -115,4 +115,21 @@ The decoding format supports projection pushdown. When the connector pushes the 
 - **Nested fields, when the connector pushes them.** The format also accepts nested projections (its `supportsNestedProjection()` returns `true`): for `SELECT payload.a FROM wide_table`, a connector that pushes nested projections into its format hands the decoder the path `payload.a`, and the decoder walks each record's message to that field without converting the other fields of `payload`. `EXPLAIN` then shows the flattened column the planner generates for the path, for example `project=[payload_a]`. The path is matched to the message by the declared column names along it (a column named after a `oneof` reads that oneof, whose columns are its cases by position), the same way a full read matches it, and it reads NULL where a full read of the `ROW` column would: when a message along the path is unset, when a oneof case along it is not the one set, or when the writer's message has no field for it. A message column declared with a [declared alternative](type-mapping.md#declared-alternatives) such as `STRING` or `BYTES` is not a `ROW`, so a path ends there and reads the whole message.
 - **Top-level columns only with the `filesystem` and Kafka connectors.** Neither connector pushes nested projections (the `filesystem` connector's `supportsNestedProjection()` returns `false` in Flink 1.20 and 2.2), so with them a query that reads part of a nested `ROW` column (`SELECT f.x FROM wide_table`) pushes down the whole column `f`, and `f` is converted in full. Declaring the `ROW` column with only the fields the job reads (`f ROW<x STRING>`) keeps that cost down, as fields a `ROW` does not declare are never converted.
 - **The connector decides.** Only a connector that pushes projections into its format benefits, such as the `filesystem` connector. The Kafka connector (`3.4.0-1.20` and `5.0.0-2.2`) does not push projections into its sources, so a Kafka table still converts every value column it declares; declare only the columns the job needs to keep that cost down.
+- **Kafka tables: declare only what the job reads.** Until the Kafka connector supports projection pushdown (tracked upstream as [FLINK-32609](https://issues.apache.org/jira/browse/FLINK-32609), part of [FLINK-32607](https://issues.apache.org/jira/browse/FLINK-32607)), the way to skip unread fields on a Kafka table is to leave them out of its DDL: a column the table does not declare, and a field a `ROW` column does not declare, is never converted. Declare one table per access pattern if jobs read different subsets of the same topic. For example, a job that only needs the order ID and one field of a wide `payload` message can read the topic through:
+
+  ```sql
+  CREATE TABLE orders_slim (
+    id STRING,
+    payload ROW<a BIGINT>
+  ) WITH (
+    'connector' = 'kafka',
+    'topic' = 'orders',
+    'properties.bootstrap.servers' = 'localhost:9092',
+    'scan.startup.mode' = 'earliest-offset',
+    'value.format' = 'proto-confluent',
+    'value.proto-confluent.url' = 'http://localhost:8081'
+  );
+  ```
+
+  The message's other fields are still parsed (the Protobuf payload is decoded in full before any column is read), but none of them is converted into the row. With `message-class`, the check covers exactly the declared columns, so a slim table still fails fast on a column that does not match the message.
 - **`message-class` checks follow the projection.** With pushdown, the source decoder is built for the projected columns, so the [message-class column check](../how-to/message-class.md#read-with-a-message-class) covers those columns in a streaming query. In batch mode the planner also builds the decoder for the whole table while it validates the source, so every column is still checked there.
