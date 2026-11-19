@@ -27,6 +27,24 @@ public final class InMemoryDeserializationSchema extends ProtoRowDataDeserializa
     this.registry = registry;
   }
 
+  /**
+   * Creates the schema for a nested projection of a table, as {@code ProtoDecodingFormat} builds it
+   * for one.
+   *
+   * @param physicalRowType the table's physical row type
+   * @param projections the projected paths into {@code physicalRowType}, one per produced column
+   * @param config the format config
+   * @param registry the in-memory registry the writer schemas are looked up in
+   */
+  public InMemoryDeserializationSchema(
+      RowType physicalRowType,
+      int[][] projections,
+      ProtoConfluentFormatConfig config,
+      SchemaRegistryClient registry) {
+    super(physicalRowType, projections, null, config);
+    this.registry = registry;
+  }
+
   @Override
   SchemaRegistryClient createSchemaRegistryClient(InitializationContext context) {
     return registry;

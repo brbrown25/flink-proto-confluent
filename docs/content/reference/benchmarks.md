@@ -17,8 +17,9 @@ Each benchmark runs over the test messages the unit tests use, with one fully po
 | `BIG` | `BigPbMessage` (`test_big.proto`) | 28 scalar fields covering every protobuf scalar type. |
 | `REPEATED_NESTED` | `RepeatedMessageTest` (`test_repeated_nested.proto`) | One nested message with two scalars. |
 | `MAP` | `MapTest` (`test_map.proto`) | A `map<string, string>` and a `map<string, NestedMap>`, five entries each. The table pins `message-class`, because `MapTest` is not the first message in its file. |
+| `NESTED` | `NestedProjectionTest` (`test_nested_projection.proto`) | An ID, then a wide nested `payload` message of 24 fields (scalars, a nested message, a oneof, a repeated string and a two-entry map), a oneof, a wrapper and a repeated message. Deserialize benchmark only. |
 
-The serialize benchmark writes the row the source produces for the same sample, so the two directions run over the same data. The deserialize benchmark also has a `shape` parameter for how the table reads the record: `FULL` (every field is a column) and `PROJECTED` (the query reads only the first two top-level columns and the planner pushed that projection into the format, see [projection pushdown](configuration.md#projection-pushdown)).
+The serialize benchmark writes the row the source produces for the same sample, so the two directions run over the same data. The deserialize benchmark also has a `shape` parameter for how the table reads the record: `FULL` (every field is a column) and `PROJECTED` (the query reads only the first two top-level columns and the planner pushed that projection into the format, see [projection pushdown](configuration.md#projection-pushdown)). A third shape, `NESTED_PROJECTED`, reads the same two columns but only the first field of each `ROW` column among them (`payload.a` instead of `payload`), as a connector that pushes nested projections into the format builds the source; for a message with no `ROW` column among its first two it reads the same as `PROJECTED`.
 
 Schema Registry is kept out of the measurement. The schema is registered in Confluent's in-memory `MockSchemaRegistryClient` during setup, the format is handed that client through its client seam, and the first record is read or written during setup so the writer-schema lookup and the converter build are done before measuring starts. Repeated schema and ID lookups are answered from memory, as the production `CachedSchemaRegistryClient` answers them; the mock alone would normalize the schema on every serialize call, which costs tens of microseconds per record and is work the production client caches. Every other format option has its production default, and the schemas are opened without a Flink context, so no metrics are registered. No SLF4J provider is on the benchmark classpath, so log statements cost only their level check (JMH prints SLF4J warnings about this at the start of each fork).
 
@@ -86,6 +87,20 @@ In throughput terms, one core turns roughly 1.8 million small records (`SIMPLE`)
 | `MAP` | 3,985 ± 114 | 3,875 ± 70 | none (same columns, within noise) |
 
 Reading two of `BIG`'s 28 columns saves about a quarter of the per-record cost. The rest is the Protobuf parse of the whole payload into a `DynamicMessage` and the wire-header handling, which a projection does not skip: the converters only run for the projected columns, but the message is still decoded in full.
+
+## Nested projection pushdown
+
+All three shapes from one run of `./gradlew jmh -Pjmh.includes=DeserializeBenchmark -Pjmh.fork=2` with nested projection support (GitHub issue #217), same machine and settings as the baseline above (10 samples per row, ns/record, lower is better). `PROJECTED` is what a query such as `SELECT id, payload.a` cost before nested projection was supported (the whole `payload` column was converted); `NESTED_PROJECTED` is what it costs now when the connector pushes the nested projection into the format. Only `REPEATED_NESTED` (`d.a` instead of the two-field `d`) and `NESTED` (`payload.a` instead of the 24-field `payload`) have a `ROW` column among their first two columns; the other messages read the same columns with either projected shape.
+
+| `message` | `FULL` | `PROJECTED` | `NESTED_PROJECTED` | `NESTED_PROJECTED` vs `PROJECTED` |
+| --- | --- | --- | --- | --- |
+| `SIMPLE` | 551 ± 4 | 551 ± 10 | 570 ± 57 | none (same columns, within noise) |
+| `BIG` | 1,969 ± 117 | 1,496 ± 38 | 1,517 ± 17 | none (same columns, within noise) |
+| `REPEATED_NESTED` | 601 ± 8 | 795 ± 618 | 588 ± 4 | within noise (`PROJECTED` had one outlier fork) |
+| `MAP` | 4,067 ± 106 | 4,039 ± 58 | 4,056 ± 19 | none (same columns) |
+| `NESTED` | 3,743 ± 57 | 3,531 ± 112 | 2,467 ± 49 | -30% |
+
+Reading one field of `NESTED`'s 24-field `payload` instead of the whole column saves about 1,060 ns, almost a third of the per-record cost, and 34% against reading every column. `REPEATED_NESTED`'s nested message has only two scalar fields, so skipping one is within the noise. As with top-level projection, the rest is the Protobuf parse of the whole payload and the wire-header handling, which a projection does not skip. The `filesystem` and Kafka connectors do not push nested projections, so with them a read costs what `PROJECTED` (filesystem) or `FULL` minus the undeclared columns (Kafka) costs; see [projection pushdown](configuration.md#projection-pushdown).
 
 ## Adding a benchmark
 

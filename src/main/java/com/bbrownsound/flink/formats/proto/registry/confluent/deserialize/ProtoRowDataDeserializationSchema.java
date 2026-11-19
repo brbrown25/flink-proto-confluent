@@ -61,8 +61,16 @@ public class ProtoRowDataDeserializationSchema
 
   /** Type information for the produced RowData. */
   private final TypeInformation<RowData> resultTypeInfo;
-  /** Flink row type for the deserialized data. */
+  /**
+   * Flink row type for the deserialized data, read by column name; or, when {@link #projections} is
+   * set, the table's physical row type the projection paths index into.
+   */
   private final RowType rowType;
+  /**
+   * The nested projection the source reads (one path of column indexes into {@link #rowType} per
+   * produced column), or {@code null} when the source produces {@link #rowType} itself.
+   */
+  private final int[][] projections;
   /** Format and Schema Registry config. */
   private final ProtoConfluentFormatConfig formatConfig;
   private transient SchemaRegistryClient client;
@@ -92,9 +100,42 @@ public class ProtoRowDataDeserializationSchema
    */
   public ProtoRowDataDeserializationSchema(
       RowType rowType, TypeInformation<RowData> resultTypeInfo, ProtoConfluentFormatConfig config) {
-    this.rowType = rowType;
+    this(rowType, null, resultTypeInfo, config);
+  }
+
+  /**
+   * Creates a deserialization schema that produces a nested projection of a table: one column per
+   * projection path, holding the value at the end of that path (for example {@code payload.a}).
+   * Only the projected values are converted; the sibling fields of a projected nested field are
+   * not. See {@link ProtoToRowDataConverters#createProjectedConverter}.
+   *
+   * @param physicalRowType the table's physical row type
+   * @param projections the projected paths of column indexes into {@code physicalRowType}, one per
+   *     produced column, as Flink's {@code Projection} holds them; {@code null} produces {@code
+   *     physicalRowType} itself
+   * @param resultTypeInfo type information for the produced RowData
+   * @param config format and Schema Registry configuration
+   */
+  public ProtoRowDataDeserializationSchema(
+      RowType physicalRowType,
+      int[][] projections,
+      TypeInformation<RowData> resultTypeInfo,
+      ProtoConfluentFormatConfig config) {
+    this.rowType = physicalRowType;
+    this.projections = copy(projections);
     this.resultTypeInfo = resultTypeInfo;
     this.formatConfig = config;
+  }
+
+  private static int[][] copy(int[][] projections) {
+    if (projections == null) {
+      return null;
+    }
+    final int[][] copy = new int[projections.length][];
+    for (int i = 0; i < projections.length; i++) {
+      copy[i] = projections[i].clone();
+    }
+    return copy;
   }
 
   @Override
@@ -188,9 +229,7 @@ public class ProtoRowDataDeserializationSchema
           Optional.ofNullable(converters.get(id))
               .orElseGet(
                   () -> {
-                    var res =
-                        ProtoToRowDataConverters.createConverter(
-                            dynamicMessage.getDescriptorForType(), rowType);
+                    var res = createConverter(dynamicMessage.getDescriptorForType());
                     converters.put(id, res);
                     if (n <= 3) {
                       LOG.info(
@@ -276,13 +315,19 @@ public class ProtoRowDataDeserializationSchema
     final String expected =
         SourceMessageValidator.expectedMessageName(
             formatConfig.messageName, messageClass, descriptor);
-    SourceMessageValidator.validateRowType(descriptor, rowType, messageClass);
+    SourceMessageValidator.validateProjection(descriptor, rowType, projections, messageClass);
     LOG.info(
         "[proto-confluent] source checked against message-class {} ({}); records of any other "
             + "message are deserialize errors",
         messageClass,
         expected);
     return expected;
+  }
+
+  private ProtoToRowDataConverters.ProtoToRowDataConverter createConverter(Descriptor descriptor) {
+    return projections == null
+        ? ProtoToRowDataConverters.createConverter(descriptor, rowType)
+        : ProtoToRowDataConverters.createProjectedConverter(descriptor, rowType, projections);
   }
 
   /**
