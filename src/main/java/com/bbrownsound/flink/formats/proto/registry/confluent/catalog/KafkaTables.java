@@ -134,8 +134,10 @@ final class KafkaTables {
       SchemaRegistryCatalogConfig config) {
     options.put(prefix + "url", config.getUrl());
     options.put(prefix + "topic", topic);
-    // A sink writes with exactly the schema the columns came from, rather than looking up the
-    // schema it derives from the row, which need not match the registered text byte for byte.
+    // A sink writes with exactly the schema the columns came from, rather than with whichever
+    // version is the subject's latest at its first write, which may have been registered after
+    // the table was planned. (Before #210 the pin also avoided a failing lookup of a schema
+    // rebuilt from the descriptor; a sink now writes under the ID it read from the registry.)
     options.put(prefix + "use-schema-id", String.valueOf(schemaId));
     config.getFormatConnectionOptions().forEach((name, v) -> options.put(prefix + name, v));
   }
