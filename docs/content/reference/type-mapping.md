@@ -93,7 +93,7 @@ The `recursive-message` setting makes derived DDL map the field that closes the 
 | Value | The field that closes the cycle becomes | Levels the table reads and writes |
 | --- | --- | --- |
 | `fail` (default) | nothing: derivation fails with `Cyclic schemas are not supported.`, naming the message, the field and this option | |
-| `bytes` | `BYTES` (`VARBINARY` in the `ddl` command's output), the message's Protobuf encoding | every level |
+| `bytes` | `BYTES`, the message's Protobuf encoding | every level |
 | `json` | `STRING`, the message's JSON | every level |
 | `row:<n>` | a `ROW` of the message's fields, unrolled `n` times (`n` ≥ 1); the field is left out of the last level | `n` levels below the table's message |
 

@@ -143,7 +143,7 @@ class ProtoSqlTypeTest {
         "`inners` ARRAY<ROW<`note` STRING, `count` BIGINT> NOT NULL> NOT NULL", columns.get(7));
     assertEquals(
         "`by_key` MAP<STRING, ROW<`note` STRING, `count` BIGINT>> NOT NULL", columns.get(8));
-    assertEquals("`raw` VARBINARY", columns.get(9));
+    assertEquals("`raw` BYTES", columns.get(9));
     assertEquals("`odd` DECIMAL(10,0)", columns.get(10), "an unparsable precision is ignored");
     assertEquals("`described` INT", columns.get(11), "field metadata without connect.type");
     assertEquals("`solo` ARRAY<ROW<`key` STRING> NOT NULL> NOT NULL", columns.get(12));

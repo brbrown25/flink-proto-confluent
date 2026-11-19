@@ -35,7 +35,7 @@ import java.util.Optional;
  * | BOOL             | -                                 | -                  | BOOLEAN          |
  * | ENUM             | -                                 | -                  | VARCHAR          |
  * | STRING           | -                                 | -                  | VARCHAR          |
- * | BYTES            | -                                 | -                  | VARBINARY        |
+ * | BYTES            | -                                 | -                  | BYTES            |
  * | MESSAGE          | confluent.type.Decimal            | -                  | DECIMAL          |
  * | MESSAGE          | google.type.Date                  | -                  | DATE             |
  * | MESSAGE          | google.type.TimeOfDay             | -                  | TIME(3)          |
@@ -48,7 +48,7 @@ import java.util.Optional;
  * | MESSAGE          | google.protobuf.UInt32Value       | -                  | BIGINT           |
  * | MESSAGE          | google.protobuf.BoolValue         | -                  | BOOLEAN          |
  * | MESSAGE          | google.protobuf.StringValue       | -                  | VARCHAR          |
- * | MESSAGE          | google.protobuf.BytesValue        | -                  | VARBINARY        |
+ * | MESSAGE          | google.protobuf.BytesValue        | -                  | BYTES            |
  * | MESSAGE          | google.protobuf.Struct            | -                  | VARCHAR (JSON)   |
  * | MESSAGE          | google.protobuf.Value             | -                  | VARCHAR (JSON)   |
  * | MESSAGE          | google.protobuf.ListValue         | -                  | VARCHAR (JSON)   |

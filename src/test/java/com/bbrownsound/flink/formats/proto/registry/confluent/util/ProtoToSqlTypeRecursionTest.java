@@ -49,8 +49,8 @@ class ProtoToSqlTypeRecursionTest {
   @Test
   void bytesMapsEveryRecursiveFieldToBytes() {
     assertEquals(
-        "`name` STRING, `child` VARBINARY, `children` ARRAY<VARBINARY> NOT NULL,"
-            + " `by_name` MAP<STRING, VARBINARY> NOT NULL, `kind` ROW<`label` STRING, `alt` VARBINARY>",
+        "`name` STRING, `child` BYTES, `children` ARRAY<BYTES> NOT NULL,"
+            + " `by_name` MAP<STRING, BYTES> NOT NULL, `kind` ROW<`label` STRING, `alt` BYTES>",
         columns(TREE, RecursionStrategy.BYTES));
   }
 
@@ -74,7 +74,7 @@ class ProtoToSqlTypeRecursionTest {
 
   @Test
   void rowLeavesOutRepeatedAndMapFieldsButKeepsOneofCasesAsBytes() {
-    String leaf = "ROW<`name` STRING, `kind` ROW<`label` STRING, `alt` VARBINARY>>";
+    String leaf = "ROW<`name` STRING, `kind` ROW<`label` STRING, `alt` BYTES>>";
     assertEquals(
         "`name` STRING, `child` "
             + leaf
@@ -93,7 +93,7 @@ class ProtoToSqlTypeRecursionTest {
     Descriptor a =
         descriptor(
             "syntax = \"proto3\"; message A { string x = 1; B b = 2; } message B { A a = 1; }");
-    assertEquals("`x` STRING, `b` ROW<`a` VARBINARY>", columns(a, RecursionStrategy.BYTES));
+    assertEquals("`x` STRING, `b` ROW<`a` BYTES>", columns(a, RecursionStrategy.BYTES));
     assertEquals(
         "`x` STRING, `b` ROW<`a` ROW<`x` STRING>>",
         columns(a, RecursionStrategy.row(1)));

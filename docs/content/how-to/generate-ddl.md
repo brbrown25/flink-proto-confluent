@@ -56,6 +56,8 @@ By default the command:
 - takes the topic, and the table name, from a `<topic>-value` subject (`orders-value` gives `orders`);
 - maps types and nullability exactly as the format does: `message` fields become `ROW`s, `repeated` fields `ARRAY`s, `map` fields `MAP`s, enums `STRING`, `google.protobuf.Timestamp` `TIMESTAMP_LTZ(9)`, the wrapper types their nullable scalar and `google.protobuf.Struct`, `Value` and `ListValue` a JSON `STRING`. The columns are the same as those `ProtoToTableDDL` returns in Java. [Type mapping](../reference/type-mapping.md) lists every mapping, and the column types you can declare instead.
 
+Protobuf `bytes` fields (and `google.protobuf.BytesValue`) are written as `BYTES`. Before [issue #222](https://github.com/brbrown25/flink-proto-confluent/issues/222) the command and `ProtoToTableDDL` wrote them as a bare `VARBINARY`, which Flink reads as `VARBINARY(1)`. Reads and `INSERT ... SELECT` worked because Flink does not enforce the length by default, but a cast or a sink that enforces lengths (`table.exec.sink.type-length-enforcer`) cuts the value to one byte. If you created a table from DDL generated before this fix, change those columns to `BYTES`, for example by recreating the table from newly generated DDL.
+
 The `'properties.bootstrap.servers'` option is only written when you pass `--bootstrap-servers`; the Kafka connector needs it to read. Add any other table option with `--option key=value` (repeatable): startup mode, group ID, bounded mode. An `--option` with the same key as a generated option replaces it, e.g. `--option connector=upsert-kafka`.
 
 ## Print only the columns
@@ -96,7 +98,7 @@ A message that contains itself (`message Tree { Tree child = 1; }`, directly or 
 | Flag | The field becomes |
 | --- | --- |
 | `--recursive-message fail` | Nothing: the command fails (the default). |
-| `--recursive-message bytes` | `VARBINARY`, the message's Protobuf encoding, every level included. |
+| `--recursive-message bytes` | `BYTES`, the message's Protobuf encoding, every level included. |
 | `--recursive-message json` | `STRING`, the message's JSON, every level included. |
 | `--recursive-message row:<n>` | A `ROW` unrolled `n` times; deeper levels are left out. |
 

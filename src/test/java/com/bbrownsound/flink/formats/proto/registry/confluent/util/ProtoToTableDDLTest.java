@@ -114,7 +114,7 @@ class ProtoToTableDDLTest {
     assertTrue(
         ProtoToTableDDL.tableSchemaFromProto(
                 DescriptorProtos.DescriptorProto.class, false, null, RecursionStrategy.BYTES)
-            .contains("`nested_type` ARRAY<VARBINARY> NOT NULL"));
+            .contains("`nested_type` ARRAY<BYTES> NOT NULL"));
     assertTrue(
         ProtoToTableDDL.tableSchemaFromProto(
                 DescriptorProtos.DescriptorProto.class, false, null, RecursionStrategy.JSON)
@@ -133,7 +133,7 @@ class ProtoToTableDDLTest {
     assertThrows(
         IllegalArgumentException.class, () -> ProtoToTableDDL.tableSchemaFromDescriptor(tree));
     assertEquals(
-        "`name` STRING, `child` VARBINARY",
+        "`name` STRING, `child` BYTES",
         ProtoToTableDDL.tableSchemaFromDescriptor(tree, false, null, RecursionStrategy.BYTES));
     assertEquals(
         "`name` STRING, `child` STRING",
