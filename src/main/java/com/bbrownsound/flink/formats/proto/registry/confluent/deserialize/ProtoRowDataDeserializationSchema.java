@@ -56,7 +56,11 @@ public class ProtoRowDataDeserializationSchema
   /** How long {@link #close()} waits for dead-letter records that are still in flight. */
   private static final Duration DEAD_LETTER_CLOSE_TIMEOUT = Duration.ofSeconds(10);
 
-  /** Gauge: number of writer schemas (schema IDs) this source holds a converter for. */
+  /**
+   * Gauge: number of converters this source holds, one per writer schema ID and message read under
+   * that ID; equal to the number of writer schemas (schema IDs) while all records under each ID
+   * carry the same message.
+   */
   static final String NUM_CACHED_SCHEMAS = "numCachedSchemas";
 
   /** Type information for the produced RowData. */
@@ -75,7 +79,14 @@ public class ProtoRowDataDeserializationSchema
   private final ProtoConfluentFormatConfig formatConfig;
   private transient SchemaRegistryClient client;
   private transient KafkaProtobufDeserializer<DynamicMessage> deserializer;
-  private transient Map<Integer, ProtoToRowDataConverters.ProtoToRowDataConverter> converters;
+  /**
+   * Row converters by writer schema ID, then by the full name of the message the record holds. A
+   * Confluent protobuf schema can define several messages and each record's message indexes pick
+   * one, so records of different messages can share a schema ID (GitHub issue #211). Within one ID
+   * the full name identifies the message, because a registered schema never changes.
+   */
+  private transient Map<Integer, Map<String, ProtoToRowDataConverters.ProtoToRowDataConverter>>
+      converters;
   private transient AtomicLong deserializeCount;
   /** Counts records that failed to deserialize (exposed as the numDeserializeErrors metric). */
   private transient Counter deserializeErrors;
@@ -161,8 +172,11 @@ public class ProtoRowDataDeserializationSchema
         this.deserializeErrors = context.getMetricGroup().counter("numDeserializeErrors");
         context.getMetricGroup().counter("numDeadLetterRecords", deadLetterRecords);
         context.getMetricGroup().counter("numDeadLetterErrors", deadLetterErrors);
-        final Map<Integer, ?> converterCache = this.converters;
-        context.getMetricGroup().gauge(NUM_CACHED_SCHEMAS, (Gauge<Integer>) converterCache::size);
+        final Map<Integer, Map<String, ProtoToRowDataConverters.ProtoToRowDataConverter>>
+            converterCache = this.converters;
+        context
+            .getMetricGroup()
+            .gauge(NUM_CACHED_SCHEMAS, (Gauge<Integer>) () -> cachedConverters(converterCache));
       }
 
       if (formatConfig.deadLetterTopic != null) {
@@ -225,23 +239,8 @@ public class ProtoRowDataDeserializationSchema
       DynamicMessage dynamicMessage = deserializer.deserialize(formatConfig.topic, message);
       checkMessageType(dynamicMessage, id);
 
-      ProtoToRowDataConverters.ProtoToRowDataConverter converter =
-          Optional.ofNullable(converters.get(id))
-              .orElseGet(
-                  () -> {
-                    var res = createConverter(dynamicMessage.getDescriptorForType());
-                    converters.put(id, res);
-                    if (n <= 3) {
-                      LOG.info(
-                          "[proto-confluent] deserialize #{}: created "
-                              + "converter for schemaId={}, descriptor={}",
-                          n,
-                          id,
-                          dynamicMessage.getDescriptorForType().getFullName());
-                    }
-                    return res;
-                  });
-      RowData rowData = (RowData) converter.convert(dynamicMessage);
+      RowData rowData =
+          (RowData) converterFor(id, dynamicMessage.getDescriptorForType(), n).convert(dynamicMessage);
       if (n <= 5) {
         LOG.debug("[proto-confluent] message #{} from topic: {}", n, rowData);
       }
@@ -322,6 +321,42 @@ public class ProtoRowDataDeserializationSchema
         messageClass,
         expected);
     return expected;
+  }
+
+  /**
+   * Returns the cached converter for the record's writer schema ID and message, building it on the
+   * first record of that pair.
+   */
+  private ProtoToRowDataConverters.ProtoToRowDataConverter converterFor(
+      int schemaId, Descriptor descriptor, long n) {
+    Map<String, ProtoToRowDataConverters.ProtoToRowDataConverter> byMessage =
+        converters.get(schemaId);
+    if (byMessage == null) {
+      byMessage = new ConcurrentHashMap<>();
+      converters.put(schemaId, byMessage);
+    }
+    final String messageName = descriptor.getFullName();
+    ProtoToRowDataConverters.ProtoToRowDataConverter converter = byMessage.get(messageName);
+    if (converter == null) {
+      converter = createConverter(descriptor);
+      byMessage.put(messageName, converter);
+      LOG.info(
+          "[proto-confluent] deserialize #{}: created converter for schemaId={}, message={}",
+          n,
+          schemaId,
+          messageName);
+    }
+    return converter;
+  }
+
+  /** The number of converters in the cache, which is what {@code numCachedSchemas} reports. */
+  private static int cachedConverters(
+      Map<Integer, Map<String, ProtoToRowDataConverters.ProtoToRowDataConverter>> cache) {
+    int count = 0;
+    for (Map<String, ?> byMessage : cache.values()) {
+      count += byMessage.size();
+    }
+    return count;
   }
 
   private ProtoToRowDataConverters.ProtoToRowDataConverter createConverter(Descriptor descriptor) {
