@@ -36,6 +36,10 @@ markdown_extensions:
       permalink: true
   - pymdownx.highlight:
       anchor_linenums: true
+  - pymdownx.snippets:
+      # Paths are relative to the repository root, so pages can include docs/demo/sql/*.sql.
+      base_path: !relative $config_dir/..
+      check_paths: true
   - pymdownx.superfences
   - pymdownx.tabbed:
       alternate_style: true

@@ -32,6 +32,8 @@ bin/flink-sql sql/orders.sql sql/quickstart-generated.sql
 
 `bin/generate-ddl` runs the `ddl` command inside the Flink container against the demo registry and prints the `CREATE TABLE` for a subject; `bin/flink-sql` runs one SQL file, or several concatenated in order, in the SQL client. `sql/quickstart-generated.sql` is the query half of `sql/quickstart.sql`.
 
+The docs site includes SQL from `sql/` instead of copying it ([`pymdownx.snippets`](https://facelessuser.github.io/pymdown-extensions/extensions/snippets/)): a page names a file, or a section of it between `-- --8<-- [start:NAME]` and `-- --8<-- [end:NAME]` comment lines, e.g. `--8<-- "docs/demo/sql/quickstart.sql:create-table"`, and `mkdocs build --strict` fails if the file or section is missing. The markers are SQL comments, so the scripts run as before. Keep each marker directly above a statement, with no blank line between them: the SQL client echoes a comment that is followed by a blank line into `bin/flink-sql`'s output.
+
 ## Re-recording the casts
 
 ```bash

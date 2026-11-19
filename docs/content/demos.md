@@ -13,22 +13,7 @@ In the recording, the format JAR's `ddl` command [generates that table](how-to/g
 The equivalent hand-written DDL, which [`sql/quickstart.sql`](https://github.com/brbrown25/flink-proto-confluent/blob/main/docs/demo/sql/quickstart.sql) in the demo stack uses:
 
 ```sql
-CREATE TABLE orders (
-  order_id STRING,
-  customer STRING,
-  amount   DOUBLE
-) WITH (
-  'connector' = 'kafka',
-  'topic' = 'orders',
-  'properties.bootstrap.servers' = 'kafka:9092',
-  'properties.group.id' = 'docs-demo',
-  'scan.startup.mode' = 'earliest-offset',
-  'scan.bounded.mode' = 'latest-offset',
-  'value.format' = 'proto-confluent',
-  'value.proto-confluent.url' = 'http://schema-registry:8081',
-  'value.proto-confluent.topic' = 'orders',
-  'value.proto-confluent.is_key' = 'false'
-);
+--8<-- "docs/demo/sql/quickstart.sql:create-table"
 ```
 
 ## Writing Protobuf from Flink
