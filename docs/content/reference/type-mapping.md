@@ -34,6 +34,8 @@ These are the types the [`ddl` command](../how-to/generate-ddl.md), the [catalog
 
 Message-typed fields and wrapper types are nullable; `repeated` fields and maps are `NOT NULL` (an unset repeated field is an empty array). Scalars are nullable in the derived DDL; `--strict-not-null` on the `ddl` command makes them `NOT NULL`.
 
+A `oneof` column is a `ROW` named after the oneof, with one field per case. The source matches each field to the case of the same name (exact, or the case's `camelCase` form for a `snake_case` field, as for other columns), as the sink does, so a table can list the cases in any order or only some of them: for `oneof payload { string first_name = 2; int64 count = 3; }`, both `` payload ROW<`count` BIGINT, `first_name` STRING> `` and `` payload ROW<`count` BIGINT> `` read `count` into the `count` field. A field that names no case reads the case at its position in the `ROW`, as tables written before cases were matched by name expect, unless another field of the `ROW` names that case; the source logs a warning for each such field. A field with no case (one whose position's case another field names, or one past the last case) reads as `NULL` and fails the [`message-class` check](../how-to/message-class.md#read-with-a-message-class). Name the fields after the cases: a writer schema that adds a case before the last one moves every later case to a new position.
+
 ## Declared alternatives
 
 A table can declare one of these types for a field instead of the derived one. The source reads the field into it, the sink writes it back to the same Protobuf value, and the `message-class` check accepts it. Derived DDL never produces them, except for the field that closes the cycle of a [recursive message](#recursive-messages) when you set `recursive-message`: declare the column yourself, or edit the generated DDL.
@@ -204,7 +206,7 @@ Details:
 
 - The cycle closes at the first field that leads back to a message already on the path from the table's message, which counts as the first level. With mutual recursion (`A` contains `B`, which contains `A`), that is the field of `B` that leads back to `A`.
 - The setting applies wherever the cycle closes: a plain field, the elements of a `repeated` field and the values of a `map`. With `row:<n>`, a `repeated` or `map` field is left out of the last level like any other, and a message left with no fields is left out too.
-- A field inside a `oneof` cannot be left out, because a `oneof` column's fields are matched to its cases by position. With `row:<n>`, such a field becomes `BYTES` at the last level instead, so it keeps every level below it.
+- A field inside a `oneof` is not left out, so a `oneof` column keeps one field per case. With `row:<n>`, such a field becomes `BYTES` at the last level instead, so it keeps every level below it.
 - `bytes` and `json` do not apply to a message with a field named `value`, which a `BYTES` or `STRING` column reads like a wrapper type (see [JSON strings](#json-strings)): derivation fails for it and suggests `row:<n>`.
 - A `ROW` grows with each level and with each recursive field of the message, so keep `n` small.
 - The `message-class` check is unchanged: it accepts all three types for such a field.

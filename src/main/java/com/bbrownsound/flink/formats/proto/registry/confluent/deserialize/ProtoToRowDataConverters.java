@@ -72,6 +72,12 @@ public class ProtoToRowDataConverters {
             .collect(Collectors.joining(", ")));
   }
 
+  private static String caseNames(OneofDescriptor oneof) {
+    return oneof.getFields().stream()
+        .map(FieldDescriptor::getName)
+        .collect(Collectors.joining(", "));
+  }
+
   /**
    * Runtime converter that converts Protobuf data structures into objects of Flink Table &amp; SQL
    * internal data structures.
@@ -367,14 +373,35 @@ public class ProtoToRowDataConverters {
     final int arity = targetType.getFieldCount();
     final Map<FieldDescriptor, Pair<ProtoToRowDataConverter, Integer>> fieldConverters =
         new HashMap<>();
-    // Iterate only up to the oneof's field count; table schema may have more columns (e.g. 28
-    // when proto oneof has 27). Extra columns are left null.
-    final int oneofFieldCount = readSchema.getFieldCount();
-    for (int i = 0; i < targetType.getFieldCount() && i < oneofFieldCount; i++) {
-      final FieldDescriptor fieldDescriptor = readSchema.getField(i);
-      fieldConverters.put(
-          fieldDescriptor,
-          Pair.of(createFieldConverter(fieldDescriptor, targetType.getTypeAt(i)), i));
+    // Each column reads the case of its name (see OneofCases). A column with no case (e.g. one
+    // past the oneof's last case, or one a newer writer schema added) is left null.
+    final OneofCases cases = OneofCases.match(readSchema, targetType);
+    for (int i = 0; i < arity; i++) {
+      final FieldDescriptor fieldDescriptor = cases.cases[i];
+      final String column = targetType.getFieldNames().get(i);
+      if (fieldDescriptor == null) {
+        LOG.warn(
+            "[proto-confluent] Oneof '{}' has no case for column '{}' (cases: {}) - reading it as"
+                + " NULL",
+            readSchema.getFullName(),
+            column,
+            caseNames(readSchema));
+        continue;
+      }
+      if (cases.byPosition[i]) {
+        LOG.warn(
+            "[proto-confluent] Oneof '{}' has no case named '{}' - reading case '{}' at its"
+                + " position instead. Name the column after the case: oneof columns are matched"
+                + " to cases by name.",
+            readSchema.getFullName(),
+            column,
+            fieldDescriptor.getName());
+      }
+      if (!fieldConverters.containsKey(fieldDescriptor)) {
+        fieldConverters.put(
+            fieldDescriptor,
+            Pair.of(createFieldConverter(fieldDescriptor, targetType.getTypeAt(i)), i));
+      }
     }
     return object -> {
       final Message message = (Message) object;

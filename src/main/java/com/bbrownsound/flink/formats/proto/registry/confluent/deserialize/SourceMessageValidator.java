@@ -31,9 +31,9 @@ import org.apache.flink.table.types.logical.RowType;
  * <p>The column check mirrors how {@link ProtoToRowDataConverters} reads a record: columns are
  * matched to fields by name (exact, then {@code snake_case} to {@code camelCase}), a column named
  * after a {@code oneof} reads that oneof as a {@code ROW} whose columns are matched to the oneof's
- * cases by position, and each column's type must be one the converter can produce from the field.
- * Every table column must exist in the message; message fields the table does not declare are
- * ignored.
+ * cases by name (see {@link OneofCases}), and each column's type must be one the converter can
+ * produce from the field. Every table column must exist in the message; message fields the table
+ * does not declare are ignored.
  */
 public final class SourceMessageValidator {
 
@@ -244,22 +244,16 @@ public final class SourceMessageValidator {
               + "' reads as a ROW of its cases");
       return;
     }
-    // The converter maps a oneof's columns to its cases by position.
+    // The converter matches a oneof's columns to its cases as OneofCases does.
     final RowType rowType = (RowType) type;
+    final OneofCases cases = OneofCases.match(oneof, rowType);
     for (int i = 0; i < rowType.getFieldCount(); i++) {
       final String columnPath = child(path, rowType.getFieldNames().get(i));
-      if (i >= oneof.getFieldCount()) {
-        problems.add(
-            "column '"
-                + columnPath
-                + "' has no case in oneof '"
-                + oneof.getFullName()
-                + "', which has "
-                + oneof.getFieldCount()
-                + " case(s)");
+      if (cases.cases[i] == null) {
+        problems.add(OneofCases.noCase(oneof, columnPath));
         continue;
       }
-      checkField(oneof.getField(i), rowType.getTypeAt(i), columnPath, problems);
+      checkField(cases.cases[i], rowType.getTypeAt(i), columnPath, problems);
     }
   }
 

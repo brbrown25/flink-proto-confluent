@@ -19,9 +19,10 @@ import org.apache.flink.table.types.logical.RowType;
  * level of nesting (for {@code payload.inner.x}: the index of {@code payload}, of {@code inner}
  * within it, and of {@code x} within that). Each level is matched to the message the same way a
  * full read matches it: a column named after a {@code oneof} reads that oneof, whose own columns
- * are its cases by position, and any other column is the field of that name (exact, then {@code
- * snake_case} to {@code camelCase}). Only {@code ROW} columns can be descended into, so a message
- * column declared as {@code STRING} or {@code BYTES} is always read whole.
+ * are matched to its cases by name (see {@link OneofCases}), and any other column is the field of
+ * that name (exact, then {@code snake_case} to {@code camelCase}). Only {@code ROW} columns can be
+ * descended into, so a message column declared as {@code STRING} or {@code BYTES} is always read
+ * whole.
  */
 final class ProjectedPath {
 
@@ -88,22 +89,16 @@ final class ProjectedPath {
         if (k == path.length - 1) {
           return new ProjectedPath(columnPath, fields, oneof, type, null, false);
         }
-        // The oneof's columns are its cases by position.
+        // The oneof's columns are matched to its cases by name (see OneofCases).
         final RowType cases = (RowType) type;
         final int caseIndex = path[++k];
         columnPath = child(columnPath, cases.getFieldNames().get(caseIndex));
         type = cases.getTypeAt(caseIndex);
-        if (caseIndex >= oneof.getFieldCount()) {
-          return missing(
-              columnPath,
-              type,
-              "has no case in oneof '"
-                  + oneof.getFullName()
-                  + "', which has "
-                  + oneof.getFieldCount()
-                  + " case(s)");
+        field = OneofCases.match(oneof, cases).cases[caseIndex];
+        if (field == null) {
+          return new ProjectedPath(
+              columnPath, List.of(), null, type, OneofCases.noCase(oneof, columnPath), true);
         }
-        field = oneof.getField(caseIndex);
       } else {
         field = ProtoToRowDataConverters.findFieldDescriptor(fields(descriptor), column.getName());
         if (field == null) {
