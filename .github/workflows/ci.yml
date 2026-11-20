@@ -44,7 +44,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
     # The canonical post-merge job is the only writer of the Gradle cache; it
     # warms the entry that every PR job restores read-only. setup-gradle keys
@@ -73,7 +73,7 @@ jobs:
         TESTCONTAINERS_RYUK_DISABLED: true
 
     - name: Generate unit test report
-      uses: dorny/test-reporter@v3
+      uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
       if: success() || failure()
       with:
         name: Unit Test Results (flink ${{ matrix.flink }})
@@ -81,7 +81,7 @@ jobs:
         reporter: java-junit
 
     - name: Generate integration test report
-      uses: dorny/test-reporter@v3
+      uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
       if: success() || failure()
       with:
         name: Integration Test Results (flink ${{ matrix.flink }})
@@ -89,7 +89,7 @@ jobs:
         reporter: java-junit
 
     - name: Upload test results
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       if: always()
       with:
         name: test-results-flink${{ matrix.flink }}
@@ -99,7 +99,7 @@ jobs:
           build/reports/tests/
 
     - name: Upload coverage report
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       if: always() && matrix.coverage
       with:
         name: coverage-report
@@ -107,7 +107,7 @@ jobs:
 
     - name: Upload coverage to Codecov
       if: matrix.coverage
-      uses: codecov/codecov-action@v7
+      uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         files: build/reports/jacoco/test/jacocoTestReport.xml
@@ -125,7 +125,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
     - name: Setup build environment
       uses: ./.github/actions/setup-build
@@ -134,7 +134,7 @@ jobs:
       run: ./gradlew -PflinkVersion=${{ matrix.flink }} checkstyleMain checkstyleTest checkstyleIntegrationTest spotbugsMain spotbugsTest spotlessCheck
 
     - name: Upload lint results
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       if: always()
       with:
         name: lint-results-flink${{ matrix.flink }}

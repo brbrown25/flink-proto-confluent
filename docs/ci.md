@@ -45,6 +45,14 @@ Because those names change on every version bump, branch protection requires onl
 
 Because of the same wiring, the PR coverage leg cannot simply run `jacocoTestReport` without re-running `test`. Instead the JDK 21 / Flink 1.20 unit-test leg (marked `coverage: true` in the matrix) uploads its `build/jacoco/test.exec`, the Flink 1.20 `integration-tests` leg downloads it, and then runs `./gradlew integrationTest jacocoTestReport jacocoTestCoverageVerification -x test`. `jacocoTestReport` collects every `build/jacoco/*.exec`, so the report and the 80% gate still see unit **and** integration coverage from a single execution of each suite.
 
+## Pinned actions
+
+Every third-party action, in the workflows and in the composite action `.github/actions/setup-build`, is pinned to a full 40-character commit SHA, with the release it corresponds to in a trailing comment: `uses: actions/checkout@<sha> # v7.0.1`. A tag or branch can be moved to other code after review; a commit SHA cannot. That matters most in `release.yml` and `publish-snapshot.yml`, which receive the Sonatype credentials and the GPG signing key, and in `pr-checks.yml`, whose token can write checks and pull-request comments (#238).
+
+Dependabot's `github-actions` ecosystem keeps the pins current: it understands the SHA-plus-comment form and updates both together. `.github/dependabot.yml` lists `/` (the workflows) and `/.github/actions/*` (the composite actions), since Dependabot does not look under `.github/actions` otherwise. When adding a new action, pin it the same way; resolve the SHA of a release tag with `git ls-remote https://github.com/<owner>/<repo> 'refs/tags/<tag>^{}'` (the peeled `^{}` line is the commit an annotated tag points to; a lightweight tag has only the plain line).
+
+Checkstyle findings are annotated on the pull request by `.github/scripts/checkstyle-annotations.py`, which turns `build/reports/checkstyle/*.xml` into `::error` / `::warning` workflow commands. It replaced `jwgmeligmeyling/checkstyle-github-action@master`, which followed a moving branch, has seen no push since 2023 and still declares the retired `node12` runtime. GitHub shows at most 10 annotations of each level per step on the pull request; the full list is in the step log.
+
 ## Gradle version
 
 CI drives every build through the committed wrapper (`./gradlew`), so `gradle/wrapper/gradle-wrapper.properties` is the single source of truth for the Gradle version across CI, local development and releases. `.github/actions/setup-build` pins no `gradle-version`; `gradle/actions/setup-gradle` picks up the wrapper and caches it.

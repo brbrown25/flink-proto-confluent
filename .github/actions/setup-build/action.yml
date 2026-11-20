@@ -18,7 +18,7 @@ runs:
   using: 'composite'
   steps:
     - name: Set up JDK ${{ inputs.java-version }}
-      uses: actions/setup-java@v4
+      uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
       with:
         java-version: ${{ inputs.java-version }}
         distribution: 'temurin'
@@ -30,7 +30,7 @@ runs:
     # one another. Writes are restricted to the job that passes
     # cache-read-only: false (see docs/ci.md).
     - name: Setup Gradle
-      uses: gradle/actions/setup-gradle@v4
+      uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5.0.2
       with:
         cache-read-only: ${{ inputs.cache-read-only }}
 
