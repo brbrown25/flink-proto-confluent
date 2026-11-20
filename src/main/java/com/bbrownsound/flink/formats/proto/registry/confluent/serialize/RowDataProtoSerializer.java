@@ -1,6 +1,7 @@
 package com.bbrownsound.flink.formats.proto.registry.confluent.serialize;
 
 import com.bbrownsound.flink.formats.proto.registry.confluent.ProtoConfluentFormatOptions;
+import com.bbrownsound.flink.formats.proto.registry.confluent.deserialize.SourceMessageValidator;
 import com.bbrownsound.flink.formats.proto.registry.confluent.util.RowTypeToProto;
 import com.google.protobuf.Descriptors;
 import com.google.protobuf.DynamicMessage;
@@ -19,6 +20,7 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.function.LongSupplier;
+import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 import org.apache.flink.table.api.ValidationException;
 import org.apache.flink.table.data.RowData;
@@ -91,6 +93,13 @@ public final class RowDataProtoSerializer extends KafkaProtobufSerializer<Dynami
   private volatile WriteSchema messageClassSchema;
 
   /**
+   * The {@code message-name} option: the message of the subject's registered schema to write, or
+   * {@code null} for the first message the schema defines.
+   */
+  @Nullable
+  private final String messageName;
+
+  /**
    * Creates a serializer that keeps the first schema it resolves for a subject until the job
    * restarts.
    *
@@ -110,12 +119,12 @@ public final class RowDataProtoSerializer extends KafkaProtobufSerializer<Dynami
    */
   RowDataProtoSerializer(
       SchemaRegistryClient client, @Nullable Duration schemaCacheTtl, LongSupplier nanoClock) {
-    this(client, schemaCacheTtl, nanoClock, null);
+    this(client, schemaCacheTtl, nanoClock, null, null);
   }
 
   /**
-   * Creates a serializer whose cached subject schema expires and whose Row-derived message has the
-   * given name.
+   * Creates a serializer whose cached subject schema expires, whose Row-derived message has the
+   * given name, and that writes a named message of the subject's schema.
    *
    * @param client the Schema Registry client
    * @param schemaCacheTtl how long a looked-up subject schema is reused before the registry is
@@ -123,13 +132,17 @@ public final class RowDataProtoSerializer extends KafkaProtobufSerializer<Dynami
    * @param nanoClock monotonic clock in nanoseconds, e.g. {@code System::nanoTime}
    * @param derivedMessageName fully-qualified name of the message derived from the table, e.g.
    *     {@code com.example.Order}; {@code null} for {@code com.flink.proto.confluent.Row}
+   * @param messageName fully-qualified name of the message to write from the subject's schema, or
+   *     {@code null} for the first message it defines
    */
   RowDataProtoSerializer(
       SchemaRegistryClient client,
       @Nullable Duration schemaCacheTtl,
       LongSupplier nanoClock,
-      @Nullable String derivedMessageName) {
+      @Nullable String derivedMessageName,
+      @Nullable String messageName) {
     super(client);
+    this.messageName = messageName;
     this.converters = new ConcurrentHashMap<>();
     this.schemaCache = new ConcurrentHashMap<>();
     this.schemaCacheTtlNanos = toTtlNanos(schemaCacheTtl);
@@ -204,6 +217,8 @@ public final class RowDataProtoSerializer extends KafkaProtobufSerializer<Dynami
           throw new ValidationException(
               "Failed to resolve descriptor for " + configKey + "=" + className, e);
         }
+        SourceMessageValidator.expectedMessageName(
+            messageName, className, messageClassSchema.descriptor);
       }
     }
   }
@@ -342,11 +357,38 @@ public final class RowDataProtoSerializer extends KafkaProtobufSerializer<Dynami
               + ", not PROTOBUF");
     }
     ProtobufSchema registered = (ProtobufSchema) latestVersion;
+    if (messageName != null) {
+      return WriteSchema.registered(
+          namedMessage(subject, registered), subject, registered, schemaMetadata.getId());
+    }
     Descriptors.Descriptor desc = registered.toDescriptor();
     if (desc == null) {
       throw new ValidationException("Could not find schema for subject: " + subject);
     }
     return WriteSchema.registered(desc, subject, registered, schemaMetadata.getId());
+  }
+
+  /**
+   * The {@code message-name} message of a registered schema. The parent serializer writes the
+   * message indexes of the message it is handed, so a message that is not the first one the schema
+   * defines is written as such.
+   */
+  private Descriptors.Descriptor namedMessage(String subject, ProtobufSchema registered) {
+    Descriptors.Descriptor desc = registered.toDescriptor(messageName);
+    if (desc == null) {
+      String available =
+          registered.toDescriptor().getFile().getMessageTypes().stream()
+              .map(Descriptors.Descriptor::getFullName)
+              .collect(Collectors.joining(", "));
+      throw new ValidationException(
+          "'message-name' = '"
+              + messageName
+              + "' is not in the latest schema of subject '"
+              + subject
+              + "'; it has: "
+              + available);
+    }
+    return desc;
   }
 
   /**

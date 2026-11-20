@@ -70,8 +70,9 @@ public class ProtoConfluentFormatConfig implements Serializable {
   public Duration schemaCacheTtl;
 
   /**
-   * Fully-qualified protobuf message name every record read by a source must carry; {@code null}
-   * (the default) accepts any message.
+   * Fully-qualified protobuf message name every record read by a source must carry, and the message
+   * of the subject's schema a sink writes; {@code null} (the default) accepts any message on a
+   * source and writes the schema's first message on a sink.
    */
   public String messageName;
 

@@ -116,6 +116,8 @@ A sink without `message-class` asks the registry for the latest schema of its su
 
 The subject is `<topic>-value` by default, or the [`subject`](#subject-naming) you set; with `subject`, the lookup goes to that subject.
 
+The sink writes the first message the schema defines, or the one [`message-name`](message-class.md#write-one-message-of-a-multi-message-schema) names when the schema defines several.
+
 ### What each registry answer does
 
 | Answer to the lookup | What the sink does |
