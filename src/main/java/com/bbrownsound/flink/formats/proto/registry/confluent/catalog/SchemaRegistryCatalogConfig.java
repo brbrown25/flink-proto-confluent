@@ -5,6 +5,9 @@ import com.bbrownsound.flink.formats.proto.registry.confluent.util.RecursionStra
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
+import javax.annotation.Nullable;
 
 /**
  * The settings of a Schema Registry catalog, split out of its {@code CREATE CATALOG} options.
@@ -19,6 +22,10 @@ public final class SchemaRegistryCatalogConfig {
   private final boolean keyEnabled;
   private final String keyFieldsPrefix;
   private final RecursionStrategy recursion;
+  @Nullable
+  private final Pattern topicsInclude;
+  @Nullable
+  private final Pattern topicsExclude;
   private final Map<String, String> formatConnectionOptions;
   private final Map<String, String> tableOptions;
 
@@ -28,6 +35,8 @@ public final class SchemaRegistryCatalogConfig {
       boolean keyEnabled,
       String keyFieldsPrefix,
       RecursionStrategy recursion,
+      @Nullable Pattern topicsInclude,
+      @Nullable Pattern topicsExclude,
       Map<String, String> formatConnectionOptions,
       Map<String, String> tableOptions) {
     this.url = url;
@@ -35,6 +44,8 @@ public final class SchemaRegistryCatalogConfig {
     this.keyEnabled = keyEnabled;
     this.keyFieldsPrefix = keyFieldsPrefix;
     this.recursion = recursion;
+    this.topicsInclude = topicsInclude;
+    this.topicsExclude = topicsExclude;
     this.formatConnectionOptions = Collections.unmodifiableMap(formatConnectionOptions);
     this.tableOptions = Collections.unmodifiableMap(tableOptions);
   }
@@ -46,8 +57,9 @@ public final class SchemaRegistryCatalogConfig {
    *
    * @param options the {@code CREATE CATALOG} options, without {@code type}
    * @return the config
-   * @throws IllegalArgumentException if {@code url} is missing or {@code recursive-message} is not
-   *     a valid value
+   * @throws IllegalArgumentException if {@code url} is missing, {@code recursive-message} is not a
+   *     valid value, or {@code topics.include} or {@code topics.exclude} is not a valid regular
+   *     expression
    */
   public static SchemaRegistryCatalogConfig fromOptions(Map<String, String> options) {
     String url = options.get(SchemaRegistryCatalogOptions.URL.key());
@@ -75,6 +87,8 @@ public final class SchemaRegistryCatalogConfig {
             options.getOrDefault(
                 SchemaRegistryCatalogOptions.RECURSIVE_MESSAGE.key(),
                 SchemaRegistryCatalogOptions.RECURSIVE_MESSAGE.defaultValue()));
+    Pattern include = topicPattern(options, SchemaRegistryCatalogOptions.TOPICS_INCLUDE.key());
+    Pattern exclude = topicPattern(options, SchemaRegistryCatalogOptions.TOPICS_EXCLUDE.key());
 
     Map<String, String> connection = new LinkedHashMap<>();
     Map<String, String> table = new LinkedHashMap<>();
@@ -99,7 +113,21 @@ public final class SchemaRegistryCatalogConfig {
     // A table.<option> wins over a pass-through option of the same name.
     table.putAll(tableOverrides);
     return new SchemaRegistryCatalogConfig(
-        url, database, keyEnabled, keyPrefix, recursion, connection, table);
+        url, database, keyEnabled, keyPrefix, recursion, include, exclude, connection, table);
+  }
+
+  @Nullable
+  private static Pattern topicPattern(Map<String, String> options, String option) {
+    String regex = options.get(option);
+    if (regex == null) {
+      return null;
+    }
+    try {
+      return Pattern.compile(regex);
+    } catch (PatternSyntaxException e) {
+      throw new IllegalArgumentException(
+          "The '" + option + "' option is not a valid regular expression: " + e.getMessage(), e);
+    }
   }
 
   /** Returns the Schema Registry URL. */
@@ -125,6 +153,18 @@ public final class SchemaRegistryCatalogConfig {
   /** Returns how table columns map a field that makes a message contain itself. */
   public RecursionStrategy getRecursionStrategy() {
     return recursion;
+  }
+
+  /**
+   * Returns whether a topic may become a table: its whole name matches {@code topics.include} (if
+   * set) and does not match {@code topics.exclude} (if set).
+   *
+   * @param topic the topic name
+   * @return whether the topic passes the catalog's topic filters
+   */
+  public boolean includesTopic(String topic) {
+    return (topicsInclude == null || topicsInclude.matcher(topic).matches())
+        && (topicsExclude == null || !topicsExclude.matcher(topic).matches());
   }
 
   /**

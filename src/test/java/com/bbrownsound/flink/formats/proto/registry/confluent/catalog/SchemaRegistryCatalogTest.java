@@ -14,6 +14,7 @@ import io.confluent.kafka.schemaregistry.avro.AvroSchemaProvider;
 import io.confluent.kafka.schemaregistry.client.MockSchemaRegistryClient;
 import io.confluent.kafka.schemaregistry.client.SchemaMetadata;
 import io.confluent.kafka.schemaregistry.client.SchemaRegistryClient;
+import io.confluent.kafka.schemaregistry.client.rest.RestService;
 import io.confluent.kafka.schemaregistry.client.rest.exceptions.RestClientException;
 import io.confluent.kafka.schemaregistry.protobuf.ProtobufSchema;
 import io.confluent.kafka.schemaregistry.protobuf.ProtobufSchemaProvider;
@@ -24,6 +25,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import org.apache.flink.table.api.Schema;
 import org.apache.flink.table.catalog.CatalogBaseTable;
@@ -547,6 +549,181 @@ class SchemaRegistryCatalogTest {
             "`name` STRING",
             "`child` ROW<`name` STRING>"),
         treeColumns("row:1"));
+  }
+
+  // ---- bulk listing and topic filters (issue #247) ------------------------------------------
+
+  private static io.confluent.kafka.schemaregistry.client.rest.entities.Schema latest(
+      String subject, int id, String type) {
+    return new io.confluent.kafka.schemaregistry.client.rest.entities.Schema(
+        subject, 1, id, type, List.of(), "");
+  }
+
+  /** The latest schema of every subject, as the registry's {@code GET /schemas} returns it. */
+  private static final List<io.confluent.kafka.schemaregistry.client.rest.entities.Schema>
+      LATEST_SCHEMAS =
+          List.of(
+              latest("avro-value", 1, "AVRO"),
+              latest("events-value", 2, "PROTOBUF"),
+              latest("orders-key", 3, "PROTOBUF"),
+              latest("-value", 4, "PROTOBUF"),
+              latest("orders-value", 5, "PROTOBUF"),
+              latest("json-value", 6, "JSON"),
+              latest("internal.audit-value", 7, "PROTOBUF"));
+
+  /**
+   * A REST service that answers {@code GET /schemas?latestOnly=true} from {@link #LATEST_SCHEMAS}
+   * in pages of {@code pageSize} (all of them on every call if {@code pageSize} is 0, like a
+   * registry that ignores {@code offset}), counts those requests and sends every other request to
+   * an unreachable registry.
+   */
+  private static final class BulkRestService extends RestService {
+
+    private final int pageSize;
+    private final AtomicInteger requests = new AtomicInteger();
+
+    BulkRestService(int pageSize) {
+      super("http://localhost:1");
+      this.pageSize = pageSize;
+    }
+
+    @Override
+    public List<io.confluent.kafka.schemaregistry.client.rest.entities.Schema> getSchemas(
+        Map<String, String> requestProperties,
+        String subjectPrefix,
+        boolean lookupDeletedSchema,
+        boolean latestOnly,
+        String ruleType,
+        Integer offset,
+        Integer limit) {
+      requests.incrementAndGet();
+      assertFalse(lookupDeletedSchema);
+      assertTrue(latestOnly);
+      if (pageSize == 0) {
+        return LATEST_SCHEMAS;
+      }
+      int from = Math.min(offset, LATEST_SCHEMAS.size());
+      return LATEST_SCHEMAS.subList(from, Math.min(from + pageSize, LATEST_SCHEMAS.size()));
+    }
+  }
+
+  private static SchemaRegistryCatalog bulkCatalog(
+      Map<String, String> extraOptions, RestService rest) {
+    Map<String, String> options = new LinkedHashMap<>();
+    options.put("url", "http://localhost:1");
+    options.putAll(extraOptions);
+    SchemaRegistryCatalog c =
+        new SchemaRegistryCatalog("sr", SchemaRegistryCatalogConfig.fromOptions(options), () -> rest);
+    c.open();
+    return c;
+  }
+
+  @Test
+  void listTablesReadsTheLatestSchemasInPagesNotPerSubject() throws Exception {
+    BulkRestService rest = new BulkRestService(3);
+    SchemaRegistryCatalog c = bulkCatalog(Map.of(), rest);
+    try {
+      assertEquals(
+          List.of("events", "internal.audit", "orders"),
+          c.listTables("default"),
+          "avro-value, json-value, orders-key and the bare '-value' are skipped");
+      assertEquals(4, rest.requests.get(), "pages of 3, 3 and 1 schemas, then an empty one");
+    } finally {
+      c.close();
+    }
+  }
+
+  @Test
+  void listTablesStopsWhenTheRegistryIgnoresTheOffset() throws Exception {
+    BulkRestService rest = new BulkRestService(0);
+    SchemaRegistryCatalog c = bulkCatalog(Map.of(), rest);
+    try {
+      assertEquals(List.of("events", "internal.audit", "orders"), c.listTables("default"));
+      assertEquals(2, rest.requests.get(), "the second page repeats the first");
+    } finally {
+      c.close();
+    }
+  }
+
+  @Test
+  void aFailingBulkListingIsACatalogException() {
+    RestService failing =
+        new RestService("http://localhost:1") {
+          @Override
+          public List<io.confluent.kafka.schemaregistry.client.rest.entities.Schema> getSchemas(
+              Map<String, String> requestProperties,
+              String subjectPrefix,
+              boolean lookupDeletedSchema,
+              boolean latestOnly,
+              String ruleType,
+              Integer offset,
+              Integer limit)
+              throws RestClientException {
+            throw new RestClientException("unauthorized", 401, 40101);
+          }
+        };
+    SchemaRegistryCatalog c = bulkCatalog(Map.of(), failing);
+    try {
+      CatalogException e = assertThrows(CatalogException.class, () -> c.listTables("default"));
+      assertTrue(
+          e.getMessage().startsWith("Cannot list subjects in the Schema Registry at http://localhost:1"),
+          e.getMessage());
+    } finally {
+      c.close();
+    }
+  }
+
+  @Test
+  void topicFiltersLimitTheTablesListedInBulk() throws Exception {
+    SchemaRegistryCatalog c =
+        bulkCatalog(Map.of("topics.exclude", "internal\\..*"), new BulkRestService(3));
+    try {
+      assertEquals(List.of("events", "orders"), c.listTables("default"));
+    } finally {
+      c.close();
+    }
+  }
+
+  @Test
+  void topicsIncludeLimitsTheTables() throws Exception {
+    SchemaRegistryCatalog c = catalog(Map.of("topics.include", "ev.*"));
+    assertEquals(List.of("events"), c.listTables("default"));
+    assertTrue(c.tableExists(new ObjectPath("default", "events")));
+    assertFalse(c.tableExists(ORDERS), "not included");
+    assertThrows(TableNotExistException.class, () -> c.getTable(ORDERS));
+    assertEquals(
+        List.of("`name` STRING", "`at` BIGINT"),
+        columns(c.getTable(new ObjectPath("default", "events")).getUnresolvedSchema()));
+  }
+
+  @Test
+  void topicsExcludeWinsOverTopicsInclude() throws Exception {
+    SchemaRegistryCatalog c =
+        catalog(Map.of("topics.include", "events|orders", "topics.exclude", "ord.*"));
+    assertEquals(List.of("events"), c.listTables("default"));
+    assertFalse(c.tableExists(ORDERS), "excluded");
+    assertThrows(TableNotExistException.class, () -> c.getTable(ORDERS));
+  }
+
+  @Test
+  void topicFiltersMatchTheWholeTopicName() throws Exception {
+    assertEquals(List.of(), catalog(Map.of("topics.include", "event")).listTables("default"));
+    assertEquals(
+        List.of("events", "orders"),
+        catalog(Map.of("topics.exclude", "order")).listTables("default"));
+  }
+
+  @Test
+  void anInvalidTopicFilterIsRejected() {
+    for (String option : List.of("topics.include", "topics.exclude")) {
+      IllegalArgumentException e =
+          assertThrows(
+              IllegalArgumentException.class,
+              () -> SchemaRegistryCatalogConfig.fromOptions(Map.of("url", URL, option, "(")));
+      assertTrue(
+          e.getMessage().startsWith("The '" + option + "' option is not a valid regular expression"),
+          e.getMessage());
+    }
   }
 
   private static List<String> columns(Schema schema) {

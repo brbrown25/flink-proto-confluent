@@ -82,6 +82,30 @@ class SchemaRegistryCatalogFactoryTest {
   }
 
   @Test
+  void acceptsAndValidatesTopicFilters() {
+    assertInstanceOf(
+        SchemaRegistryCatalog.class,
+        create(
+            Map.of(
+                "type", "proto-confluent",
+                "url", "http://r:8081",
+                "topics.include", "orders.*",
+                "topics.exclude", ".*-dlq")));
+    Exception invalid =
+        assertThrows(
+            Exception.class,
+            () ->
+                create(
+                    Map.of(
+                        "type", "proto-confluent",
+                        "url", "http://r:8081",
+                        "topics.include", "[")));
+    assertTrue(
+        rootMessages(invalid).contains("'topics.include' option is not a valid regular expression"),
+        rootMessages(invalid));
+  }
+
+  @Test
   void sharesItsIdentifierWithTheFormatWithoutAmbiguity() {
     assertInstanceOf(
         SchemaRegistryCatalogFactory.class,

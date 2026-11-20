@@ -6,16 +6,23 @@ import com.bbrownsound.flink.formats.proto.registry.confluent.schema.SchemaRegis
 import com.bbrownsound.flink.formats.proto.registry.confluent.schema.SchemaResolutionException;
 import io.confluent.kafka.schemaregistry.client.SchemaMetadata;
 import io.confluent.kafka.schemaregistry.client.SchemaRegistryClient;
+import io.confluent.kafka.schemaregistry.client.rest.RestService;
+import io.confluent.kafka.schemaregistry.client.rest.entities.Schema;
 import io.confluent.kafka.schemaregistry.client.rest.exceptions.RestClientException;
 import io.confluent.kafka.schemaregistry.protobuf.ProtobufSchema;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Predicate;
+import java.util.function.Supplier;
 import javax.annotation.Nullable;
 import org.apache.flink.table.catalog.AbstractCatalog;
 import org.apache.flink.table.catalog.CatalogBaseTable;
@@ -42,7 +49,8 @@ import org.apache.flink.table.expressions.Expression;
  * {@code <topic>-key} also holds a protobuf schema, the key message's fields become columns too.
  * Each table is a Kafka connector table using the {@code proto-confluent} format; the catalog's
  * Kafka options ({@code properties.*}, {@code scan.*}, {@code sink.*}) are set on every table and
- * can be overridden per query with {@code /*+ OPTIONS(...) *}{@code /} hints.
+ * can be overridden per query with {@code /*+ OPTIONS(...) *}{@code /} hints. The {@code
+ * topics.include} and {@code topics.exclude} regular expressions limit which topics become tables.
  *
  * <p>The schema is resolved again on every {@link #getTable(ObjectPath)}, so a query always sees
  * the latest registered version. Creating, altering or dropping anything is rejected.
@@ -56,26 +64,36 @@ public class SchemaRegistryCatalog extends AbstractCatalog {
   private static final int VERSION_NOT_FOUND = 40402;
 
   private final SchemaRegistryCatalogConfig config;
+  @Nullable
   private final Function<SchemaRegistryCatalogConfig, SchemaRegistryClient> clientFactory;
   @Nullable
+  private final Supplier<RestService> restServices;
+  @Nullable
   private SchemaRegistrySchemaResolver resolver;
+  /** The REST service the client sends requests through, if known; used to list in bulk. */
+  @Nullable
+  private RestService restService;
 
   /**
    * Creates a catalog that connects to the registry named in the config when it is opened.
+   *
+   * <p>{@link #listTables(String)} reads the latest schema of every subject in bulk, a page at a
+   * time, rather than with one request per subject.
    *
    * @param name the catalog name
    * @param config the catalog settings
    */
   public SchemaRegistryCatalog(String name, SchemaRegistryCatalogConfig config) {
-    this(
-        name,
-        config,
-        c -> SchemaRegistryClients.create(c.getUrl(), c.getClientProperties()));
+    this(name, config, () -> new RestService(config.getUrl()));
   }
 
   /**
    * Creates a catalog over registry clients from the given factory, called once per {@link
    * #open()}. The clients must have the protobuf schema provider registered.
+   *
+   * <p>A {@link SchemaRegistryClient} has no call that returns the latest schema of every subject
+   * together with its subject name, so {@link #listTables(String)} on such a catalog asks the
+   * registry for the latest version of each {@code -value} subject in turn.
    *
    * @param name the catalog name
    * @param config the catalog settings
@@ -85,15 +103,41 @@ public class SchemaRegistryCatalog extends AbstractCatalog {
       String name,
       SchemaRegistryCatalogConfig config,
       Function<SchemaRegistryCatalogConfig, SchemaRegistryClient> clientFactory) {
+    this(name, config, Objects.requireNonNull(clientFactory, "clientFactory"), null);
+  }
+
+  /**
+   * Creates a catalog that sends its requests through a REST service from the given supplier,
+   * called once per {@link #open()}, and lists tables in bulk through it.
+   */
+  SchemaRegistryCatalog(
+      String name, SchemaRegistryCatalogConfig config, Supplier<RestService> restServices) {
+    this(name, config, null, Objects.requireNonNull(restServices, "restServices"));
+  }
+
+  private SchemaRegistryCatalog(
+      String name,
+      SchemaRegistryCatalogConfig config,
+      @Nullable Function<SchemaRegistryCatalogConfig, SchemaRegistryClient> clientFactory,
+      @Nullable Supplier<RestService> restServices) {
     super(name, Objects.requireNonNull(config, "config").getDefaultDatabase());
     this.config = config;
-    this.clientFactory = Objects.requireNonNull(clientFactory, "clientFactory");
+    this.clientFactory = clientFactory;
+    this.restServices = restServices;
   }
 
   @Override
   public void open() throws CatalogException {
     if (resolver == null) {
-      resolver = new SchemaRegistrySchemaResolver(clientFactory.apply(config));
+      SchemaRegistryClient client;
+      if (restServices != null) {
+        RestService rest = restServices.get();
+        client = SchemaRegistryClients.create(rest, config.getClientProperties());
+        restService = rest;
+      } else {
+        client = Objects.requireNonNull(clientFactory).apply(config);
+      }
+      resolver = new SchemaRegistrySchemaResolver(client);
     }
   }
 
@@ -102,6 +146,7 @@ public class SchemaRegistryCatalog extends AbstractCatalog {
     if (resolver != null) {
       SchemaRegistryClient client = resolver.getClient();
       resolver = null;
+      restService = null;
       try {
         client.close();
       } catch (IOException e) {
@@ -156,19 +201,34 @@ public class SchemaRegistryCatalog extends AbstractCatalog {
 
   /**
    * Lists the topics whose {@code <topic>-value} subject's latest schema is protobuf, sorted by
-   * name. Asks the registry for the latest version of every {@code -value} subject.
+   * name, leaving out topics that {@code topics.include} and {@code topics.exclude} filter out.
+   *
+   * <p>A catalog that knows its registry's REST service reads the latest schema of every subject
+   * with {@code GET /schemas?latestOnly=true}, one request per page of subjects. A catalog over a
+   * client from a factory lists the subjects, then asks for the latest version of every {@code
+   * -value} subject of an included topic, one request each.
    */
   @Override
   public List<String> listTables(String databaseName) throws DatabaseNotExistException {
     if (!databaseExists(databaseName)) {
       throw new DatabaseNotExistException(getName(), databaseName);
     }
+    Collection<String> subjects;
+    Predicate<String> isProtobuf;
+    if (restService != null) {
+      subjects = latestProtobufSubjects(restService);
+      isProtobuf = subject -> true;
+    } else {
+      subjects = allSubjects();
+      isProtobuf = subject -> latestProtobufVersion(subject).isPresent();
+    }
     List<String> tables = new ArrayList<>();
-    for (String subject : allSubjects()) {
-      if (subject.endsWith(VALUE_SUFFIX)
-          && subject.length() > VALUE_SUFFIX.length()
-          && latestProtobufVersion(subject).isPresent()) {
-        tables.add(subject.substring(0, subject.length() - VALUE_SUFFIX.length()));
+    for (String subject : subjects) {
+      if (subject.endsWith(VALUE_SUFFIX) && subject.length() > VALUE_SUFFIX.length()) {
+        String topic = subject.substring(0, subject.length() - VALUE_SUFFIX.length());
+        if (config.includesTopic(topic) && isProtobuf.test(subject)) {
+          tables.add(topic);
+        }
       }
     }
     Collections.sort(tables);
@@ -185,10 +245,10 @@ public class SchemaRegistryCatalog extends AbstractCatalog {
 
   @Override
   public CatalogBaseTable getTable(ObjectPath tablePath) throws TableNotExistException {
-    if (!databaseExists(tablePath.getDatabaseName())) {
+    String topic = tablePath.getObjectName();
+    if (!databaseExists(tablePath.getDatabaseName()) || !config.includesTopic(topic)) {
       throw new TableNotExistException(getName(), tablePath);
     }
-    String topic = tablePath.getObjectName();
     String valueSubject = topic + VALUE_SUFFIX;
     SchemaMetadata valueVersion =
         latestProtobufVersion(valueSubject)
@@ -208,6 +268,7 @@ public class SchemaRegistryCatalog extends AbstractCatalog {
   @Override
   public boolean tableExists(ObjectPath tablePath) {
     return databaseExists(tablePath.getDatabaseName())
+        && config.includesTopic(tablePath.getObjectName())
         && latestProtobufVersion(tablePath.getObjectName() + VALUE_SUFFIX).isPresent();
   }
 
@@ -393,6 +454,38 @@ public class SchemaRegistryCatalog extends AbstractCatalog {
       throw new CatalogException(
           "Cannot list subjects in the Schema Registry at " + config.getUrl() + ": " + e, e);
     }
+  }
+
+  /**
+   * Returns every live subject whose latest schema is protobuf, read a page at a time with {@code
+   * GET /schemas?latestOnly=true}. The registry decides the page size; paging stops at the first
+   * page that holds no subject not seen before, which is the empty page after the last one, or a
+   * repeat of the first page from a registry that ignores {@code offset}.
+   */
+  private Set<String> latestProtobufSubjects(RestService rest) {
+    Set<String> seen = new HashSet<>();
+    Set<String> protobuf = new HashSet<>();
+    try {
+      boolean more = true;
+      while (more) {
+        more = false;
+        List<Schema> page =
+            rest.getSchemas(
+                RestService.DEFAULT_REQUEST_PROPERTIES, null, false, true, null, seen.size(), null);
+        for (Schema schema : page) {
+          if (seen.add(schema.getSubject())) {
+            more = true;
+            if (ProtobufSchema.TYPE.equals(schema.getSchemaType())) {
+              protobuf.add(schema.getSubject());
+            }
+          }
+        }
+      }
+    } catch (IOException | RestClientException e) {
+      throw new CatalogException(
+          "Cannot list subjects in the Schema Registry at " + config.getUrl() + ": " + e, e);
+    }
+    return protobuf;
   }
 
   /**
