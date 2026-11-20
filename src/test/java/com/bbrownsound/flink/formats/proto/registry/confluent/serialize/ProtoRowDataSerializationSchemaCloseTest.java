@@ -42,11 +42,11 @@ class ProtoRowDataSerializationSchemaCloseTest {
     assertEquals(1, loader.hooks.size());
     String name = loader.hooks.keySet().iterator().next();
     assertTrue(name.startsWith("proto-confluent-sink-"), name);
-    assertEquals(0, schema.clients.get(0).closed);
+    assertEquals(0, schema.clients().get(0).closed);
 
     // What Flink does when the job's user-code class loader is released on the TaskManager.
     loader.hooks.values().forEach(Runnable::run);
-    assertEquals(1, schema.clients.get(0).closed);
+    assertEquals(1, schema.clients().get(0).closed);
   }
 
   @Test
@@ -60,8 +60,8 @@ class ProtoRowDataSerializationSchemaCloseTest {
 
     assertEquals(2, loader.hooks.size());
     loader.hooks.values().forEach(Runnable::run);
-    assertEquals(1, first.clients.get(0).closed);
-    assertEquals(1, second.clients.get(0).closed);
+    assertEquals(1, first.clients().get(0).closed);
+    assertEquals(1, second.clients().get(0).closed);
   }
 
   @Test
@@ -69,7 +69,7 @@ class ProtoRowDataSerializationSchemaCloseTest {
     ClientRecordingSchema schema = schema();
     schema.open(context());
     schema.open(context());
-    assertEquals(1, schema.clients.size());
+    assertEquals(1, schema.clients().size());
     assertEquals(1, loader.hooks.size());
   }
 
@@ -82,7 +82,7 @@ class ProtoRowDataSerializationSchemaCloseTest {
     schema.close();
     loader.hooks.values().forEach(Runnable::run);
 
-    assertEquals(1, schema.clients.get(0).closed);
+    assertEquals(1, schema.clients().get(0).closed);
   }
 
   @Test
@@ -91,7 +91,7 @@ class ProtoRowDataSerializationSchemaCloseTest {
     try (ClientRecordingSchema opened = schema) {
       opened.open(null);
     }
-    assertEquals(1, schema.clients.get(0).closed);
+    assertEquals(1, schema.clients().get(0).closed);
     assertTrue(loader.hooks.isEmpty());
   }
 
@@ -102,15 +102,15 @@ class ProtoRowDataSerializationSchemaCloseTest {
     schema.close();
     schema.open(context());
 
-    assertEquals(2, schema.clients.size());
-    assertEquals(0, schema.clients.get(1).closed);
+    assertEquals(2, schema.clients().size());
+    assertEquals(0, schema.clients().get(1).closed);
   }
 
   @Test
   void close_beforeOpen_isANoOp() {
     ClientRecordingSchema schema = schema();
     assertDoesNotThrow(schema::close);
-    assertTrue(schema.clients.isEmpty());
+    assertTrue(schema.clients().isEmpty());
   }
 
   @Test
@@ -120,7 +120,7 @@ class ProtoRowDataSerializationSchemaCloseTest {
     schema.open(context());
     // A release hook must not be derailed by the client refusing to close.
     assertDoesNotThrow(schema::close);
-    assertEquals(1, schema.clients.get(0).closed);
+    assertEquals(1, schema.clients().get(0).closed);
   }
 
   // -------------------------------------------------------------------------------------------
@@ -152,17 +152,25 @@ class ProtoRowDataSerializationSchemaCloseTest {
   private static final class ClientRecordingSchema extends ProtoRowDataSerializationSchema {
     private static final long serialVersionUID = 1L;
 
-    private final transient List<ClosingClient> clients = new ArrayList<>();
+    // Set lazily, not in the constructor: SpotBugs flags a transient field the constructor sets.
+    private transient List<ClosingClient> clients;
     private transient IOException closeFailure;
 
     ClientRecordingSchema(ProtoConfluentFormatConfig config) {
       super(rowType("content", "date_time"), config);
     }
 
+    List<ClosingClient> clients() {
+      if (clients == null) {
+        clients = new ArrayList<>();
+      }
+      return clients;
+    }
+
     @Override
     SchemaRegistryClient createSchemaRegistryClient(Map<String, String> clientProperties) {
       ClosingClient client = new ClosingClient(closeFailure);
-      clients.add(client);
+      clients().add(client);
       return client;
     }
   }
