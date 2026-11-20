@@ -104,7 +104,7 @@ Protobuf and SQL disagree about `NULL`: most Protobuf fields cannot be unset, on
 | --- | --- | --- | --- |
 | `google.protobuf.Timestamp` | `TIMESTAMP_LTZ(9)` | `TIMESTAMP(p)`, `BYTES`, `STRING` (JSON) | Nanosecond precision is kept. Instants before 1970 are written with negative `seconds` and `nanos` from 0 to 999,999,999, as `google.protobuf.Timestamp` requires. |
 | `google.protobuf.Duration` | `ROW<seconds BIGINT, nanos INT>` | `INTERVAL DAY TO SECOND`, `BYTES`, `STRING` (JSON) | The interval holds milliseconds. |
-| `google.type.Date` | `DATE` | `BYTES`, `STRING` (JSON) | Read as a calendar date: a month or day of `0` (a partial date) fails the record. |
+| `google.type.Date` | `DATE` | `BYTES`, `STRING` (JSON) | Read as a calendar date. A `Date` whose year, month and day are all `0` (an empty date) reads as `NULL`, like an unset one. A year, month or day of `0` alone (a partial date: no year, or a year or year and month only) fails the record, as does a day that does not exist such as February 30; the error names the field and the value, and follows [`on-deserialize-error`](configuration.md). |
 | `google.type.TimeOfDay` | `TIME(3)` | `BYTES`, `STRING` (JSON) | Read to the millisecond: nanoseconds below a millisecond are dropped. |
 | `confluent.type.Decimal` | `DECIMAL(p, s)` | | See [Confluent annotations](#confluent-annotations). Declare it `DECIMAL`: it has a field named `value`, so `BYTES` and `STRING` columns treat it as a wrapper-style message (see [JSON strings](#json-strings)) rather than holding the whole message. |
 | `google.protobuf.DoubleValue`, `FloatValue`, `Int64Value`, `UInt64Value`, `Int32Value`, `UInt32Value`, `BoolValue`, `StringValue`, `BytesValue` | the wrapped type (`DOUBLE`, `FLOAT`, `BIGINT`, `BIGINT`, `INT`, `BIGINT`, `BOOLEAN`, `STRING`, `BYTES`), nullable | `DECIMAL(20, 0)` for `UInt64Value` | An unset wrapper reads as `NULL`, a wrapper holding `0` or `''` as that value. |
@@ -216,7 +216,7 @@ Details:
 - **`TINYINT` / `SMALLINT`** narrow an `int32`: a value outside the column's range is a deserialize error, handled per `on-deserialize-error` (see [Confluent annotations](#confluent-annotations)).
 - **`DECIMAL`** reads with the column's declared scale, not the scale in each message.
 - **Millisecond resolution** for `google.type.TimeOfDay` (`TIME(3)`) and `google.protobuf.Duration` (`INTERVAL DAY TO SECOND`): finer digits are dropped on reading.
-- **Partial dates.** A `google.type.Date` with a month or day of `0` fails the record.
+- **Partial dates.** A `google.type.Date` with a year, month or day of `0` fails the record, unless all three are `0`, which reads as `NULL`. Declare the column `ROW<year INT, month INT, day INT>` to read partial dates as their parts.
 - **`google.protobuf.Any`** stays packed: no JSON, no unpacking into the packed message's columns.
 - **Recursive messages** need a `recursive-message` setting or a hand-written column (see [Recursive messages](#recursive-messages)).
 - **Sink-derived schemas** cannot hold `TIMESTAMP WITH TIME ZONE`, `INTERVAL YEAR TO MONTH`, `RAW` or user-defined types, and never contain enums, `oneof`s or imports other than those of the [types above](#flink-to-protobuf-the-schema-a-sink-derives); register the schema yourself, or pin a `message-class`, when you need those.
