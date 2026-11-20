@@ -110,6 +110,13 @@ class DateZeroPartsTest {
   }
 
   @Test
+  void aDateWithoutAYearOrMonthFailsNamingTheField() {
+    final IllegalArgumentException e = readFails(date(0, 0, 15));
+    assertTrue(e.getMessage().contains("dates.Dates.d"), e.getMessage());
+    assertTrue(e.getMessage().contains("year 0, month 0, day 15"), e.getMessage());
+  }
+
+  @Test
   void aDateWithoutAMonthFailsNamingTheField() {
     final IllegalArgumentException e = readFails(date(2024, 0, 0));
     assertTrue(e.getMessage().contains("dates.Dates.d"), e.getMessage());
