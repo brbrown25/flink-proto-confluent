@@ -56,8 +56,8 @@ class ProtoRowDataSerializationSchemaClassLoaderTest {
 
   @BeforeEach
   void compileJobClass() throws IOException {
-    Path source = temp.resolve("src").resolve("JobOrder.java");
-    Files.createDirectories(source.getParent());
+    Path sources = Files.createDirectories(temp.resolve("src"));
+    Path source = sources.resolve("JobOrder.java");
     Files.writeString(
         source,
         "package com.example.jobjar;\n"
@@ -84,8 +84,15 @@ class ProtoRowDataSerializationSchemaClassLoaderTest {
                 classes.toString(),
                 source.toString());
     assertEquals(0, status, "the stand-in for the job JAR compiles");
-    jobLoader = new URLClassLoader(new URL[] {classes.toUri().toURL()}, getClass().getClassLoader());
+    jobLoader = jobLoader(classes);
     registry = new StubSchemaRegistryClient();
+  }
+
+  /** A class loader over the compiled classes, child of the test's own, like Flink's for a job. */
+  private static URLClassLoader jobLoader(Path classes) throws IOException {
+    return new URLClassLoader(
+        new URL[] {classes.toUri().toURL()},
+        ProtoRowDataSerializationSchemaClassLoaderTest.class.getClassLoader());
   }
 
   @AfterEach
