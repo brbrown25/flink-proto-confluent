@@ -13,6 +13,7 @@ import java.io.IOException;
 import java.io.Serializable;
 import java.lang.reflect.Array;
 import java.math.BigDecimal;
+import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -417,7 +418,7 @@ public class ProtoToRowDataConverters {
         // wall-clock time in UTC, which is what TimestampData.fromEpochMillis holds.
         return createTimestampConverter();
       case DATE:
-        return createDateConverter();
+        return createDateConverter(readSchema);
       case INTERVAL_DAY_TIME:
         requireAlternative(readSchema, targetType);
         return createDurationConverter();
@@ -684,22 +685,48 @@ public class ProtoToRowDataConverters {
         new BigDecimal(Long.toUnsignedString(value)), precision, scale);
   }
 
-  private static ProtoToRowDataConverter createDateConverter() {
+  /**
+   * Reads a google.type.Date as a calendar day. The message allows 0 in each part: all zeros is an
+   * empty date and reads as NULL, like an unset one. A year, month or day of 0 alone is a partial
+   * date (no year, or a year or year and month only), which a DATE cannot hold, so it fails the
+   * record, as does a day that does not exist; the error names the field and the value.
+   */
+  private static ProtoToRowDataConverter createDateConverter(FieldDescriptor readSchema) {
+    final String fieldName = readSchema.getFullName();
     return object -> {
       Message message = (Message) object;
       int year = 0;
       int month = 0;
       int day = 0;
       for (Map.Entry<FieldDescriptor, Object> entry : message.getAllFields().entrySet()) {
-        final String fieldName = entry.getKey().getName();
-        switch (fieldName) {
+        final String name = entry.getKey().getName();
+        switch (name) {
           case "year" -> year = ((Number) entry.getValue()).intValue();
           case "month" -> month = ((Number) entry.getValue()).intValue();
           case "day" -> day = ((Number) entry.getValue()).intValue();
-          default -> throw new IllegalStateException("Unexpected field name: " + fieldName);
+          default -> throw new IllegalStateException("Unexpected field name: " + name);
         }
       }
-      return DateTimeUtils.toInternal(LocalDate.of(year, month, day));
+      if (year == 0 && month == 0 && day == 0) {
+        return null;
+      }
+      final String value = String.format("year %d, month %d, day %d", year, month, day);
+      if (year == 0 || month == 0 || day == 0) {
+        throw new IllegalArgumentException(
+            String.format(
+                "Cannot read the google.type.Date in %s (%s) as a DATE: a year, month or day of 0"
+                    + " is a partial date, not a calendar day",
+                fieldName, value));
+      }
+      try {
+        return DateTimeUtils.toInternal(LocalDate.of(year, month, day));
+      } catch (DateTimeException e) {
+        throw new IllegalArgumentException(
+            String.format(
+                "Cannot read the google.type.Date in %s (%s) as a DATE: %s",
+                fieldName, value, e.getMessage()),
+            e);
+      }
     };
   }
 
