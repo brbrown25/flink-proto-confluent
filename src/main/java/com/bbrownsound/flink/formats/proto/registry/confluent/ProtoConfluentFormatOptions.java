@@ -214,8 +214,9 @@ public class ProtoConfluentFormatOptions {
 
   /**
    * What to do when a record fails to deserialize: {@code skip} (drop + count) or {@code fail}
-   * (throw). A Schema Registry outage always fails the task (GitHub issue #232). An enum option, so any other value is rejected when a query using the table is planned; values are
-   * matched case-insensitively.
+   * (throw). A Schema Registry outage always fails the task (GitHub issue #232). An enum option, so
+   * any other value is rejected when a query using the table is planned; values are matched
+   * case-insensitively.
    */
   public static final ConfigOption<OnDeserializeError> ON_DESERIALIZE_ERROR =
       ConfigOptions.key("on-deserialize-error")
