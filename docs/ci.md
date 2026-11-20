@@ -164,7 +164,7 @@ It also fails when a committed `sql/*.sql` file is not run by any cast or step, 
 
 Cost: the whole job takes about 3.5 minutes on `ubuntu-latest`: about 15 seconds to pull the images and 3 minutes for `verify.sh` (shadow JAR build, stack start-up, and the steps, the longest being the write-back and dead-letter casts at about 25 seconds each). Locally it takes about 2m45s, or 1m45s with `--no-build`. The job has a 30-minute timeout and the verify step 20 minutes; `verify.sh` and a final `if: always()` step both run `docker compose down -v`. `docs/demo/setup.sh` builds the JAR with `-PflinkVersion=1.20.5` (and `2.2.1` for `FLINK_VERSION=2.2`), the versions in the CI matrix, so the Flink artifacts come from the shared Gradle cache rather than Maven Central. The Kafka SQL connector JAR is cached with `actions/cache`; the images are pulled, not cached, for the reason given for the Testcontainers images above. `workflow_dispatch` takes a `flink-version` input (`1.20` or `2.2`).
 
-The check is **not** required and is not in `ci-ok`'s `needs`. It is path-filtered at the trigger, so on a pull request that touches neither path it is absent, not skipped, and requiring it would leave such pull requests pending forever, the same trap #117 describes for `codecov/patch`. Making it required needs a decision on #117 first (for example moving it into `pr-checks.yml` behind the `changes` job with a docs-or-code filter, so it reports a skip).
+The check is **not** required and is not in `ci-ok`'s `needs`. It is path-filtered at the trigger, so on a pull request that touches neither path it is absent, not skipped, and requiring it would leave such pull requests pending forever, the same trap #117 found with `codecov/patch` (see [Coverage gates](#coverage-gates)). Making it required means first moving it into `pr-checks.yml` behind the `changes` job with a docs-or-code filter, so it reports a skip.
 
 ## Coverage gates
 
@@ -173,16 +173,18 @@ Three things report on coverage, and only two of them can fail a build. Knowing 
 | Mechanism | Can it fail? | What it covers |
 | --- | --- | --- |
 | Gradle `jacocoTestCoverageVerification` | **Yes** — fails the `integration tests (flink 1.20.x)` leg | 80% line coverage project-wide, plus per-package rules on `…confluent.serialize` and `…confluent.deserialize` |
-| Codecov `project` / `patch` statuses | **Yes**, once required (see below) | Project-wide, and coverage of the lines the PR changed |
+| Codecov `project` / `patch` statuses | **No**, not required checks (see below) | Project-wide, and coverage of the lines the PR changed |
 | `madrapps/jacoco-report` PR comment | **No** | Nothing — it is a report only |
 
 The `madrapps/jacoco-report` step's `min-coverage-overall` and `min-coverage-changed-files` inputs only select the pass/fail emoji in the comment it posts; the action has no failure path for a threshold breach, and its `continue-on-error` input governs runtime exceptions rather than coverage. Treat that comment as information, never as a gate.
 
-`codecov.yml` defines the `project` and `patch` statuses with `informational: false`, which is what makes them capable of failing — an informational status always reports success. The `patch` status is the one that matters most, because it is the only gate on *changed-line* coverage: Gradle's project-wide rule will happily stay above 80% while a PR adds uncovered code.
+`codecov.yml` defines the `project` status with `informational: false`, which is what makes it capable of failing — an informational status always reports success. The `patch` status is `informational: true`, so it always reports success and only shows *changed-line* coverage; Gradle's project-wide rule will happily stay above 80% while a PR adds uncovered code, so read the patch number in review.
+
+**Neither Codecov status is a required check.** The `Protections` ruleset requires only `ci-ok`. Codecov posts its statuses only after the coverage leg uploads, and a docs-only pull request skips that leg, so a required `codecov/patch` was never posted and the pull request could not merge without an admin bypass (#117). `ci-ok` already fails when the coverage leg fails, which covers the Gradle gate and a failed Codecov upload. Mergify still waits for `codecov/patch` before auto-merging a Dependabot pull request; those always change code, so the status is always posted.
 
 Two of the steps are outside the repository and must be done once, in repository settings:
 
 1. **Install the Codecov GitHub App.** Without it Codecov cannot create statuses at all — uploads still succeed and it will still comment (as `codecov-commenter` rather than `codecov[bot]`), but no check appears, so nothing can block. This is the state the repository was in before this configuration existed.
-2. **List `codecov/project` and `codecov/patch` as required status checks** in the ruleset that protects the default branch. A red status that is not required is advisory only.
+2. **Do not list `codecov/project` or `codecov/patch` as required status checks.** A required status that Codecov never posts, as on a docs-only pull request, blocks the merge forever (#117). A status that is not required is advisory only; to make patch coverage block, check it in a job that `ci-ok` needs, so a docs-only pull request reports it as skipped.
 
 Both `codecov/codecov-action` invocations use `fail_ci_if_error: true`, so an upload that fails fails the job rather than passing silently and leaving Codecov to report on stale data.
