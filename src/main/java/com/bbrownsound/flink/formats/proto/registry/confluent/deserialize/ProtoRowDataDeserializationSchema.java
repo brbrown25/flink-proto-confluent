@@ -177,6 +177,13 @@ public class ProtoRowDataDeserializationSchema
         context
             .getMetricGroup()
             .gauge(NUM_CACHED_SCHEMAS, (Gauge<Integer>) () -> cachedConverters(converterCache));
+        // DeserializationSchema has no close() hook, so the Schema Registry client and the
+        // dead-letter producer are closed when Flink releases the job's user-code class loader on
+        // this TaskManager. The name is unique per instance because a hook is only registered if
+        // its name is absent.
+        context
+            .getUserCodeClassLoader()
+            .registerReleaseHookIfAbsent("proto-confluent-source-" + UUID.randomUUID(), this::close);
       }
 
       if (formatConfig.deadLetterTopic != null) {
@@ -195,15 +202,6 @@ public class ProtoRowDataDeserializationSchema
         producerProps.put("key.serializer", ByteArraySerializer.class.getName());
         producerProps.put("value.serializer", ByteArraySerializer.class.getName());
         this.deadLetterProducer = createDeadLetterProducer(producerProps);
-        if (context != null) {
-          // DeserializationSchema has no close() hook, so the producer is closed when Flink
-          // releases the job's user-code class loader on this TaskManager. The name is unique per
-          // instance because a hook is only registered if its name is absent.
-          context
-              .getUserCodeClassLoader()
-              .registerReleaseHookIfAbsent(
-                  "proto-confluent-dead-letter-producer-" + UUID.randomUUID(), this::close);
-        }
         LOG.info(
             "[proto-confluent] dead-letter producer enabled: topic={}, delivery={}",
             formatConfig.deadLetterTopic,
@@ -492,7 +490,7 @@ public class ProtoRowDataDeserializationSchema
    * job leaves this TaskManager.
    */
   private IOException deadLetterFailure(Throwable dlqError, Exception deserializeError) {
-    close();
+    closeDeadLetterProducer();
     final IOException failure =
         new IOException(
             "Proto-confluent dead-letter delivery to topic '"
@@ -506,8 +504,9 @@ public class ProtoRowDataDeserializationSchema
   }
 
   /**
-   * Closes the dead-letter producer, waiting a bounded time for records that are still in flight.
-   * Safe to call more than once, and a no-op when no dead-letter topic is configured.
+   * Closes the Schema Registry client and the dead-letter producer, waiting a bounded time for
+   * dead-letter records that are still in flight. Safe to call more than once, and a no-op before
+   * {@link #open}; a later {@link #open} creates a fresh client.
    *
    * <p>Flink's {@link DeserializationSchema} has no close hook, so {@link #open} registers this
    * method as a release hook on the job's user-code class loader. Code that owns the schema
@@ -515,6 +514,31 @@ public class ProtoRowDataDeserializationSchema
    */
   @Override
   public void close() {
+    closeDeadLetterProducer();
+    closeSchemaRegistryClient();
+  }
+
+  /**
+   * Closes the Schema Registry client, which releases what its credential provider holds (an OAuth
+   * bearer token provider, for example), and forgets it so that it is closed only once.
+   */
+  private void closeSchemaRegistryClient() {
+    final SchemaRegistryClient registryClient = client;
+    if (registryClient == null) {
+      return;
+    }
+    client = null;
+    try {
+      registryClient.close();
+    } catch (IOException | RuntimeException closeEx) {
+      LOG.warn(
+          "[proto-confluent] failed to close the Schema Registry client for {}",
+          formatConfig.schemaRegistryUrl,
+          closeEx);
+    }
+  }
+
+  private void closeDeadLetterProducer() {
     final Producer<byte[], byte[]> producer = deadLetterProducer;
     if (producer == null) {
       return;

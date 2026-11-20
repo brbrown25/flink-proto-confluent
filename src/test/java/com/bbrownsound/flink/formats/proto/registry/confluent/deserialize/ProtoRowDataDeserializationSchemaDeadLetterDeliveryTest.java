@@ -68,7 +68,10 @@ class ProtoRowDataDeserializationSchemaDeadLetterDeliveryTest {
     assertEquals(0L, f.count(ERRORS));
     assertEquals(0L, f.count("numDeserializeErrors"));
     assertNull(f.schema.seenProperties, "No producer is created without a dead-letter topic");
-    assertTrue(f.loader.hooks.isEmpty(), "Nothing to close, so no release hook");
+    // The hook is still registered: it closes the Schema Registry client (GitHub issue #248).
+    assertEquals(1, f.loader.hooks.size());
+    f.loader.hooks.values().forEach(Runnable::run);
+    assertFalse(f.producer.closed());
   }
 
   @Test
@@ -299,7 +302,7 @@ class ProtoRowDataDeserializationSchemaDeadLetterDeliveryTest {
 
     assertEquals(1, f.loader.hooks.size());
     String name = f.loader.hooks.keySet().iterator().next();
-    assertTrue(name.startsWith("proto-confluent-dead-letter-producer-"), name);
+    assertTrue(name.startsWith("proto-confluent-source-"), name);
     assertFalse(f.producer.closed());
 
     // What Flink does when the job's user-code class loader is released on the TaskManager.

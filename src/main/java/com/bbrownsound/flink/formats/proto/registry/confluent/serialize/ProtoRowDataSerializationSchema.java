@@ -4,21 +4,27 @@ import com.bbrownsound.flink.formats.proto.registry.confluent.config.ProtoConflu
 import com.bbrownsound.flink.formats.proto.registry.confluent.metrics.SchemaRegistryMetrics;
 import io.confluent.kafka.schemaregistry.client.SchemaRegistryClient;
 import io.confluent.kafka.schemaregistry.client.SchemaRegistryClientConfig;
+import java.io.IOException;
 import java.time.Duration;
 import java.util.Map;
+import java.util.UUID;
 import java.util.function.LongSupplier;
 import org.apache.flink.api.common.serialization.SerializationSchema;
 import org.apache.flink.metrics.Counter;
 import org.apache.flink.metrics.MetricGroup;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.types.logical.RowType;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Derived from https://github.com/amstee/flink-proto-confluent (Apache-2.0). See NOTICE in project
  * root.
  */
-public class ProtoRowDataSerializationSchema implements SerializationSchema<RowData> {
+public class ProtoRowDataSerializationSchema
+    implements SerializationSchema<RowData>, AutoCloseable {
   private static final long serialVersionUID = 1L;
+  private static final Logger LOG = LoggerFactory.getLogger(ProtoRowDataSerializationSchema.class);
 
   /** Counter: rows the sink failed to serialize. */
   static final String NUM_SERIALIZE_ERRORS = "numSerializeErrors";
@@ -55,11 +61,43 @@ public class ProtoRowDataSerializationSchema implements SerializationSchema<RowD
       if (context != null) {
         this.metricGroup = context.getMetricGroup();
         this.serializeErrors = metricGroup.counter(NUM_SERIALIZE_ERRORS);
+        // SerializationSchema has no close() hook, so the Schema Registry client is closed when
+        // Flink releases the job's user-code class loader on this TaskManager. The name is unique
+        // per instance because a hook is only registered if its name is absent.
+        context
+            .getUserCodeClassLoader()
+            .registerReleaseHookIfAbsent("proto-confluent-sink-" + UUID.randomUUID(), this::close);
       }
       this.client = createSchemaRegistryClient(clientProperties(formatConfig));
       this.serializer =
           new RowDataProtoSerializer(client, formatConfig.schemaCacheTtl, nanoClock());
       this.serializer.configure(formatConfig.getProperties(), formatConfig.isKey);
+    }
+  }
+
+  /**
+   * Closes the Schema Registry client, which releases what its credential provider holds (an OAuth
+   * bearer token provider, for example). Safe to call more than once, and a no-op before {@link
+   * #open}; a later {@link #open} creates a fresh client.
+   *
+   * <p>Flink's {@link SerializationSchema} has no close hook, so {@link #open} registers this
+   * method as a release hook on the job's user-code class loader. Code that owns the schema
+   * directly (for example a DataStream job or a test) can call it itself.
+   */
+  @Override
+  public void close() {
+    final SchemaRegistryClient registryClient = client;
+    if (registryClient == null) {
+      return;
+    }
+    client = null;
+    try {
+      registryClient.close();
+    } catch (IOException | RuntimeException closeEx) {
+      LOG.warn(
+          "[proto-confluent] failed to close the Schema Registry client for {}",
+          formatConfig.schemaRegistryUrl,
+          closeEx);
     }
   }
 
