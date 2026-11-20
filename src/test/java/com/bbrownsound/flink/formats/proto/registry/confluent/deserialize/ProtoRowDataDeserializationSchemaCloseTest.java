@@ -41,11 +41,11 @@ class ProtoRowDataDeserializationSchemaCloseTest {
     schema.open(context());
 
     assertEquals(1, loader.hooks.size());
-    assertEquals(0, schema.clients.get(0).closed);
+    assertEquals(0, schema.clients().get(0).closed);
 
     // What Flink does when the job's user-code class loader is released on the TaskManager.
     loader.hooks.values().forEach(Runnable::run);
-    assertEquals(1, schema.clients.get(0).closed);
+    assertEquals(1, schema.clients().get(0).closed);
   }
 
   @Test
@@ -57,7 +57,7 @@ class ProtoRowDataDeserializationSchemaCloseTest {
     schema.close();
     loader.hooks.values().forEach(Runnable::run);
 
-    assertEquals(1, schema.clients.get(0).closed);
+    assertEquals(1, schema.clients().get(0).closed);
   }
 
   @Test
@@ -66,7 +66,7 @@ class ProtoRowDataDeserializationSchemaCloseTest {
     try (ClientRecordingSchema opened = schema) {
       opened.open(null);
     }
-    assertEquals(1, schema.clients.get(0).closed);
+    assertEquals(1, schema.clients().get(0).closed);
     assertTrue(loader.hooks.isEmpty());
   }
 
@@ -77,15 +77,15 @@ class ProtoRowDataDeserializationSchemaCloseTest {
     schema.close();
     schema.open(context());
 
-    assertEquals(2, schema.clients.size());
-    assertEquals(0, schema.clients.get(1).closed);
+    assertEquals(2, schema.clients().size());
+    assertEquals(0, schema.clients().get(1).closed);
   }
 
   @Test
   void close_beforeOpen_isANoOp() {
     ClientRecordingSchema schema = schema();
     assertDoesNotThrow(schema::close);
-    assertTrue(schema.clients.isEmpty());
+    assertTrue(schema.clients().isEmpty());
   }
 
   @Test
@@ -95,7 +95,7 @@ class ProtoRowDataDeserializationSchemaCloseTest {
     schema.open(context());
     // A release hook or a failing task must not be derailed by the client refusing to close.
     assertDoesNotThrow(schema::close);
-    assertEquals(1, schema.clients.get(0).closed);
+    assertEquals(1, schema.clients().get(0).closed);
   }
 
   // -------------------------------------------------------------------------------------------
@@ -129,17 +129,25 @@ class ProtoRowDataDeserializationSchemaCloseTest {
   private static final class ClientRecordingSchema extends ProtoRowDataDeserializationSchema {
     private static final long serialVersionUID = 1L;
 
-    private final transient List<ClosingClient> clients = new ArrayList<>();
+    // Set lazily, not in the constructor: SpotBugs flags a transient field the constructor sets.
+    private transient List<ClosingClient> clients;
     private transient IOException closeFailure;
 
     ClientRecordingSchema(RowType rowType, ProtoConfluentFormatConfig config) {
       super(rowType, null, config);
     }
 
+    List<ClosingClient> clients() {
+      if (clients == null) {
+        clients = new ArrayList<>();
+      }
+      return clients;
+    }
+
     @Override
     SchemaRegistryClient createSchemaRegistryClient(InitializationContext context) {
       ClosingClient client = new ClosingClient(closeFailure);
-      clients.add(client);
+      clients().add(client);
       return client;
     }
   }
