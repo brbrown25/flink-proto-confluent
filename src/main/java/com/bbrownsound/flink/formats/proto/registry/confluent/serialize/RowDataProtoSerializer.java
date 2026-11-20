@@ -129,8 +129,25 @@ public final class RowDataProtoSerializer extends KafkaProtobufSerializer<Dynami
     }
   }
 
+  /**
+   * Configures the serializer, loading a message class with the thread's context class loader (or
+   * this class's loader when the thread has none).
+   */
   @Override
   public void configure(Map<String, ?> configs, boolean isKey) {
+    configure(configs, isKey, null);
+  }
+
+  /**
+   * Configures the serializer, loading a message class with the given class loader.
+   *
+   * @param configs serializer configuration
+   * @param isKey whether this serializer encodes the record key
+   * @param classLoader loader for {@value #KEY_MESSAGE_CLASS_CONFIG} / {@value
+   *     #VALUE_MESSAGE_CLASS_CONFIG}, normally the job's user-code class loader so a class shipped
+   *     in the job JAR is found; {@code null} uses the thread's context class loader
+   */
+  void configure(Map<String, ?> configs, boolean isKey, @Nullable ClassLoader classLoader) {
     super.configure(configs, isKey);
     // A single format instance serves either the key or the value, so select the matching config
     // key. This keeps key and value message classes independent for a table that pins both.
@@ -140,7 +157,13 @@ public final class RowDataProtoSerializer extends KafkaProtobufSerializer<Dynami
       String className = (String) messageClassObj;
       if (!className.isEmpty()) {
         try {
-          Descriptors.Descriptor descriptor = descriptorFromMessageClass(className);
+          Descriptors.Descriptor descriptor =
+              descriptorFromMessageClass(
+                  className,
+                  classLoader != null
+                      ? classLoader
+                      : Optional.ofNullable(Thread.currentThread().getContextClassLoader())
+                          .orElse(RowDataProtoSerializer.class.getClassLoader()));
           this.messageClassSchema = WriteSchema.unregistered(descriptor);
           LOG.info(
               "[proto-confluent] Using message class for {} serialization: {} -> {}",
@@ -155,9 +178,9 @@ public final class RowDataProtoSerializer extends KafkaProtobufSerializer<Dynami
     }
   }
 
-  private static Descriptors.Descriptor descriptorFromMessageClass(String className)
-      throws ReflectiveOperationException {
-    Class<?> clazz = Class.forName(className);
+  private static Descriptors.Descriptor descriptorFromMessageClass(
+      String className, ClassLoader classLoader) throws ReflectiveOperationException {
+    Class<?> clazz = Class.forName(className, true, classLoader);
     Method getDefault = clazz.getMethod("getDefaultInstance");
     Message defaultInstance = (Message) getDefault.invoke(null);
     return defaultInstance.getDescriptorForType();

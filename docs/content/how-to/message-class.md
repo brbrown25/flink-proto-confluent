@@ -33,6 +33,7 @@ CREATE TABLE keyed_sink (
 
 - `message-class` is scoped by `is_key`: on a key format it names the key message, on a value format the value message.
 - The class must be on Flink's classpath (put your generated classes in a JAR in `lib/`).
+- A sink loads the class with the job's user-code class loader, so the generated classes can also ship in the job JAR (or a JAR added with `ADD JAR`) while this format sits in `lib/`. The class is loaded when the sink opens on the TaskManager; if the job cannot see it, the job fails with a `ValidationException` naming the option and the class.
 - Use the JVM binary name — nested generated classes use `$`.
 - Use `key.fields-prefix` when one message backs both key and value, so prefixed key columns still map to proto field names.
 - Leave `message-class` unset to keep dynamic-schema behaviour.

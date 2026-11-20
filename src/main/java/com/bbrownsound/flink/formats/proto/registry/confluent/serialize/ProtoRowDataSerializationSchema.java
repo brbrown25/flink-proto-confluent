@@ -59,7 +59,12 @@ public class ProtoRowDataSerializationSchema implements SerializationSchema<RowD
       this.client = createSchemaRegistryClient(clientProperties(formatConfig));
       this.serializer =
           new RowDataProtoSerializer(client, formatConfig.schemaCacheTtl, nanoClock());
-      this.serializer.configure(formatConfig.getProperties(), formatConfig.isKey);
+      // Load 'message-class' with the job's user-code class loader, as the source does, so a
+      // generated class in the job JAR is found while the format itself sits in Flink's lib/.
+      this.serializer.configure(
+          formatConfig.getProperties(),
+          formatConfig.isKey,
+          context != null ? context.getUserCodeClassLoader().asClassLoader() : null);
     }
   }
 
