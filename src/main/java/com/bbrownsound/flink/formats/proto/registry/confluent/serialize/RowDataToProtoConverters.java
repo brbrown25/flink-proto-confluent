@@ -1,5 +1,6 @@
 package com.bbrownsound.flink.formats.proto.registry.confluent.serialize;
 
+import com.bbrownsound.flink.formats.proto.registry.confluent.deserialize.ProtoToRowDataConverters;
 import com.bbrownsound.flink.formats.proto.registry.confluent.util.DeclaredTypes;
 import com.bbrownsound.flink.formats.proto.registry.confluent.util.ProtoJson;
 import com.google.protobuf.BoolValue;
@@ -96,25 +97,25 @@ public class RowDataToProtoConverters {
   /**
    * Fails fast when the table has columns the target descriptor cannot hold, instead of a bare
    * {@link NullPointerException} later. Columns named after a real oneof are matched against the
-   * oneof, and the oneof branches are checked against its fields.
+   * oneof, and the oneof branches are checked against its fields. Columns and branches are matched
+   * to fields as the source matches them (see {@link #findField}).
    */
   private static void validateColumnsPresent(RowType type, Descriptor targetSchema) {
     final Map<String, OneofDescriptor> oneofs =
         targetSchema.getRealOneofs().stream()
             .collect(Collectors.toMap(OneofDescriptor::getName, Function.identity()));
+    final Map<String, FieldDescriptor> fields = byName(targetSchema.getFields());
     final List<String> missing = new ArrayList<>();
     for (RowType.RowField field : type.getFields()) {
       final String name = field.getName();
       if (oneofs.containsKey(name) && field.getType() instanceof RowType) {
-        final OneofDescriptor oneof = oneofs.get(name);
+        final Map<String, FieldDescriptor> cases = byName(oneofs.get(name).getFields());
         for (RowType.RowField branch : ((RowType) field.getType()).getFields()) {
-          final boolean found =
-              oneof.getFields().stream().anyMatch(f -> f.getName().equals(branch.getName()));
-          if (!found) {
+          if (findField(cases, branch.getName()) == null) {
             missing.add(name + "." + branch.getName());
           }
         }
-      } else if (targetSchema.findFieldByName(name) == null) {
+      } else if (findField(fields, name) == null) {
         missing.add(name);
       }
     }
@@ -129,16 +130,30 @@ public class RowDataToProtoConverters {
     }
   }
 
+  private static Map<String, FieldDescriptor> byName(List<FieldDescriptor> fields) {
+    return fields.stream().collect(Collectors.toMap(FieldDescriptor::getName, Function.identity()));
+  }
+
+  /**
+   * The field a column writes: the field of the same name, or of its {@code camelCase} form for a
+   * {@code snake_case} column, as on the source.
+   */
+  private static FieldDescriptor findField(Map<String, FieldDescriptor> byName, String column) {
+    return ProtoToRowDataConverters.findFieldDescriptor(byName, column);
+  }
+
   private static RowDataToProtoConverter createNoOneOfConverter(
       RowType type, Descriptor targetSchema) {
-    final String[] fieldNames = type.getFieldNames().toArray(new String[0]);
+    final Map<String, FieldDescriptor> fields = byName(targetSchema.getFields());
+    final FieldDescriptor[] descriptors =
+        type.getFieldNames().stream()
+            .map(name -> findField(fields, name))
+            .toArray(FieldDescriptor[]::new);
     final RowDataToProtoConverter[] fieldConverters =
-        type.getFields().stream()
-            .map(
-                field ->
-                    createFieldConverter(
-                        field.getType(), targetSchema.findFieldByName(field.getName())))
-            .toArray(RowDataToProtoConverter[]::new);
+        new RowDataToProtoConverter[descriptors.length];
+    for (int i = 0; i < descriptors.length; i++) {
+      fieldConverters[i] = createFieldConverter(type.getTypeAt(i), descriptors[i]);
+    }
     final LogicalType[] fieldTypes =
         type.getFields().stream().map(RowType.RowField::getType).toArray(LogicalType[]::new);
     final RowData.FieldGetter[] fieldGetters = new RowData.FieldGetter[fieldTypes.length];
@@ -153,11 +168,9 @@ public class RowDataToProtoConverters {
 
         final Builder builder = DynamicMessage.newBuilder(targetSchema);
         for (int i = 0; i < length; ++i) {
-          String fieldName = fieldNames[i];
           Object field = fieldGetters[i].getFieldOrNull(row);
           if (field != null) {
-            builder.setField(
-                targetSchema.findFieldByName(fieldName), fieldConverters[i].convert(field));
+            builder.setField(descriptors[i], fieldConverters[i].convert(field));
           }
         }
         return builder.build();
@@ -170,6 +183,7 @@ public class RowDataToProtoConverters {
     final Map<String, OneofDescriptor> oneofDescriptorMap =
         targetSchema.getRealOneofs().stream()
             .collect(Collectors.toMap(OneofDescriptor::getName, Function.identity()));
+    final Map<String, FieldDescriptor> fields = byName(targetSchema.getFields());
     final FieldSetter[] fieldSetters =
         type.getFields().stream()
             .map(
@@ -179,8 +193,7 @@ public class RowDataToProtoConverters {
                     return createOneOfFieldSetter(
                         (RowType) field.getType(), oneofDescriptorMap.get(fieldName));
                   } else {
-                    return createRegularFieldSetter(
-                        field.getType(), targetSchema.findFieldByName(fieldName));
+                    return createRegularFieldSetter(field.getType(), findField(fields, fieldName));
                   }
                 })
             .toArray(FieldSetter[]::new);
@@ -231,14 +244,13 @@ public class RowDataToProtoConverters {
   }
 
   private static FieldSetter createOneOfFieldSetter(RowType type, OneofDescriptor targetSchema) {
-    final Map<String, FieldDescriptor> fieldDescriptors =
-        targetSchema.getFields().stream()
-            .collect(Collectors.toMap(FieldDescriptor::getName, Function.identity()));
+    final Map<String, FieldDescriptor> fieldDescriptors = byName(targetSchema.getFields());
     final FieldDescriptorWithConverter[] fieldConverters =
         type.getFields().stream()
             .map(
                 field -> {
-                  final FieldDescriptor fieldDescriptor = fieldDescriptors.get(field.getName());
+                  final FieldDescriptor fieldDescriptor =
+                      findField(fieldDescriptors, field.getName());
                   return new FieldDescriptorWithConverter(
                       fieldDescriptor, createFieldConverter(field.getType(), fieldDescriptor));
                 })

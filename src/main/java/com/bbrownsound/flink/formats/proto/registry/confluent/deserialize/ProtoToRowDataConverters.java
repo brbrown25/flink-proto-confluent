@@ -291,9 +291,14 @@ public class ProtoToRowDataConverters {
 
   /**
    * Resolve proto field by table column name. Tries exact match, then snake_case to camelCase (e.g.
-   * organization_domain -> organizationDomain) since Confluent/registry schema may use either.
+   * organization_domain -> organizationDomain) since Confluent/registry schema may use either. The
+   * sink matches columns with this too, so a table writes the fields it reads.
+   *
+   * @param byName the candidate fields, by name
+   * @param tableFieldName the column name
+   * @return the matching field, or {@code null} if none matches
    */
-  static FieldDescriptor findFieldDescriptor(
+  public static FieldDescriptor findFieldDescriptor(
       Map<String, FieldDescriptor> byName, String tableFieldName) {
     FieldDescriptor fd = byName.get(tableFieldName);
     if (fd != null) {
