@@ -310,14 +310,11 @@ public class RowDataToProtoConverters {
           return createWrapperConverter(type, targetSchema);
         } else if (type.getTypeRoot() == org.apache.flink.table.types.logical.LogicalTypeRoot.BIGINT
             && (targetSchema.getType() == Type.UINT32
-                || targetSchema.getType() == Type.FIXED32
-                || targetSchema.getType() == Type.SFIXED32)) {
-          return new RowDataToProtoConverter() {
-            @Override
-            public Object convert(Object value) {
-              return value == null ? null : ((Number) value).intValue();
-            }
-          };
+                || targetSchema.getType() == Type.FIXED32)) {
+          return value -> value == null ? null : toUnsignedInt((Long) value, targetSchema);
+        } else if (type.getTypeRoot() == org.apache.flink.table.types.logical.LogicalTypeRoot.BIGINT
+            && targetSchema.getType() == Type.SFIXED32) {
+          return value -> value == null ? null : toSignedInt((Long) value, targetSchema);
         } else {
           return new RowDataToProtoConverter() {
             @Override
@@ -334,12 +331,8 @@ public class RowDataToProtoConverters {
         } else if (targetSchema.getType() == Type.MESSAGE) {
           return createWrapperConverter(type, targetSchema);
         } else if (targetSchema.getType() == Type.ENUM) {
-          return new RowDataToProtoConverter() {
-            @Override
-            public Object convert(Object value) {
-              return targetSchema.getEnumType().findValueByName(value.toString());
-            }
-          };
+          final EnumDescriptor enumType = targetSchema.getEnumType();
+          return value -> enumValueByName(enumType, value.toString(), targetSchema);
         } else {
           return new RowDataToProtoConverter() {
             @Override
@@ -447,6 +440,14 @@ public class RowDataToProtoConverters {
         ArrayData arrayData = (ArrayData) value;
         List<Object> list = new ArrayList<>();
         for (int i = 0; i < arrayData.size(); ++i) {
+          if (arrayData.isNullAt(i)) {
+            throw new IllegalArgumentException(
+                String.format(
+                    "Cannot write a NULL element (index %d) to the repeated field '%s': Protobuf"
+                        + " repeated fields cannot hold NULL. Remove or replace NULL elements"
+                        + " before writing.",
+                    i, targetSchema.getFullName()));
+          }
           list.add(elementConverter.convert(elementGetter.getElementOrNull(arrayData, i)));
         }
         return list;
@@ -485,7 +486,24 @@ public class RowDataToProtoConverters {
         final ArrayData valueArray = mapData.valueArray();
         final List<Message> newMapValue = new ArrayList<>();
         for (int i = 0; i < mapData.size(); ++i) {
-          final Object key = keyConverter.convert(keyGetter.getElementOrNull(keyArray, i));
+          if (keyArray.isNullAt(i)) {
+            throw new IllegalArgumentException(
+                String.format(
+                    "Cannot write a NULL key (entry %d) to the map field '%s': Protobuf map"
+                        + " entries cannot hold NULL. Remove or replace NULL keys before"
+                        + " writing.",
+                    i, targetSchema.getFullName()));
+          }
+          final Object flinkKey = keyGetter.getElementOrNull(keyArray, i);
+          if (valueArray.isNullAt(i)) {
+            throw new IllegalArgumentException(
+                String.format(
+                    "Cannot write a NULL value (key '%s') to the map field '%s': Protobuf map"
+                        + " entries cannot hold NULL. Remove or replace NULL values before"
+                        + " writing.",
+                    flinkKey, targetSchema.getFullName()));
+          }
+          final Object key = keyConverter.convert(flinkKey);
           final Object value = valueConverter.convert(valueGetter.getElementOrNull(valueArray, i));
           newMapValue.add(
               DynamicMessage.newBuilder(targetSchema.getMessageType())
@@ -524,6 +542,52 @@ public class RowDataToProtoConverters {
             "Value %s does not fit the unsigned 64-bit field '%s': it must be a whole number"
                 + " from 0 to 18446744073709551615.",
             value.toPlainString(), field.getFullName()));
+  }
+
+  /**
+   * Returns the 32 bits of an unsigned integer for a uint32/fixed32 field or a {@code
+   * google.protobuf.UInt32Value} (Java holds it in a signed int). Fails on a value outside 0 to
+   * 2^32 - 1 rather than wrapping.
+   */
+  private static int toUnsignedInt(long value, FieldDescriptor field) {
+    if (value < 0 || value > 0xFFFF_FFFFL) {
+      throw new IllegalArgumentException(
+          String.format(
+              "Value %d does not fit the unsigned 32-bit field '%s': it must be from 0 to"
+                  + " 4294967295.",
+              value, field.getFullName()));
+    }
+    return (int) value;
+  }
+
+  /** Narrows a BIGINT to a signed 32-bit field, failing outside its range rather than wrapping. */
+  private static int toSignedInt(long value, FieldDescriptor field) {
+    if (value < Integer.MIN_VALUE || value > Integer.MAX_VALUE) {
+      throw new IllegalArgumentException(
+          String.format(
+              "Value %d does not fit the signed 32-bit field '%s': it must be from -2147483648 to"
+                  + " 2147483647.",
+              value, field.getFullName()));
+    }
+    return (int) value;
+  }
+
+  /** Returns the enum value with the given name, failing with the valid names for an unknown one. */
+  private static EnumValueDescriptor enumValueByName(
+      EnumDescriptor enumType, String name, FieldDescriptor field) {
+    final EnumValueDescriptor known = enumType.findValueByName(name);
+    if (known != null) {
+      return known;
+    }
+    throw new IllegalArgumentException(
+        String.format(
+            "Enum %s of field '%s' has no value named '%s'. Valid names: %s.",
+            enumType.getFullName(),
+            field.getFullName(),
+            name,
+            enumType.getValues().stream()
+                .map(EnumValueDescriptor::getName)
+                .collect(Collectors.joining(", "))));
   }
 
   /**
@@ -596,7 +660,7 @@ public class RowDataToProtoConverters {
           return value -> UInt64Value.of((Long) value);
         }
         if (wrapper.equals(UINT32_WRAPPER)) {
-          return value -> UInt32Value.of(((Long) value).intValue());
+          return value -> UInt32Value.of(toUnsignedInt((Long) value, targetSchema));
         }
         return new RowDataToProtoConverter() {
           @Override
