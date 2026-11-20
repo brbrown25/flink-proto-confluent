@@ -132,7 +132,7 @@ message Reading {
 
 derives `` `level` TINYINT, `count` SMALLINT, `price` DECIMAL(10, 2) ``.
 
-- **`connect.type` = `int8` / `int16`** on an `int32`, `sint32` or `sfixed32` field derives `TINYINT` / `SMALLINT`. Reading narrows the 32-bit value to the column's type without a range check, so a value outside it wraps; writing widens it back to `int32`. Without the annotation the field is `INT`, and a table may still declare it `TINYINT` or `SMALLINT`. A sink-derived schema adds the annotation for `TINYINT` and `SMALLINT` columns. Other `connect.type` values are ignored.
+- **`connect.type` = `int8` / `int16`** on an `int32`, `sint32` or `sfixed32` field derives `TINYINT` / `SMALLINT`. Reading narrows the 32-bit value to the column's type: a value outside its range (-128 to 127 for `TINYINT`, -32768 to 32767 for `SMALLINT`) is a deserialize error naming the field, value and column type instead of a wrapped number (`300` in a `TINYINT` column does not read as `44`). Like any deserialize error, the record goes to the `dead-letter-topic` if one is set and then fails the task or is skipped per [`on-deserialize-error`](configuration.md). The same check applies to a `google.protobuf.Int32Value` field and to the elements of a `repeated` field read into these columns. Writing widens the value back to `int32`. Without the annotation the field is `INT`, and a table may still declare it `TINYINT` or `SMALLINT`. A sink-derived schema adds the annotation for `TINYINT` and `SMALLINT` columns. Other `connect.type` values are ignored.
 - **`precision` / `scale`** on a `confluent.type.Decimal` field derive `DECIMAL(precision, scale)`; a missing (or non-numeric) value falls back to precision `10` and scale `0`, Flink's defaults. Reading takes the message's unscaled `value` bytes with the column's declared scale, without rescaling from the message's own `scale` field, so declare the scale the producer writes with. Writing sets `value`, `precision` and `scale` from the column's value. A sink-derived schema adds both annotations from the column's `DECIMAL(p, s)`.
 
 ## Unsigned integers in `BIGINT`
@@ -213,7 +213,7 @@ Details:
 
 - **No `NULL` for fields without presence.** An unset proto3 scalar (without `optional`), `repeated` field or map reads as its default value, and a `NULL` written to one reads back as that default (see [Nullability](#nullability)). An empty array and a `NULL` array are the same on the wire. A `NULL` array element or map value cannot be written.
 - **Unsigned 64-bit integers in `BIGINT`** read values above `Long.MAX_VALUE` as negative numbers; declare `DECIMAL(20, 0)` instead (see [Unsigned integers in `BIGINT`](#unsigned-integers-in-bigint)).
-- **`TINYINT` / `SMALLINT`** narrow an `int32` without a range check (see [Confluent annotations](#confluent-annotations)).
+- **`TINYINT` / `SMALLINT`** narrow an `int32`: a value outside the column's range is a deserialize error, handled per `on-deserialize-error` (see [Confluent annotations](#confluent-annotations)).
 - **`DECIMAL`** reads with the column's declared scale, not the scale in each message.
 - **Millisecond resolution** for `google.type.TimeOfDay` (`TIME(3)`) and `google.protobuf.Duration` (`INTERVAL DAY TO SECOND`): finer digits are dropped on reading.
 - **Partial dates.** A `google.type.Date` with a month or day of `0` fails the record.
