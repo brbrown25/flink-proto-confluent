@@ -66,7 +66,8 @@ import org.apache.flink.table.types.logical.RowType.RowField;
  * +------------------------+------------------+---------------------------+-------------------------------------------+
  * </pre>
  *
- * <p>When converting to a Protobuf schema we mark all NULLABLE fields as optional.
+ * <p>When converting to a Protobuf schema we mark all NULLABLE fields as optional. NOT NULL fields
+ * become plain proto3 fields (proto3 has no {@code required} label).
  */
 public class RowTypeToProto {
 
@@ -137,9 +138,10 @@ public class RowTypeToProto {
     builder.setNumber(fieldIndex);
     if (isArray) {
       builder.setLabel(Label.LABEL_REPEATED);
-    } else if (!logicalType.isNullable()) {
-      builder.setLabel(Label.LABEL_REQUIRED);
     } else {
+      // The file is proto3, which has no required label: a NOT NULL column is a plain singular
+      // field and NOT NULL stays a Flink-side constraint. A nullable column is proto3 optional.
+      builder.setLabel(Label.LABEL_OPTIONAL);
       builder.setProto3Optional(logicalType.isNullable());
     }
 

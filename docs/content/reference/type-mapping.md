@@ -74,7 +74,7 @@ A sink writes with the latest schema registered under its subject, or with the c
 | `MULTISET<T>` | as `MAP<T, INT>`: each element with its count |
 | `TIMESTAMP WITH TIME ZONE`, `INTERVAL YEAR TO MONTH`, `RAW`, structured and distinct types | not supported: deriving the schema fails with `Unsupported to derive Schema for type` |
 
-Fields are numbered 1, 2, … in column order. A nullable column becomes a proto3 `optional` field and a `NOT NULL` column a plain proto3 field (without `optional`, so it has no presence); `ARRAY` and `MAP` columns are `repeated` either way, and a map entry's `key` and `value` are `optional`. To control the schema exactly (field numbers, enums, `oneof`s, imports), register it yourself before the sink first writes, or pin a `message-class`.
+Fields are numbered 1, 2, … in column order. A nullable column becomes a proto3 `optional` field and a `NOT NULL` column a plain proto3 field (without `optional`, so it has no presence); `ARRAY` and `MAP` columns are `repeated` either way, and a map entry's `key` and `value` follow the same rule as columns (`optional` when nullable, plain when `NOT NULL`, so a `MULTISET`'s count is a plain `int32`). The derived schema never uses `required`, which proto3 does not have; `NOT NULL` is checked by Flink, not by the schema. To control the schema exactly (field numbers, enums, `oneof`s, imports), register it yourself before the sink first writes, or pin a `message-class`.
 
 ## Nullability
 
