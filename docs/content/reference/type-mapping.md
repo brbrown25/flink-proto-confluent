@@ -36,6 +36,8 @@ Message-typed fields and wrapper types are nullable; `repeated` fields and maps 
 
 A `oneof` column is a `ROW` named after the oneof, with one field per case. The source matches each field to the case of the same name (exact, or the case's `camelCase` form for a `snake_case` field, as for other columns), as the sink does, so a table can list the cases in any order or only some of them: for `oneof payload { string first_name = 2; int64 count = 3; }`, both `` payload ROW<`count` BIGINT, `first_name` STRING> `` and `` payload ROW<`count` BIGINT> `` read `count` into the `count` field. A field that names no case reads the case at its position in the `ROW`, as tables written before cases were matched by name expect, unless another field of the `ROW` names that case; the source logs a warning for each such field. A field with no case (one whose position's case another field names, or one past the last case) reads as `NULL` and fails the [`message-class` check](../how-to/message-class.md#read-with-a-message-class). Name the fields after the cases: a writer schema that adds a case before the last one moves every later case to a new position.
 
+An `enum` column holds the value's name. Writing a name the enum does not define fails the row with an `IllegalArgumentException` naming the field, the enum, the value and the names it defines, e.g. `Enum shop.Color of field 'shop.Order.color' has no value named 'BLUE'. Valid names: RED, GREEN.` This applies to `repeated` enums (`ARRAY<STRING>`) and map values too.
+
 ## Declared alternatives
 
 A table can declare one of these types for a field instead of the derived one. The source reads the field into it, the sink writes it back to the same Protobuf value, and the `message-class` check accepts it. Derived DDL never produces them, except for the field that closes the cycle of a [recursive message](#recursive-messages) when you set `recursive-message`: declare the column yourself, or edit the generated DDL.
@@ -98,7 +100,7 @@ Protobuf and SQL disagree about `NULL`: most Protobuf fields cannot be unset, on
 
 **Reading.** A field without presence (a proto3 scalar without `optional`, a `repeated` field or a map) is never `NULL`: an unset value reads as its default (`0`, `''`, `false`, the enum's default value, an empty array or map), because the wire format cannot tell it from a value set to that default. A field with presence (a message, a wrapper type, a proto3 `optional` or proto2 scalar, a `oneof` case) reads as `NULL` when unset. A `oneof` column is `NULL` when no case is set; otherwise only the case that is set is non-`NULL`. A column with no field of its name in the writer's schema reads as `NULL` (and the format logs a warning), so a table declared against a newer schema can read records written with an older one. The format does not check a column's `NOT NULL` on reading: declare `NOT NULL` only for fields that are always present.
 
-**Writing.** A `NULL` column leaves its field unset. For a field without presence the reader then sees the default value, not `NULL`; to round-trip `NULL`, use a field with presence (proto3 `optional`, a wrapper type or a message). In a `oneof` column the first non-`NULL` case is written and the others are ignored; a `oneof` column whose cases are all `NULL` sets none. Protobuf has no `NULL` inside a `repeated` field or a map, so a `NULL` array element or map value fails the row with a `NullPointerException`.
+**Writing.** A `NULL` column leaves its field unset. For a field without presence the reader then sees the default value, not `NULL`; to round-trip `NULL`, use a field with presence (proto3 `optional`, a wrapper type or a message). In a `oneof` column the first non-`NULL` case is written and the others are ignored; a `oneof` column whose cases are all `NULL` sets none. Protobuf has no `NULL` inside a `repeated` field or a map, so a `NULL` array element, map key or map value (or a `NULL` element of a `MULTISET`) fails the row. The error is an `IllegalArgumentException` naming the field and the element's index or the entry's key, e.g. `Cannot write a NULL element (index 1) to the repeated field 'shop.Order.tags': Protobuf repeated fields cannot hold NULL.` or `Cannot write a NULL value (key 'team') to the map field 'shop.Order.labels': Protobuf map entries cannot hold NULL.` This holds for every element and value type, messages included: a `NULL` is not written as the default value or default message. Filter or replace such entries in the query (for example with `COALESCE`) before they reach the sink.
 
 ## Well-known types
 
@@ -141,7 +143,7 @@ derives `` `level` TINYINT, `count` SMALLINT, `price` DECIMAL(10, 2) ``.
 
 Java has no unsigned 64-bit type, so a `uint64` or `fixed64` value above 9223372036854775807 (`Long.MAX_VALUE`) reads into the derived `BIGINT` column as a negative number: the same 64 bits, read as two's complement (18446744073709551615 reads as `-1`). Writing that negative `BIGINT` back writes the original unsigned value, so values round-trip unchanged, but arithmetic and comparisons in SQL see the negative number. Declare the column `DECIMAL(20, 0)` (see above) to read the unsigned value. `google.protobuf.UInt64Value` behaves the same way.
 
-`uint32` and `fixed32` fit in `BIGINT`: they read as their unsigned value, from 0 to 4294967295, and so does `google.protobuf.UInt32Value`.
+`uint32` and `fixed32` fit in `BIGINT`: they read as their unsigned value, from 0 to 4294967295, and so does `google.protobuf.UInt32Value`. Writing a `BIGINT` to one of them fails the row with an `IllegalArgumentException` naming the field and the value when the value is outside 0 to 4294967295, instead of wrapping it. A `BIGINT` written to an `sfixed32` field likewise fails outside -2147483648 to 2147483647.
 
 ## JSON strings
 
@@ -213,7 +215,7 @@ Details:
 
 ## Known limitations
 
-- **No `NULL` for fields without presence.** An unset proto3 scalar (without `optional`), `repeated` field or map reads as its default value, and a `NULL` written to one reads back as that default (see [Nullability](#nullability)). An empty array and a `NULL` array are the same on the wire. A `NULL` array element or map value cannot be written.
+- **No `NULL` for fields without presence.** An unset proto3 scalar (without `optional`), `repeated` field or map reads as its default value, and a `NULL` written to one reads back as that default (see [Nullability](#nullability)). An empty array and a `NULL` array are the same on the wire. A `NULL` array element, map key or map value cannot be written; the row fails naming the field and the index or key.
 - **Unsigned 64-bit integers in `BIGINT`** read values above `Long.MAX_VALUE` as negative numbers; declare `DECIMAL(20, 0)` instead (see [Unsigned integers in `BIGINT`](#unsigned-integers-in-bigint)).
 - **`TINYINT` / `SMALLINT`** narrow an `int32`: a value outside the column's range is a deserialize error, handled per `on-deserialize-error` (see [Confluent annotations](#confluent-annotations)).
 - **`DECIMAL`** reads with the column's declared scale, not the scale in each message.
