@@ -77,4 +77,28 @@ To reject records of other message types without putting generated classes on Fl
 
 - `message-name` is the protobuf name (`package.Message`, nested messages as `package.Outer.Inner`), not the JVM class name with `$`.
 - With both options set, they must name the same message, or the table is rejected.
-- `message-name` only affects a source. A sink ignores it; pin what a sink writes with `message-class`.
+- On a source, `message-name` only checks records. On a sink it picks the message to write, see below; pin what a sink writes with `message-class` when the generated class is on the classpath.
+
+### Write one message of a multi-message schema
+
+A sink without `message-class` writes with the latest schema registered under its subject, and by default with the first message that schema defines. When the topic carries a different message of that schema, set `message-name` on the sink to write that one instead. No generated class is needed.
+
+```sql
+CREATE TABLE orders_sink (
+  content STRING,
+  date_time STRING
+) WITH (
+  'connector' = 'kafka',
+  'topic' = 'orders',
+  'properties.bootstrap.servers' = 'kafka:9092',
+  'value.format' = 'proto-confluent',
+  'value.proto-confluent.url' = 'http://schema-registry:8081',
+  'value.proto-confluent.topic' = 'orders',
+  'value.proto-confluent.message-name' = 'com.example.Order'
+);
+```
+
+- Records are written under the registered schema's ID, with the message indexes that select `com.example.Order`, so consumers decode them as that message.
+- If the subject's schema has no such message, the first write fails with a `ValidationException` that lists the messages it has. When `schema-cache.ttl` refreshes the schema to a version without the message, the sink logs a warning and keeps writing with the schema it has.
+- With `message-class` also set, the sink writes the class; `message-name` must name the same message or the sink fails when it opens.
+- When the sink derives its schema from the table (the subject does not exist, or `subject-name-strategy` is `record` or `topic-record`), `message-name` is not used.

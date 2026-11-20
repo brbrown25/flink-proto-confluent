@@ -87,18 +87,23 @@ public class ProtoConfluentFormatOptions {
                   + "classpath), and records whose writer message is a different message are "
                   + "handled per 'on-deserialize-error'.");
 
-  /** Fully-qualified protobuf message name every record read by a source must carry. */
+  /**
+   * Fully-qualified protobuf message name every record read by a source must carry, and the message
+   * of the subject's schema a sink writes.
+   */
   public static final ConfigOption<String> MESSAGE_NAME =
       ConfigOptions.key("message-name")
           .stringType()
           .noDefaultValue()
           .withFallbackKeys("message_name")
           .withDescription(
-              "Source only. Fully-qualified protobuf message name (e.g. 'com.example.Order') "
-                  + "that every record's writer message must have. A record of any other message "
-                  + "is a deserialize error and is handled per 'on-deserialize-error'. Needs no "
-                  + "class on the classpath. When 'message-class' is also set, both must name "
-                  + "the same message. Ignored by a sink.");
+              "Fully-qualified protobuf message name (e.g. 'com.example.Order'). On a source, "
+                  + "every record's writer message must have it; a record of any other message "
+                  + "is a deserialize error and is handled per 'on-deserialize-error'. On a sink, "
+                  + "the message of the subject's registered schema to write, for a schema that "
+                  + "defines several messages (unset: the first one). Needs no class on the "
+                  + "classpath. When 'message-class' is also set, both must name the same "
+                  + "message.");
 
   /** Fully-qualified name of the message a sink derives from the table's row type. */
   public static final ConfigOption<String> DERIVED_MESSAGE_NAME =
