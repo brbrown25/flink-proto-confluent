@@ -77,6 +77,9 @@ CREATE TABLE orders (
 
 The connection options are passed to the format of every table (as `value.proto-confluent.<option>` and `key.proto-confluent.<option>`), so the tables reach the registry the same way the catalog does. Any other option is rejected when the catalog is created.
 
+!!! warning "Catalog tables carry the registry credentials"
+    Because the connection options are copied into every table, the credentials among them (`basic-auth.user-info`, `bearer-auth.token`, `ssl.keystore.password` and `ssl.truststore.password`, and any user info in `url`) are part of each table's options. Anyone who can use the catalog can read them, for example with `SHOW CREATE TABLE sr.`default`.orders`. This is how Flink table options work, and it is the same for a hand-written table. Give the catalog credentials that only read the registry, and only register the catalog in sessions whose users may see them. See [Where credentials are visible](ssl-and-auth.md#where-credentials-are-visible).
+
 ## Override options per query
 
 Every table option, including those the catalog sets, can be overridden for one query with a [dynamic table options](https://nightlies.apache.org/flink/flink-docs-stable/docs/dev/table/sql/queries/hints/#dynamic-table-options) hint:

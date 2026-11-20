@@ -70,7 +70,7 @@ public class RegistryProtoFormatFactory
     ProtoConfluentFormatConfig config = createConfig(context, formatOptions);
     LOG.debug(
         "[proto-confluent] Creating decoding format: url={}, topic={}, subject={}",
-        config.schemaRegistryUrl,
+        SchemaRegistryClients.withoutUserInfo(config.schemaRegistryUrl),
         config.topic,
         config.subject);
     return new ProtoDecodingFormat(

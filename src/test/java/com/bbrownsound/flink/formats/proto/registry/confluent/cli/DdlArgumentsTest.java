@@ -8,14 +8,20 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.bbrownsound.flink.formats.proto.registry.confluent.util.RecursionStrategy;
 import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
 class DdlArgumentsTest {
+
+  @TempDir
+  Path dir;
 
   private static DdlArguments parse(String... args) throws UsageException {
     return DdlArguments.parse(List.of(args));
@@ -209,5 +215,108 @@ class DdlArgumentsTest {
         usageError("--message-class", "C", "--columns-only", "--recursive-message", "row:0")
             .contains("at least 1"));
     assertTrue(DdlArguments.USAGE.contains("--recursive-message <mode>"));
+  }
+
+  private static final List<String> SUBJECT = List.of("--url", "u", "--subject", "s-value");
+
+  private static DdlArguments parseWithEnv(Map<String, String> env, String... args)
+      throws UsageException {
+    List<String> all = new java.util.ArrayList<>(SUBJECT);
+    all.addAll(List.of(args));
+    return DdlArguments.parse(all, env::get);
+  }
+
+  private static String usageErrorWithEnv(Map<String, String> env, String... args) {
+    return assertThrows(UsageException.class, () -> parseWithEnv(env, args)).getMessage();
+  }
+
+  @Test
+  void readsCredentialsFromEnvironmentVariables() throws Exception {
+    DdlArguments args =
+        parseWithEnv(
+            Map.of("SR_USER_INFO", "u:p", "SR_TOKEN", "t0k", "KS_PW", "k", "TS_PW", "t"),
+            "--basic-auth.user-info-env",
+            "SR_USER_INFO",
+            "--bearer-auth.token-env=SR_TOKEN",
+            "--ssl.keystore.password-env",
+            "KS_PW",
+            "--ssl.truststore.password-env",
+            "TS_PW");
+    assertEquals(
+        Map.of(
+            "basic-auth.user-info", "u:p",
+            "bearer-auth.token", "t0k",
+            "ssl.keystore.password", "k",
+            "ssl.truststore.password", "t"),
+        args.connectionOptions);
+  }
+
+  @Test
+  void readsCredentialsFromFiles() throws Exception {
+    Path userInfo = Files.writeString(dir.resolve("user-info"), "u:p\n");
+    Path token = Files.writeString(dir.resolve("token"), "t0k\r\n\n");
+    DdlArguments args =
+        parseWithEnv(
+            Map.of(),
+            "--basic-auth.user-info-file",
+            userInfo.toString(),
+            "--bearer-auth.token-file=" + token);
+    assertEquals(
+        Map.of("basic-auth.user-info", "u:p", "bearer-auth.token", "t0k"),
+        args.connectionOptions,
+        "trailing line breaks are dropped");
+  }
+
+  @Test
+  void theSameCredentialFlagTwiceKeepsTheLastValue() throws Exception {
+    DdlArguments args =
+        parseWithEnv(
+            Map.of(), "--bearer-auth.token", "a", "--bearer-auth.token", "b");
+    assertEquals(Map.of("bearer-auth.token", "b"), args.connectionOptions);
+  }
+
+  @Test
+  void rejectsACredentialFromTwoSources() {
+    assertEquals(
+        "--basic-auth.user-info and --basic-auth.user-info-env both set basic-auth.user-info; "
+            + "pass only one",
+        usageErrorWithEnv(
+            Map.of("V", "x"),
+            "--basic-auth.user-info",
+            "u:p",
+            "--basic-auth.user-info-env",
+            "V"));
+  }
+
+  @Test
+  void rejectsAMissingOrEmptyEnvironmentVariable() {
+    assertEquals(
+        "--bearer-auth.token-env: environment variable SR_TOKEN is not set or is empty",
+        usageErrorWithEnv(Map.of(), "--bearer-auth.token-env", "SR_TOKEN"));
+    assertEquals(
+        "--bearer-auth.token-env: environment variable SR_TOKEN is not set or is empty",
+        usageErrorWithEnv(Map.of("SR_TOKEN", ""), "--bearer-auth.token-env", "SR_TOKEN"));
+  }
+
+  @Test
+  void rejectsAMissingOrEmptyFile() throws Exception {
+    Path missing = dir.resolve("missing");
+    assertTrue(
+        usageErrorWithEnv(Map.of(), "--bearer-auth.token-file", missing.toString())
+            .startsWith("--bearer-auth.token-file: cannot read " + missing + " ("));
+    Path empty = Files.writeString(dir.resolve("empty"), "\n");
+    assertEquals(
+        "--bearer-auth.token-file: " + empty + " is empty",
+        usageErrorWithEnv(Map.of(), "--bearer-auth.token-file", empty.toString()));
+  }
+
+  @Test
+  void onlyCredentialOptionsHaveEnvAndFileVariants() {
+    assertEquals(
+        "Unknown option --ssl.truststore.location-env",
+        usageErrorWithEnv(Map.of(), "--ssl.truststore.location-env", "V"));
+    assertEquals("Unknown option --url-file", usageErrorWithEnv(Map.of(), "--url-file", "f"));
+    assertTrue(DdlArguments.USAGE.contains("--basic-auth.user-info-env <variable>"));
+    assertTrue(DdlArguments.USAGE.contains("--bearer-auth.token-file <path>"));
   }
 }

@@ -144,6 +144,27 @@ The command takes the same connection options as the format, with the same names
 
 Each one is also written into the statement as `'value.proto-confluent.<option>'`, so the table connects the same way, **except credentials**: passwords, `basic-auth.user-info`, `bearer-auth.token` and `--property` keys that look like credentials (containing `password`, `user.info`, `token`, `secret` or `jaas`) are left out, and a note on standard error names them. Add them to the statement yourself, or pass `--include-secrets` to have them written in. See [SSL and authentication](ssl-and-auth.md) for what each option does.
 
+### Credentials from an environment variable or a file
+
+A credential passed as an argument shows up in `ps`, in shell history and in CI logs. Each credential option can also be read from an environment variable, with `-env` after its name, or from a file, with `-file`:
+
+| Flag | Reads |
+| --- | --- |
+| `--basic-auth.user-info-env <variable>`, `--basic-auth.user-info-file <path>` | `basic-auth.user-info` |
+| `--bearer-auth.token-env <variable>`, `--bearer-auth.token-file <path>` | `bearer-auth.token` |
+| `--ssl.keystore.password-env <variable>`, `--ssl.keystore.password-file <path>` | `ssl.keystore.password` |
+| `--ssl.truststore.password-env <variable>`, `--ssl.truststore.password-file <path>` | `ssl.truststore.password` |
+
+```bash
+# SR_USER_INFO holds 'user:password', set by your CI secret store or shell profile
+java -jar flink-proto-confluent-<version>-all.jar ddl \
+  --url https://schema-registry:8443 --subject orders-value \
+  --basic-auth.credentials-source USER_INFO \
+  --basic-auth.user-info-env SR_USER_INFO
+```
+
+A file holds only the credential; trailing line breaks are dropped, so a file written with `echo` works. An unset or empty variable, or a missing or empty file, is a usage error (exit status `2`), as is setting the same credential two ways (for example `--bearer-auth.token` and `--bearer-auth.token-file`). The credential is then used, and left out of the statement, exactly as if it had been passed as an argument.
+
 ## Exit status
 
 | Status | Meaning |

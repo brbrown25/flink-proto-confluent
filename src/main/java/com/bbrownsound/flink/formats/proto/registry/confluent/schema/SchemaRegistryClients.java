@@ -99,6 +99,36 @@ public final class SchemaRegistryClients {
   }
 
   /**
+   * Returns registry URLs with any user info ({@code user:password@}) removed, for logging. Each
+   * URL of a comma-separated list is handled; a URL without user info is returned unchanged.
+   *
+   * @param urls the registry URL, or several separated by commas; may be {@code null}
+   * @return the URLs without user info, or {@code null} if {@code urls} is {@code null}
+   */
+  public static String withoutUserInfo(String urls) {
+    if (urls == null) {
+      return null;
+    }
+    String[] parts = urls.split(",", -1);
+    for (int i = 0; i < parts.length; i++) {
+      parts[i] = stripUserInfo(parts[i]);
+    }
+    return String.join(",", parts);
+  }
+
+  private static String stripUserInfo(String url) {
+    int scheme = url.indexOf("://");
+    int start = scheme < 0 ? 0 : scheme + 3;
+    int end = start;
+    while (end < url.length() && "/?#".indexOf(url.charAt(end)) < 0) {
+      end++;
+    }
+    // The user info ends at the last '@' of the authority, since a password may contain '@'.
+    int at = url.lastIndexOf('@', end - 1);
+    return at < start ? url : url.substring(0, start) + url.substring(at + 1);
+  }
+
+  /**
    * Creates a caching Protobuf-aware registry client.
    *
    * @param schemaRegistryUrl the registry URL, or several separated by commas
