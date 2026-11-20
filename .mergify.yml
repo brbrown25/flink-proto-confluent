@@ -1,12 +1,18 @@
-# Auto-approve and rebase-merge Dependabot patch/minor updates once checks pass.
-# Major bumps are left for manual review. dependabot.yml restricts grouped PRs to
-# minor/patch, so a "bump the <name> group" PR never contains a major bump; single
-# PRs are allowed only when the leading version number is unchanged.
+# Auto-approve and rebase-merge Dependabot patch/minor Gradle updates once checks pass.
+# Major bumps are left for manual review, and so is every GitHub Actions bump: actions run in
+# release.yml and publish-snapshot.yml with the Sonatype credentials and the GPG signing key, so
+# a person looks at each one (#239). Dependabot's cooldown (dependabot.yml) delays the Gradle
+# PRs that are auto-merged, so a bad release has days to be caught before a signed snapshot
+# ships it. dependabot.yml restricts grouped PRs to minor/patch, so a "bump the <name> group"
+# PR never contains a major bump; single PRs are allowed only when the leading version number
+# is unchanged.
 pull_request_rules:
   - name: auto-merge dependabot patch/minor updates
     conditions:
       - author=dependabot[bot]
       - base=main
+      # Dependabot names its branches dependabot/<ecosystem>/...; only Gradle is auto-merged.
+      - head~=^dependabot/gradle/
       - -draft
       - -conflict
       - or:
