@@ -51,7 +51,11 @@ java {
     targetCompatibility = JavaVersion.VERSION_17
 }
 
-val flinkVersion: String by project
+// -PflinkVersion=<v> picks the Flink version; without it the build uses the Flink 1 line's version,
+// flink1.version in gradle.properties, which is also what CI tests and releases ship (#249).
+val flinkVersion: String =
+    (findProperty("flinkVersion") ?: findProperty("flink1.version"))?.toString()
+        ?: throw GradleException("gradle.properties has no 'flink1.version'.")
 val confluentVersion: String by project
 val protoVersion: String by project
 

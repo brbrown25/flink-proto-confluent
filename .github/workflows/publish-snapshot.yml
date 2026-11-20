@@ -27,6 +27,11 @@ jobs:
       - name: Setup build environment
         uses: ./.github/actions/setup-build
 
+      # The same Flink versions CI tested for this commit (#249).
+      - name: Read the Flink versions from gradle.properties
+        id: flink
+        run: .github/scripts/flink-versions.sh
+
       # Snapshot coordinates carry the commit they were built from, so a consumer can pin to the
       # exact build they tested against instead of racing a mutable `X.Y.Z-SNAPSHOT`. The base is
       # the next patch after the last release (see build.gradle.kts), which is a placeholder for
@@ -68,7 +73,7 @@ jobs:
         if: steps.guard.outputs.publish == 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
-          FLINK_VERSIONS: '1.20.0 2.2.1'
+          FLINK_VERSIONS: ${{ steps.flink.outputs.list }}
           ORG_GRADLE_PROJECT_sonatypeUsername: ${{ secrets.SONATYPE_USERNAME }}
           ORG_GRADLE_PROJECT_sonatypePassword: ${{ secrets.SONATYPE_PASSWORD }}
           ORG_GRADLE_PROJECT_signingKey: ${{ secrets.GPG_SIGNING_KEY }}

@@ -6,7 +6,7 @@ One release covers both Flink lines under one version number. Pick the artifact 
 
 | Library version | Flink line | Tested Flink versions | Java | Kafka connector | artifactId |
 | --- | --- | --- | --- | --- | --- |
-| 1.3.0 and later | 1.20 | 1.20.5 (built against 1.20.0) | 17 or newer | `flink-sql-connector-kafka` / `flink-connector-kafka` `3.4.0-1.20` | `flink-proto-confluent` |
+| 1.3.0 and later | 1.20 | 1.20.5 | 17 or newer | `flink-sql-connector-kafka` / `flink-connector-kafka` `3.4.0-1.20` | `flink-proto-confluent` |
 | 1.3.0 and later | 2.x | 2.2.1 | 17 or newer | `flink-sql-connector-kafka` / `flink-connector-kafka` `5.0.0-2.2` | `flink-proto-confluent-flink2` |
 | 1.2.0 and earlier | 1.20 only | 1.20.0 | 17 or newer | `flink-sql-connector-kafka` / `flink-connector-kafka` `3.4.0-1.20` | `flink-proto-confluent` |
 

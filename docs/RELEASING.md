@@ -24,7 +24,7 @@ There is no post-release version bump to remember — the next release pull requ
 
 1. **release-please** (`.github/workflows/release-please.yml`) sees the merge, creates annotated tag `vX.Y.Z`, and creates the GitHub Release with the changelog entry as its body.
 2. **`release.yml`** fires on the tag:
-   - **build-and-test** runs `test integrationTest jacocoTestReport jacocoTestCoverageVerification` and builds the shadow JAR once per Flink line (`-PflinkVersion=1.20.0` and `-PflinkVersion=2.2.1`). A failure on either line aborts before anything is published.
+   - **build-and-test** runs `test integrationTest jacocoTestReport jacocoTestCoverageVerification` and builds the shadow JAR once per Flink line (`-PflinkVersion=1.20.5` and `-PflinkVersion=2.2.1`, read from `flink1.version` and `flink2.version` in `gradle.properties`, the same versions every pull request and `main` CI run tested). A failure on either line aborts before anything is published.
    - **publish** builds each line at the tag version and publishes it in its own Gradle invocation, in order: `com.bbrownsound:flink-proto-confluent` (Flink 1.x), then `com.bbrownsound:flink-proto-confluent-flink2` (Flink 2.x). Each invocation signs, publishes to Sonatype and closes/releases only the staging repository it created (`publishSonatypePublicationToSonatypeRepository closeAndReleaseStagingRepositories`). A line already on Maven Central is skipped, so re-running a partly failed publish is safe. It then attaches both lines' JARs to the GitHub Release that already exists.
 3. **`publish-snapshot.yml`** skips this commit, since a snapshot of a release tree would only add a duplicate coordinate.
 
@@ -62,7 +62,7 @@ Then confirm:
 - [ ] `main` CI is green for the commit the release pull request is based on.
 - [ ] The computed version in the pull request title is the version you actually intend. If a commit was mislabelled (a `feat:` that should have been `fix:`, or a missing breaking-change footer), fix the history or override the version rather than merging the wrong number.
 - [ ] The `CHANGELOG.md` diff reads as sensible release notes.
-- [ ] `flinkVersion` / `confluentVersion` / `protoVersion` in `gradle.properties` are correct for this release.
+- [ ] `flink1.version` / `flink2.version` / `confluentVersion` / `protoVersion` in `gradle.properties` are correct for this release. (`flinkVersion` is no longer set there; `-PflinkVersion` still overrides the version for one build.)
 
 ### Overriding the computed version
 
