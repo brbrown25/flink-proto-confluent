@@ -53,6 +53,17 @@ Dependabot's `github-actions` ecosystem keeps the pins current: it understands t
 
 Checkstyle findings are annotated on the pull request by `.github/scripts/checkstyle-annotations.py`, which turns `build/reports/checkstyle/*.xml` into `::error` / `::warning` workflow commands. It replaced `jwgmeligmeyling/checkstyle-github-action@master`, which followed a moving branch, has seen no push since 2023 and still declares the retired `node12` runtime. GitHub shows at most 10 annotations of each level per step on the pull request; the full list is in the step log.
 
+## Dependency updates
+
+Dependabot opens weekly pull requests for Gradle dependencies and GitHub Actions (`.github/dependabot.yml`). Merging one to `main` starts `ci.yml`, and a green run there starts `publish-snapshot.yml`, which signs a snapshot and publishes it to Sonatype. Two settings decide how much of that happens without a person looking (#239):
+
+| | Gradle | GitHub Actions |
+| --- | --- | --- |
+| Cooldown before Dependabot proposes a new release | 3 days (patch), 7 days (minor), 30 days (major) | 7 days (Dependabot has no per-semver cooldown for actions) |
+| Auto-merged by Mergify (`.mergify.yml`) | minor and patch, once every check passes, including `codecov/patch` | never; a maintainer reviews each one |
+
+The cooldown is there because most malicious or broken releases are found and yanked within days; waiting means such a release usually never reaches a pull request here. It applies to version updates only: Dependabot security updates are opened straight away. Actions are excluded from auto-merge because they run in `release.yml` and `publish-snapshot.yml` with the Sonatype credentials and the GPG signing key, so a bad one could use those secrets rather than just ship in an artifact. Major bumps of either kind are never auto-merged.
+
 ## Gradle version
 
 CI drives every build through the committed wrapper (`./gradlew`), so `gradle/wrapper/gradle-wrapper.properties` is the single source of truth for the Gradle version across CI, local development and releases. `.github/actions/setup-build` pins no `gradle-version`; `gradle/actions/setup-gradle` picks up the wrapper and caches it.

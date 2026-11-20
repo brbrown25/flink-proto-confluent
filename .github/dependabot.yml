@@ -8,6 +8,16 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 10
+    # Wait before proposing a new release, so a compromised or broken one is usually caught and
+    # pulled upstream before it reaches a PR here (#239). Mergify auto-merges minor/patch Gradle
+    # bumps once checks pass, and the next CI run on main publishes a signed snapshot, so this
+    # delay is the only time a bad release has to surface before it ships. Security updates are
+    # not delayed: cooldown applies to version updates only.
+    cooldown:
+      default-days: 7
+      semver-patch-days: 3
+      semver-minor-days: 7
+      semver-major-days: 30
     labels:
       - "dependencies"
       - "gradle"
@@ -59,6 +69,11 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 5
+    # Same reasoning as for Gradle. GitHub Actions has no semver-specific cooldown, so one delay
+    # covers every bump. These PRs are never auto-merged (see .mergify.yml): actions run with the
+    # Sonatype and signing secrets, so a person reviews each one.
+    cooldown:
+      default-days: 7
     labels:
       - "dependencies"
       - "github-actions"
