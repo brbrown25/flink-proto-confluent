@@ -101,6 +101,8 @@ public class ProtoRowDataDeserializationSchema
    * message-class}); null when any message is accepted.
    */
   private transient String expectedMessageName;
+  /** Picks the deserialize failures that are logged with a stack trace; created on the first. */
+  private transient FailureLogLimiter failureLog;
 
   /**
    * Creates a deserialization schema for the given row type and config.
@@ -259,12 +261,21 @@ public class ProtoRowDataDeserializationSchema
           e);
       throw e;
     } catch (Exception e) {
-      LOG.error(
-          "[proto-confluent] deserialize failed: messageLength={}, topic={}, deserializeCount={}",
-          message.length,
-          formatConfig.topic,
-          n,
-          e);
+      if (failureLog == null) {
+        failureLog = createFailureLogLimiter();
+      }
+      final long suppressed = failureLog.tryAcquire();
+      if (suppressed == FailureLogLimiter.SUPPRESSED) {
+        LOG.debug(
+            "[proto-confluent] deserialize failed (stack trace suppressed): messageLength={}, "
+                + "topic={}, deserializeCount={}, error={}",
+            message.length,
+            formatConfig.topic,
+            n,
+            e.toString());
+      } else {
+        logDeserializeFailure(message, n, suppressed, e);
+      }
       if (deserializeErrors != null) {
         deserializeErrors.inc();
       }
@@ -280,6 +291,40 @@ public class ProtoRowDataDeserializationSchema
       }
       return null;
     }
+  }
+
+  /**
+   * Logs a deserialize failure at {@code ERROR} with its stack trace. Called for the first failure
+   * and then at most once per {@link FailureLogLimiter#DEFAULT_INTERVAL}; the failures in between
+   * are logged at {@code DEBUG} without a stack trace (GitHub issue #233). Package-private so tests
+   * can observe the calls.
+   *
+   * @param message the record's bytes
+   * @param n the record's position in the source's deserialize count
+   * @param suppressed the number of failures not logged at {@code ERROR} since the previous call
+   * @param e the failure
+   */
+  void logDeserializeFailure(byte[] message, long n, long suppressed, Exception e) {
+    LOG.error(
+        "[proto-confluent] deserialize failed: messageLength={}, topic={}, deserializeCount={}, "
+            + "suppressedSinceLastLog={} (at most one failure is logged with its stack trace per "
+            + "{} seconds; numDeserializeErrors counts them all)",
+        message.length,
+        formatConfig.topic,
+        n,
+        suppressed,
+        FailureLogLimiter.DEFAULT_INTERVAL.getSeconds(),
+        e);
+  }
+
+  /**
+   * Creates the limiter that picks which deserialize failures are logged with a stack trace.
+   * Package-private so tests can substitute a clock.
+   *
+   * @return the limiter
+   */
+  FailureLogLimiter createFailureLogLimiter() {
+    return new FailureLogLimiter(FailureLogLimiter.DEFAULT_INTERVAL, System::nanoTime);
   }
 
   /**
