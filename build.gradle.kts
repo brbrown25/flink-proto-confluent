@@ -155,7 +155,7 @@ dependencies {
     add("integrationTestImplementation", "org.apache.flink:flink-test-utils:$flinkVersion")
     add("integrationTestImplementation", "org.apache.flink:flink-test-utils-junit:$flinkVersion")
     add("integrationTestImplementation", "org.apache.flink:flink-runtime:$flinkVersion:tests")
-    add("integrationTestImplementation", "com.clickhouse:clickhouse-jdbc:0.11.1")
+    add("integrationTestImplementation", "com.clickhouse:clickhouse-jdbc:0.11.2")
 }
 
 // clickhouse-jdbc 0.10.0 depends on the at.yawk.lz4:lz4-java fork, which declares the same
