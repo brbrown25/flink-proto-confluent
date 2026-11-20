@@ -110,6 +110,10 @@ public class RegistryProtoFormatFactory
     String tableTopicOption =
         context == null ? null : context.getCatalogTable().getOptions().get(TABLE_TOPIC);
     validateSubjectNaming(context, formatOptions);
+    if (context != null) {
+      KeyValueSubjects.validate(
+          context.getCatalogTable().getOptions(), singleTopic(tableTopicOption));
+    }
     ProtoConfluentFormatConfig config =
         new ProtoConfluentFormatConfig(
             formatOptions, tableBootstrapServers, singleTopic(tableTopicOption));
