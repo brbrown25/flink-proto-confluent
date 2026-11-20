@@ -57,6 +57,25 @@ public final class SchemaRegistryCatalogOptions {
                   + "serialized message), 'json' (STRING, the message's JSON) or 'row:<depth>' "
                   + "(a ROW unrolled <depth> times; deeper levels are left out).");
 
+  /** Which topics become tables: a regular expression a topic name must match in full. */
+  public static final ConfigOption<String> TOPICS_INCLUDE =
+      ConfigOptions.key("topics.include")
+          .stringType()
+          .noDefaultValue()
+          .withDescription(
+              "A Java regular expression; only topics whose whole name matches it become tables. "
+                  + "By default every topic does.");
+
+  /** Which topics do not become tables: a regular expression matched against the topic name. */
+  public static final ConfigOption<String> TOPICS_EXCLUDE =
+      ConfigOptions.key("topics.exclude")
+          .stringType()
+          .noDefaultValue()
+          .withDescription(
+              "A Java regular expression; topics whose whole name matches it do not become "
+                  + "tables, even if they match 'topics.include'. By default no topic is "
+                  + "excluded.");
+
   /**
    * Prefixes of catalog options passed through verbatim to every table: the Kafka connector's
    * client properties and its source and sink options.

@@ -25,6 +25,26 @@ The catalog reads subjects named with the **`TopicNameStrategy`**, Confluent's d
 - Subjects holding Avro or JSON Schema schemas are skipped, as are subjects that do not end in `-value` (for example schemas registered only to be imported by others).
 - If `<topic>-key` also holds a protobuf schema, the key message's fields become columns too, prefixed with `key_` and listed before the value columns. A key subject of another type, or no key subject, gives a table with value columns only.
 - The table reads the **first message** in the schema, the one Confluent serializers write unless told otherwise.
+- With `topics.include` or `topics.exclude` set, only the topics they let through become tables (see below).
+
+### Limit the catalog to some topics
+
+By default every topic with a protobuf `-value` subject is a table. Two regular expressions narrow that down; each must match the **whole** topic name (Java `Pattern` syntax):
+
+- `topics.include`: only topics that match become tables.
+- `topics.exclude`: topics that match do not become tables, even if they match `topics.include`.
+
+```sql
+CREATE CATALOG orders_sr WITH (
+  'type' = 'proto-confluent',
+  'url' = 'http://schema-registry:8081',
+  'properties.bootstrap.servers' = 'kafka:9092',
+  'topics.include' = 'orders\..*',
+  'topics.exclude' = '.*\.(dlq|retry)'
+);
+```
+
+A topic left out by the filters is not listed by `SHOW TABLES`, and querying it fails as if the topic had no protobuf schema. An invalid expression fails `CREATE CATALOG` with a message naming the option.
 
 Column types and nullability are mapped exactly as the format maps them; the columns are the same ones the [`ddl` command](generate-ddl.md) prints for the subject.
 
@@ -67,6 +87,8 @@ CREATE TABLE orders (
 | `key.enabled` | no | `true` | Whether a protobuf `<topic>-key` subject adds key columns. |
 | `key.fields-prefix` | no | `key_` | Prefix of the key columns, so a key field and a value field of the same name do not clash. The table fails to load if a prefixed key column still has a value column's name; pick another prefix or set `key.enabled` to `false`. |
 | `recursive-message` | no | `fail` | How a table maps the field that makes a [recursive message](../reference/type-mapping.md#recursive-messages) contain itself: `fail` (the table fails to load, naming the message, the field and this option), `bytes` (`BYTES`, the serialized message), `json` (`STRING`, its JSON) or `row:<n>` (a `ROW` unrolled `n` times; deeper levels are left out). Applies to key and value columns. |
+| `topics.include` | no | | A Java regular expression; only topics whose whole name matches it become tables. By default every topic does. |
+| `topics.exclude` | no | | A Java regular expression; topics whose whole name matches it do not become tables, even if they match `topics.include`. By default no topic is excluded. |
 | `ssl.keystore.location`, `ssl.keystore.password`, `ssl.truststore.location`, `ssl.truststore.password` | no | | TLS to the Schema Registry, as in the [format](ssl-and-auth.md). |
 | `basic-auth.credentials-source`, `basic-auth.user-info` | no | | HTTP Basic authentication to the Schema Registry, as in the format. |
 | `bearer-auth.credentials-source`, `bearer-auth.token` | no | | Bearer-token authentication to the Schema Registry, as in the format. |
@@ -113,7 +135,7 @@ FROM sr.`default`.orders WHERE order_id = 'o-1';
 - **One message per subject.** The first message in the schema is used.
 - **Recursive messages need `recursive-message`.** A topic whose message contains itself fails to load as a table until the catalog sets `recursive-message` to `bytes`, `json` or `row:<n>`; the same setting applies to every table of the catalog. Create a second catalog to read another topic with another setting.
 - **Schema changes are picked up when a query is planned.** A running job keeps the columns and the write schema ID it was planned with.
-- **`SHOW TABLES` asks the registry about every `-value` subject.** On a registry with many subjects, listing tables takes one request per subject.
+- **`SHOW TABLES` reads every subject's latest schema.** The catalog asks the registry for the latest schema of all subjects with `GET /schemas?latestOnly=true`, a page at a time (the registry picks the page size), so listing takes a few requests rather than one per subject, but still transfers every subject's schema text. `topics.include` and `topics.exclude` filter the result; they do not shrink the request.
 - **Credentials appear in table options.** Schema Registry credentials given to the catalog are set on each table so its format can connect, so `SHOW CREATE TABLE` prints them, as it would for a hand-written table. Flink masks options whose names contain `password`, `token`, `basic-auth` and similar in its error messages and logs.
 
 ## Design
@@ -133,5 +155,9 @@ This section records the decisions made for [issue #169](https://github.com/brbr
 **Flink 1.20 and 2.x.** One source tree builds for both lines. The catalog uses only API present in both and in `flink-table-common`: `AbstractCatalog`, `CatalogTable.newBuilder()` and `org.apache.flink.table.api.Schema` (not the `TableSchema` API that 2.x removed).
 
 **Schema refresh.** `getTable` resolves the latest version on every call, so each query is planned against the current schema; the registry client caches schemas by ID. `listTables` lists subjects on every call, without a catalog-level cache.
+
+**Listing in bulk.** Recorded for [issue #247](https://github.com/brbrown25/flink-proto-confluent/issues/247). `listTables` first asked for every subject, then for the latest version of each `-value` subject, one request each, so `SHOW TABLES` on a registry with thousands of subjects sent thousands of requests. It now reads `GET /schemas?latestOnly=true`, which returns each subject's latest schema with its subject name and schema type, a page at a time. The registry client's `getSchemas(subjectPrefix, false, true)` sends the same request but drops the subject names, so the catalog calls the client's REST service directly; the client configures that service with the catalog's TLS and authentication settings first. Paging stops at the first page with no subject not seen before, so a registry that ignores `offset` and returns everything at once costs two requests, not an endless loop. A catalog built in code over a `SchemaRegistryClient` from a factory has no REST service to call and keeps the per-subject listing, now skipping the subjects of topics the filters leave out. `getTable` and `tableExists` still read one subject each.
+
+**Topic filters.** `topics.include` and `topics.exclude` are regular expressions over the topic name rather than the subject name, since the topic is what the user sees as a table. They also apply to `getTable` and `tableExists`, so a filtered-out topic cannot be queried by name either; otherwise `SHOW TABLES` and `SELECT` would disagree. They are not named `table.*`, which passes options through to every table.
 
 **Reused code.** Schema resolution, the registry client and the connection option mapping come from the same `schema` package the [`ddl` command](generate-ddl.md) uses (`SchemaRegistrySchemaResolver`, `SchemaRegistryClients`), and the types from `ProtoToLogicalType`, so the catalog, the `ddl` command and the format agree on columns.

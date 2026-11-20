@@ -41,6 +41,8 @@ public class SchemaRegistryCatalogFactory implements CatalogFactory {
     options.add(SchemaRegistryCatalogOptions.KEY_ENABLED);
     options.add(SchemaRegistryCatalogOptions.KEY_FIELDS_PREFIX);
     options.add(SchemaRegistryCatalogOptions.RECURSIVE_MESSAGE);
+    options.add(SchemaRegistryCatalogOptions.TOPICS_INCLUDE);
+    options.add(SchemaRegistryCatalogOptions.TOPICS_EXCLUDE);
     options.addAll(SchemaRegistryCatalogOptions.CONNECTION_OPTIONS);
     return options;
   }
