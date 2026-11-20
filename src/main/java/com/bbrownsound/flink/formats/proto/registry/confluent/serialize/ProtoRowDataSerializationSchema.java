@@ -70,7 +70,8 @@ public class ProtoRowDataSerializationSchema
       }
       this.client = createSchemaRegistryClient(clientProperties(formatConfig));
       this.serializer =
-          new RowDataProtoSerializer(client, formatConfig.schemaCacheTtl, nanoClock());
+          new RowDataProtoSerializer(
+              client, formatConfig.schemaCacheTtl, nanoClock(), formatConfig.derivedMessageName);
       // Load 'message-class' with the job's user-code class loader, as the source does, so a
       // generated class in the job JAR is found while the format itself sits in Flink's lib/.
       this.serializer.configure(

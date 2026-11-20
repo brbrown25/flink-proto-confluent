@@ -100,6 +100,19 @@ public class ProtoConfluentFormatOptions {
                   + "class on the classpath. When 'message-class' is also set, both must name "
                   + "the same message. Ignored by a sink.");
 
+  /** Fully-qualified name of the message a sink derives from the table's row type. */
+  public static final ConfigOption<String> DERIVED_MESSAGE_NAME =
+      ConfigOptions.key("derived-message-name")
+          .stringType()
+          .defaultValue("com.flink.proto.confluent.Row")
+          .withDescription(
+              "Sink only. Fully-qualified protobuf name (e.g. 'com.example.Order') of the "
+                  + "message the sink derives from the table's row type when the subject has no "
+                  + "schema and no 'message-class' is set: the part before the last '.' is the "
+                  + "proto package, the rest the message name. With the 'record' or "
+                  + "'topic-record' subject-name strategy it also names the subject. Ignored by "
+                  + "a source, but a malformed value is rejected on either.");
+
   /** Whether to auto-register schemas. */
   public static final ConfigOption<Boolean> AUTO_REGISTER_SCHEMAS =
       ConfigOptions.key("auto-register-schemas")
