@@ -270,22 +270,26 @@ class TypeCoverageTest {
   }
 
   @Test
-  void decimalPassesTheMessageClassCheckForUnsigned64BitFieldsOnly() {
+  void decimalPassesTheMessageClassCheckForUnsignedFieldsItCanHold() {
     final DecimalType decimal = new DecimalType(20, 0);
     SourceMessageValidator.validateRowType(
         COVERAGE,
         row(field("u64", decimal), field("f64", decimal), field("u64_wrapper", decimal)),
         CLASS_NAME);
+    // A 32-bit unsigned field reads into a DECIMAL with at least 10 integer digits (#245).
+    SourceMessageValidator.validateRowType(
+        COVERAGE, row(field("u32", decimal), field("u32_wrapper", decimal)), CLASS_NAME);
+    final DecimalType tooNarrow = new DecimalType(9, 0);
     assertThrows(
         ValidationException.class,
         () ->
             SourceMessageValidator.validateRowType(
-                COVERAGE, row(field("u32", decimal)), CLASS_NAME));
+                COVERAGE, row(field("u32", tooNarrow)), CLASS_NAME));
     assertThrows(
         ValidationException.class,
         () ->
             SourceMessageValidator.validateRowType(
-                COVERAGE, row(field("u32_wrapper", decimal)), CLASS_NAME));
+                COVERAGE, row(field("u32_wrapper", tooNarrow)), CLASS_NAME));
   }
 
   // ---- google.protobuf.Struct / Value / ListValue as JSON STRING -----------------------------

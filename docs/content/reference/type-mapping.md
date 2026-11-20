@@ -51,6 +51,21 @@ A table can declare one of these types for a field instead of the derived one. T
 | any `message` except wrapper-style messages | `BYTES` | The message's Protobuf encoding, kept serialized. Writing fails on bytes that do not parse as the message. For `google.protobuf.Any` this is the whole `Any`, type URL included. |
 | `google.protobuf.Duration` | `INTERVAL DAY TO SECOND` (any precision, e.g. `INTERVAL DAY(2) TO SECOND(3)`) | The duration in milliseconds, the interval's resolution in Flink: nanoseconds below a millisecond are dropped when reading (toward zero). Negative durations work. When the sink derives a schema, an `INTERVAL DAY TO SECOND` column becomes a `google.protobuf.Duration` field. Derived DDL keeps reading a `Duration` as `ROW<seconds BIGINT, nanos INT>`. |
 
+## Widening reads
+
+A source column may also be wider than the derived type when it holds every value the field can hold, so a field widened between schema versions (`int32` to `int64`, `float` to `double`) is readable from records of every version by a table declared for the widest one. The converter for each record is built from the record's writer schema, so a `BIGINT` column reads `int32` records written under the old schema and `int64` records written under the new one. The `message-class` check accepts these types too. They apply to `repeated` elements and map values as well.
+
+| Protobuf type | Wider Flink SQL type | Conversion |
+| --- | --- | --- |
+| `int32`, `sint32`, `sfixed32`, `google.protobuf.Int32Value` | `BIGINT` | The same value. (`uint32`, `fixed32` and `UInt32Value` already derive `BIGINT`.) |
+| `float`, `google.protobuf.FloatValue` | `DOUBLE` | The same value: every `float` is exactly a `double` (`0.1f` reads as `0.10000000149011612`, not `0.1`). |
+| `int32`, `sint32`, `sfixed32`, `uint32`, `fixed32`, `google.protobuf.Int32Value`, `UInt32Value` | `DECIMAL(p, s)` with `p - s >= 10` | The value as a decimal; unsigned fields read as their unsigned value, from 0 to 4294967295. |
+| `int64`, `sint64`, `sfixed64`, `google.protobuf.Int64Value` | `DECIMAL(p, s)` with `p - s >= 19` | The value as a decimal. (`uint64`, `fixed64` and `UInt64Value` are [declared alternatives](#declared-alternatives) for `DECIMAL`.) |
+
+Only widenings that cannot lose a value are accepted. A narrower column is rejected when the reader is built for the record's schema, and by the `message-class` check: `INT` for an `int64` or a `uint32`, `FLOAT` for a `double`, and a `DECIMAL` with fewer digits before the decimal point than the field needs, which fails with an error such as `Cannot read field 'shop.Order.amount' (int32) into a DECIMAL(9, 0) column: a DECIMAL needs at least 10 digits before the decimal point (precision - scale >= 10) to hold every value`. Integer fields do not widen to `FLOAT` or `DOUBLE`, and an `enum` does not widen to `BIGINT` (declare `INT` for its number). `TINYINT` and `SMALLINT` on a 32-bit field narrow instead, checking each value (see [Confluent annotations](#confluent-annotations)).
+
+These are read-only: a sink writes a `BIGINT`, `DOUBLE` or `DECIMAL` column to the field as it always has, so a table that writes as well as reads should be declared against the schema the sink writes with.
+
 ## Flink to Protobuf: the schema a sink derives
 
 A sink writes with the latest schema registered under its subject, or with the class named by [`message-class`](../how-to/message-class.md). Only when the Schema Registry answers that the subject does not exist (and no `message-class` is set) does it derive a schema from the table's row type, as below, and register it when `auto-register-schemas` is `true`. The derived message is `com.flink.proto.confluent.Row`, in a `proto3` file.
@@ -219,6 +234,7 @@ Details:
 - **Unsigned 64-bit integers in `BIGINT`** read values above `Long.MAX_VALUE` as negative numbers; declare `DECIMAL(20, 0)` instead (see [Unsigned integers in `BIGINT`](#unsigned-integers-in-bigint)).
 - **`TINYINT` / `SMALLINT`** narrow an `int32`: a value outside the column's range is a deserialize error, handled per `on-deserialize-error` (see [Confluent annotations](#confluent-annotations)).
 - **`DECIMAL`** reads with the column's declared scale, not the scale in each message.
+- **Widening reads are read-only.** `BIGINT` for an `int32`, `DOUBLE` for a `float` and `DECIMAL` for an integer field are accepted by the source only (see [Widening reads](#widening-reads)).
 - **Millisecond resolution** for `google.type.TimeOfDay` (`TIME(3)`) and `google.protobuf.Duration` (`INTERVAL DAY TO SECOND`): finer digits are dropped on reading.
 - **Partial dates.** A `google.type.Date` with a year, month or day of `0` fails the record, unless all three are `0`, which reads as `NULL`. Declare the column `ROW<year INT, month INT, day INT>` to read partial dates as their parts.
 - **`google.protobuf.Any`** stays packed: no JSON, no unpacking into the packed message's columns.

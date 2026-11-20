@@ -296,7 +296,7 @@ public final class SourceMessageValidator {
       checkRow(field.getMessageType(), (RowType) type, path, problems);
       return;
     }
-    if (DeclaredTypes.isAlternative(field, type)) {
+    if (DeclaredTypes.isAlternative(field, type) || WideningReads.isWidening(field, type)) {
       return;
     }
     final LogicalType expected;
@@ -307,7 +307,14 @@ public final class SourceMessageValidator {
       return;
     }
     if (family(expected.getTypeRoot()) != family(type.getTypeRoot())) {
-      problems.add(mismatch(path, type, field, expected.asSummaryString()));
+      // An integer field in a DECIMAL too narrow for it: say how many digits it needs.
+      final String tooNarrow =
+          type.getTypeRoot() == LogicalTypeRoot.DECIMAL
+              ? WideningReads.tooNarrowDecimal(field)
+              : null;
+      problems.add(
+          mismatch(path, type, field, expected.asSummaryString())
+              + (tooNarrow == null ? "" : "; " + tooNarrow));
     }
   }
 

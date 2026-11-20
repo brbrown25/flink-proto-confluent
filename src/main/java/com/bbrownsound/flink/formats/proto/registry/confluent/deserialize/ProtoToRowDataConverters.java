@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -660,7 +661,8 @@ public class ProtoToRowDataConverters {
   private static ProtoToRowDataConverter createDoubleConverter(
       LogicalType targetType, Type schemaType) {
     return switch (schemaType) {
-      case DOUBLE -> object -> ((Number) object).doubleValue();
+      // A float widens to a double exactly (#245).
+      case DOUBLE, FLOAT -> object -> ((Number) object).doubleValue();
       case MESSAGE -> object -> ((Number) extractValueField(object)).doubleValue();
       default -> throw unexpectedTypeForSchema(schemaType, targetType.getTypeRoot());
     };
@@ -684,6 +686,8 @@ public class ProtoToRowDataConverters {
       // uint64/fixed64 values above Long.MAX_VALUE read as negative (same 64 bits); declare the
       // column DECIMAL(20, 0) to read them as unsigned.
       case INT64, UINT64, SINT64, FIXED64, SFIXED64 -> object -> ((Number) object).longValue();
+      // A signed 32-bit field widens to BIGINT (#245); Int32Value takes the MESSAGE branch.
+      case INT32, SINT32, SFIXED32 -> object -> ((Number) object).longValue();
       case MESSAGE -> {
         if (readSchema.getMessageType().getFullName().equals(UINT32_WRAPPER)) {
           yield object -> Integer.toUnsignedLong((Integer) extractValueField(object));
@@ -717,11 +721,48 @@ public class ProtoToRowDataConverters {
           ? object -> unsignedDecimal((Long) extractValueField(object), precision, scale)
           : object -> unsignedDecimal((Long) object, precision, scale);
     }
+    if (WideningReads.isWidening(readSchema, targetType)) {
+      return createIntegerDecimalConverter(readSchema, precision, scale);
+    }
+    final String tooNarrow = WideningReads.tooNarrowDecimal(readSchema);
+    if (tooNarrow != null) {
+      throw new IllegalStateException(
+          String.format(
+              "Cannot read field '%s' (%s) into a %s column: %s",
+              readSchema.getFullName(),
+              protoTypeName(readSchema),
+              targetType.asSummaryString(),
+              tooNarrow));
+    }
+    if (readSchema.getType() != Type.MESSAGE) {
+      throw unexpectedTypeForSchema(readSchema.getType(), targetType.getTypeRoot());
+    }
     return object -> {
       final ByteString valueField = (ByteString) extractValueField(object);
       return DecimalData.fromUnscaledBytes(
           valueField.toByteArray(), targetType.getPrecision(), targetType.getScale());
     };
+  }
+
+  /**
+   * Reads an integer field into a DECIMAL with enough integer digits to hold every value of it
+   * (#245); uint32, fixed32 and UInt32Value read as their unsigned value.
+   */
+  private static ProtoToRowDataConverter createIntegerDecimalConverter(
+      FieldDescriptor readSchema, int precision, int scale) {
+    final boolean wrapped = readSchema.getType() == Type.MESSAGE;
+    final boolean unsigned = WideningReads.isUnsigned32(readSchema);
+    return object -> {
+      final Number number = (Number) (wrapped ? extractValueField(object) : object);
+      final long value = unsigned ? Integer.toUnsignedLong(number.intValue()) : number.longValue();
+      return DecimalData.fromBigDecimal(BigDecimal.valueOf(value), precision, scale);
+    };
+  }
+
+  private static String protoTypeName(FieldDescriptor field) {
+    return field.getType() == Type.MESSAGE
+        ? field.getMessageType().getFullName()
+        : field.getType().name().toLowerCase(Locale.ROOT);
   }
 
   /**
