@@ -39,7 +39,8 @@ class MainTest {
   private IntConsumer originalExit;
   private String originalVerbosity;
 
-  @TempDir Path temp;
+  @TempDir
+  Path temp;
 
   @BeforeEach
   void captureOutputAndExit() {
