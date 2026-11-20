@@ -41,6 +41,8 @@ To name the subject after the message instead, set `subject-name-strategy`:
 
 The aliases are matched case-insensitively and the classes live in `io.confluent.kafka.serializers.subject`. The option applies to the key when `is_key` is `true` and to the value otherwise, so a key and a value format can use different strategies.
 
+A `key.format` must set `'key.proto-confluent.is_key' = 'true'`, or it would resolve `<topic>-value` like the value format. A table that leaves it out, or whose key and value formats resolve one subject in any other way (the same explicit `subject`, for example), is rejected with a `ValidationException` when it is planned; see [validation](../reference/configuration.md#option-precedence-and-validation).
+
 With `record` or `topic-record` the sink cannot look up a subject before it knows which message it writes, so it skips the "latest schema" lookup described [below](#how-a-sink-picks-its-schema-and-how-long-it-keeps-it). It serializes with the `message-class` descriptor when one is set, or else with the schema derived from the table, whose message is `com.flink.proto.confluent.Row` (so `record` registers it under the subject `com.flink.proto.confluent.Row`). Pin `message-class` when several tables share a registry and should not share that subject.
 
 To name the subject outright, set `subject`. It is used as is, needs no `topic`, and cannot be combined with `subject-name-strategy`:
