@@ -2,6 +2,7 @@ package com.bbrownsound.flink.formats.proto.registry.confluent.serialize;
 
 import com.bbrownsound.flink.formats.proto.registry.confluent.config.ProtoConfluentFormatConfig;
 import com.bbrownsound.flink.formats.proto.registry.confluent.metrics.SchemaRegistryMetrics;
+import com.bbrownsound.flink.formats.proto.registry.confluent.schema.SchemaRegistryClients;
 import io.confluent.kafka.schemaregistry.client.SchemaRegistryClient;
 import io.confluent.kafka.schemaregistry.client.SchemaRegistryClientConfig;
 import java.io.IOException;
@@ -106,7 +107,7 @@ public class ProtoRowDataSerializationSchema
     } catch (IOException | RuntimeException closeEx) {
       LOG.warn(
           "[proto-confluent] failed to close the Schema Registry client for {}",
-          formatConfig.schemaRegistryUrl,
+          SchemaRegistryClients.withoutUserInfo(formatConfig.schemaRegistryUrl),
           closeEx);
     }
   }
