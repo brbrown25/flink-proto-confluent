@@ -12,7 +12,7 @@ plugins {
     jacoco
     id("com.diffplug.spotless") version "8.11.0"
     id("com.github.spotbugs") version "6.5.13"
-    id("me.champeau.jmh") version "0.7.3"
+    id("me.champeau.jmh") version "0.7.4"
     id("me.champeau.gradle.japicmp") version "0.4.6"
 }
 
