@@ -14,6 +14,7 @@ Each workflow owns a distinct slice of the pipeline so that no Gradle task runs 
 | `release.yml` | tag `v*` | Release verification, publishing to Maven Central, and attaching the library and self-contained `-all` JARs to the GitHub Release. |
 | `benchmarks.yml` | `workflow_dispatch` only | Running the JMH benchmarks (`./gradlew jmh`) on demand and uploading `build/results/jmh/` as an artifact. Not a required check; the benchmark source set is only compiled and linted by `build`. See [Benchmarks](content/reference/benchmarks.md). |
 | `docs-demo.yml` | `pull_request` touching `src/main/**` or `docs/**`, `workflow_dispatch` | Running the docs demo (`docs/demo`) end to end against the format JAR built from the pull request, so the SQL snippets and casts cannot go stale silently. Not a required check and not part of `ci-ok`. See [Docs demo check](#docs-demo-check). |
+| CodeQL (GitHub default setup, no workflow file) | `pull_request` and `push` to `main`, weekly schedule | Static analysis of the Java code and the GitHub Actions workflows, with results in the repository's Security tab. Not a required check and not part of `ci-ok`. See [Code scanning](#code-scanning). |
 
 `ci.yml` deliberately does **not** trigger on `pull_request`; that is what makes the PR path free of same-JDK repeats.
 
@@ -165,6 +166,19 @@ It also fails when a committed `sql/*.sql` file is not run by any cast or step, 
 Cost: the whole job takes about 3.5 minutes on `ubuntu-latest`: about 15 seconds to pull the images and 3 minutes for `verify.sh` (shadow JAR build, stack start-up, and the steps, the longest being the write-back and dead-letter casts at about 25 seconds each). Locally it takes about 2m45s, or 1m45s with `--no-build`. The job has a 30-minute timeout and the verify step 20 minutes; `verify.sh` and a final `if: always()` step both run `docker compose down -v`. `docs/demo/setup.sh` builds the JAR with `-PflinkVersion=1.20.5` (and `2.2.1` for `FLINK_VERSION=2.2`), the versions in the CI matrix, so the Flink artifacts come from the shared Gradle cache rather than Maven Central. The Kafka SQL connector JAR is cached with `actions/cache`; the images are pulled, not cached, for the reason given for the Testcontainers images above. `workflow_dispatch` takes a `flink-version` input (`1.20` or `2.2`).
 
 The check is **not** required and is not in `ci-ok`'s `needs`. It is path-filtered at the trigger, so on a pull request that touches neither path it is absent, not skipped, and requiring it would leave such pull requests pending forever, the same trap #117 found with `codecov/patch` (see [Coverage gates](#coverage-gates)). Making it required means first moving it into `pr-checks.yml` behind the `changes` job with a docs-or-code filter, so it reports a skip.
+
+## Code scanning
+
+CodeQL runs through GitHub's default setup (Settings → Code security → Code scanning), not a workflow file in `.github/workflows/`, with the `default` query suite for two languages:
+
+- `java-kotlin`: follows untrusted input across methods and files, which SpotBugs does not. The paths that matter here are Kafka record bytes and Schema Registry payloads being parsed into `DynamicMessage`s, and configured class names reaching `Class.forName` / `ClassLoader.loadClass`.
+- `actions`: checks the workflows themselves, e.g. a pull request title or branch name interpolated into a `run:` script, or untrusted code checked out in a privileged workflow.
+
+It analyses pull requests and pushes to `main`, plus a weekly scan, and reports alerts in the Security tab and as a `CodeQL` check on the pull request.
+
+**It is not a required check.** The `Protections` ruleset once required CodeQL through a `code_scanning` rule while CodeQL was not configured, so no pull request could satisfy it (#118). The first scan of `main`, on 2026-11-20, reported no alerts in either language. Whether to require it, and at which threshold (`high_or_higher` was the earlier setting), is decided after it has run on pull requests for a while. Before adding the rule back, confirm with a throwaway pull request that the check posts and can pass.
+
+When an alert is a by-design use of dynamic class loading or reflection, dismiss it in the Security tab with a written reason rather than leaving it open.
 
 ## Coverage gates
 
