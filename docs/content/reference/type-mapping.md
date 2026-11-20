@@ -1,6 +1,6 @@
 # Type mapping
 
-How the format maps Protobuf types to Flink SQL types, in both directions. The source reads each column from the Protobuf field of the same name, and the sink writes each column to it. The column's type, as the table declares it, decides how the value is converted: a table can declare the type the format derives (below) or, for some fields, one of the alternatives further down.
+How the format maps Protobuf types to Flink SQL types, in both directions. The source reads each column from the Protobuf field of the same name, and the sink writes each column to it. When the message has no field of that name, a `snake_case` column matches the field of its `camelCase` form, on the source and the sink alike, including the fields of `ROW` columns and the cases of a `oneof`: a table with columns `order_id` and `customer ROW<first_name STRING>` reads from and writes to the fields `orderId` and `customer.firstName`. A column that matches no field either way is reported by the sink's `Column(s) ... not found in target Protobuf schema` check. The column's type, as the table declares it, decides how the value is converted: a table can declare the type the format derives (below) or, for some fields, one of the alternatives further down.
 
 ## Derived types
 
