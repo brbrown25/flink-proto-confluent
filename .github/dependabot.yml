@@ -47,9 +47,14 @@ updates:
           - "org.testcontainers*"
           - "org.awaitility*"
 
-  # GitHub Actions
+  # GitHub Actions. Every `uses:` is pinned to a full commit SHA with the version in a trailing
+  # comment (`owner/action@<sha> # v1.2.3`); Dependabot bumps the SHA and the comment together.
+  # "/" covers .github/workflows; the composite actions under .github/actions are listed
+  # explicitly, because Dependabot does not look there on its own.
   - package-ecosystem: "github-actions"
-    directory: "/"
+    directories:
+      - "/"
+      - "/.github/actions/*"
     schedule:
       interval: "weekly"
       day: "monday"
