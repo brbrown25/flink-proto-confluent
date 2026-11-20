@@ -102,7 +102,7 @@ Protobuf and SQL disagree about `NULL`: most Protobuf fields cannot be unset, on
 
 | Protobuf message | Derived Flink type | Other declared types | Notes |
 | --- | --- | --- | --- |
-| `google.protobuf.Timestamp` | `TIMESTAMP_LTZ(9)` | `TIMESTAMP(p)`, `BYTES`, `STRING` (JSON) | Nanosecond precision is kept. |
+| `google.protobuf.Timestamp` | `TIMESTAMP_LTZ(9)` | `TIMESTAMP(p)`, `BYTES`, `STRING` (JSON) | Nanosecond precision is kept. Instants before 1970 are written with negative `seconds` and `nanos` from 0 to 999,999,999, as `google.protobuf.Timestamp` requires. |
 | `google.protobuf.Duration` | `ROW<seconds BIGINT, nanos INT>` | `INTERVAL DAY TO SECOND`, `BYTES`, `STRING` (JSON) | The interval holds milliseconds. |
 | `google.type.Date` | `DATE` | `BYTES`, `STRING` (JSON) | Read as a calendar date: a month or day of `0` (a partial date) fails the record. |
 | `google.type.TimeOfDay` | `TIME(3)` | `BYTES`, `STRING` (JSON) | Read to the millisecond: nanoseconds below a millisecond are dropped. |

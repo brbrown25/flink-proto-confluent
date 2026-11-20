@@ -388,8 +388,10 @@ public class RowDataToProtoConverters {
             final long millisecond = data.getMillisecond();
             final int nanoOfMillisecond = data.getNanoOfMillisecond();
 
-            long seconds = millisecond / 1000;
-            int nanos = (int) (millisecond % 1000) * 1_000_000 + nanoOfMillisecond;
+            // Floor division keeps nanos in 0 to 999,999,999 before 1970, as
+            // google.protobuf.Timestamp requires: 1969-12-31T23:59:59.5 is seconds -1, nanos 5e8.
+            long seconds = Math.floorDiv(millisecond, 1000L);
+            int nanos = (int) Math.floorMod(millisecond, 1000L) * 1_000_000 + nanoOfMillisecond;
             return Timestamp.newBuilder().setSeconds(seconds).setNanos(nanos).build();
           }
         };
