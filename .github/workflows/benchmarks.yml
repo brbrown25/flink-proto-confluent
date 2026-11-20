@@ -8,9 +8,9 @@ on:
   workflow_dispatch:
     inputs:
       flink:
-        description: 'Flink version to build and benchmark against'
+        description: 'Flink version to build and benchmark against; empty uses flink1.version from gradle.properties'
         required: false
-        default: '1.20.5'
+        default: ''
       includes:
         description: 'Benchmarks to run (regex, comma-separated); empty runs all'
         required: false
@@ -42,9 +42,19 @@ jobs:
       - name: Setup build environment
         uses: ./.github/actions/setup-build
 
+      - name: Resolve the Flink version
+        id: flink
+        env:
+          INPUT: ${{ inputs.flink }}
+        run: |
+          set -euo pipefail
+          .github/scripts/flink-versions.sh > "$RUNNER_TEMP/flink-versions"
+          primary=$(sed -n 's/^primary=//p' "$RUNNER_TEMP/flink-versions")
+          echo "version=${INPUT:-$primary}" >> "$GITHUB_OUTPUT"
+
       - name: Run JMH
         env:
-          FLINK: ${{ inputs.flink }}
+          FLINK: ${{ steps.flink.outputs.version }}
           INCLUDES: ${{ inputs.includes }}
           FORK: ${{ inputs.fork }}
           ITERATIONS: ${{ inputs.iterations }}
@@ -72,6 +82,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: jmh-results-flink-${{ inputs.flink }}
+          name: jmh-results-flink-${{ steps.flink.outputs.version }}
           path: build/results/jmh/
           if-no-files-found: warn

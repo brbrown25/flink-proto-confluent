@@ -11,6 +11,7 @@ on:
     paths:
       - 'src/main/**'
       - 'docs/**'
+      - 'gradle.properties'
       - '.github/workflows/docs-demo.yml'
   workflow_dispatch:
     inputs:

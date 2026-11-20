@@ -2,8 +2,9 @@ name: Release
 
 # Triggered by the `vX.Y.Z` tag that release-please pushes when a release PR merges (see
 # release-please.yml). Publishes one artifact per supported Flink line, all at the tag version:
-#   Flink 1.x -> com.bbrownsound:flink-proto-confluent         (built with -PflinkVersion=1.20.0)
-#   Flink 2.x -> com.bbrownsound:flink-proto-confluent-flink2  (built with -PflinkVersion=2.2.1)
+#   Flink 1.x -> com.bbrownsound:flink-proto-confluent         (built with -PflinkVersion=<flink1.version>)
+#   Flink 2.x -> com.bbrownsound:flink-proto-confluent-flink2  (built with -PflinkVersion=<flink2.version>)
+# The Flink versions come from gradle.properties, the same ones PR checks and CI test (#249).
 # Each line's library JAR and self-contained "-all" shadow JAR go to Maven Central and are attached
 # to the GitHub Release that release-please already created.
 #
@@ -26,14 +27,27 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  versions:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.flink.outputs.matrix }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Read the Flink versions from gradle.properties
+        id: flink
+        run: .github/scripts/flink-versions.sh
+
   # Every line is tested before anything is published, so a line that fails its tests cannot
   # leave the release half-published.
   build-and-test:
     runs-on: ubuntu-latest
+    needs: versions
     strategy:
       fail-fast: true
       matrix:
-        flink: ['1.20.0', '2.2.1']
+        flink: ${{ fromJSON(needs.versions.outputs.matrix) }}
     name: build-and-test (Flink ${{ matrix.flink }})
     env:
       # Checked by FlinkLineGuardTest: the run must really be on this Flink version.
@@ -63,6 +77,10 @@ jobs:
       - name: Setup build environment
         uses: ./.github/actions/setup-build
 
+      - name: Read the Flink versions from gradle.properties
+        id: flink
+        run: .github/scripts/flink-versions.sh
+
       - name: Extract version from tag
         id: version
         run: |
@@ -81,7 +99,7 @@ jobs:
       - name: Build, verify and publish each Flink line to Sonatype (Maven Central)
         env:
           VERSION: ${{ steps.version.outputs.VERSION }}
-          FLINK_VERSIONS: '1.20.0 2.2.1'
+          FLINK_VERSIONS: ${{ steps.flink.outputs.list }}
           ORG_GRADLE_PROJECT_sonatypeUsername: ${{ secrets.SONATYPE_USERNAME }}
           ORG_GRADLE_PROJECT_sonatypePassword: ${{ secrets.SONATYPE_PASSWORD }}
           ORG_GRADLE_PROJECT_signingKey: ${{ secrets.GPG_SIGNING_KEY }}

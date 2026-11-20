@@ -7,12 +7,27 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 FLINK_VERSION=${FLINK_VERSION:-1.20}
-# BUILD_FLINK matches the Flink versions CI builds and tests (pr-checks.yml / ci.yml matrix), so the
-# docs-demo job reuses the Flink artifacts already in the shared Gradle cache.
+# BUILD_FLINK, ARTIFACT and KAFKA_CONNECTOR come from the line's flink<line>.* entries in
+# gradle.properties, the versions CI builds, tests and releases (#249), so the docs-demo job reuses the
+# Flink artifacts already in the shared Gradle cache.
 case "$FLINK_VERSION" in
-  1.20) BUILD_FLINK=1.20.5; ARTIFACT=flink-proto-confluent; KAFKA_CONNECTOR=3.4.0-1.20 ;;
-  2.2) BUILD_FLINK=2.2.1; ARTIFACT=flink-proto-confluent-flink2; KAFKA_CONNECTOR=5.0.0-2.2 ;;
+  1.20) LINE=1 ;;
+  2.2) LINE=2 ;;
   *) echo "FLINK_VERSION must be 1.20 or 2.2, got '$FLINK_VERSION'" >&2; exit 2 ;;
+esac
+line_property() {
+  sed -n "s/^flink$LINE\.$1=//p" ../../gradle.properties | tr -d '[:space:]'
+}
+BUILD_FLINK=$(line_property version)
+ARTIFACT=$(line_property artifactId)
+KAFKA_CONNECTOR=$(line_property kafkaConnectorVersion)
+if [ -z "$BUILD_FLINK" ] || [ -z "$ARTIFACT" ] || [ -z "$KAFKA_CONNECTOR" ]; then
+  echo "gradle.properties lacks flink$LINE.version, flink$LINE.artifactId or flink$LINE.kafkaConnectorVersion" >&2
+  exit 2
+fi
+case "$BUILD_FLINK" in
+  "$FLINK_VERSION".*) ;;
+  *) echo "flink$LINE.version=$BUILD_FLINK in gradle.properties is not a Flink $FLINK_VERSION release" >&2; exit 2 ;;
 esac
 echo "FLINK_VERSION=$FLINK_VERSION" >.env
 

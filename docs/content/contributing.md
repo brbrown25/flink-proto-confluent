@@ -13,7 +13,7 @@ Tests use JUnit 5 and real components (Testcontainers for Kafka and Schema Regis
 
 ## Testing against each Flink line
 
-One source tree builds for both supported Flink lines (see [Supported Flink versions](getting-started.md#supported-flink-versions)). `-PflinkVersion` picks the Flink version the build compiles and tests against; without it the build uses `flinkVersion` from `gradle.properties` (1.20.0), which is what the `make` targets run. CI runs every suite on Flink 1.20.5 and 2.2.1, so run the same commands for both lines before opening a pull request that touches `src/` or the build. The integration tests need a running Docker daemon.
+One source tree builds for both supported Flink lines (see [Supported Flink versions](getting-started.md#supported-flink-versions)). `-PflinkVersion` picks the Flink version the build compiles and tests against; without it the build uses `flink1.version` from `gradle.properties` (1.20.5), which is what the `make` targets run. `gradle.properties` is the one place each line's version is set (`flink1.version`, `flink2.version`): CI, snapshots, releases and the docs demo all read it from there. CI runs every suite on Flink 1.20.5 and 2.2.1, so run the same commands for both lines before opening a pull request that touches `src/` or the build. The integration tests need a running Docker daemon.
 
 | What | Flink 1.20 | Flink 2.x |
 | --- | --- | --- |

@@ -24,6 +24,21 @@ permissions:
   pull-requests: write
 
 jobs:
+  # The Flink version of each supported line, read from gradle.properties, the one place they are
+  # set (#249), so this run tests what snapshots and releases ship.
+  versions:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.flink.outputs.matrix }}
+      primary: ${{ steps.flink.outputs.primary }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Read the Flink versions from gradle.properties
+      id: flink
+      run: .github/scripts/flink-versions.sh
+
   # One job per Flink line on the primary JDK: build, unit tests, integration
   # tests and coverage all execute exactly once per line against one compiled
   # output. Only the Flink 1.20 leg verifies coverage and uploads to Codecov,
@@ -34,12 +49,13 @@ jobs:
       # Checked by FlinkLineGuardTest: the run must really be on this Flink version.
       EXPECTED_FLINK_VERSION: ${{ matrix.flink }}
     runs-on: ubuntu-latest
+    needs: versions
     strategy:
       fail-fast: false
       matrix:
-        flink: ['1.20.5', '2.2.1']
+        flink: ${{ fromJSON(needs.versions.outputs.matrix) }}
         include:
-          - flink: '1.20.5'
+          - flink: ${{ needs.versions.outputs.primary }}
             coverage: true
 
     steps:
@@ -118,10 +134,11 @@ jobs:
   checkstyle:
     name: checkstyle (flink ${{ matrix.flink }})
     runs-on: ubuntu-latest
+    needs: versions
     strategy:
       fail-fast: false
       matrix:
-        flink: ['1.20.5', '2.2.1']
+        flink: ${{ fromJSON(needs.versions.outputs.matrix) }}
 
     steps:
     - name: Checkout code

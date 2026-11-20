@@ -24,11 +24,18 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.filter.outputs.code }}
+      # The Flink version of each supported line, read from gradle.properties (#249).
+      flink-matrix: ${{ steps.flink.outputs.matrix }}
+      flink-primary: ${{ steps.flink.outputs.primary }}
     steps:
     - name: Checkout code
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         fetch-depth: 0
+
+    - name: Read the Flink versions from gradle.properties
+      id: flink
+      run: .github/scripts/flink-versions.sh
 
     - name: Detect non-documentation changes
       id: filter
@@ -64,7 +71,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        flink: ['1.20.5', '2.2.1']
+        flink: ${{ fromJSON(needs.changes.outputs.flink-matrix) }}
 
     steps:
     - name: Checkout code
@@ -80,7 +87,7 @@ jobs:
     # a lint failure too, which is when the annotations matter most. Workflow
     # commands need no token and no third-party code (#238).
     - name: Annotate Checkstyle issues
-      if: ${{ !cancelled() && matrix.flink == '1.20.5' }}
+      if: ${{ !cancelled() && matrix.flink == needs.changes.outputs.flink-primary }}
       run: |
         shopt -s nullglob
         python3 .github/scripts/checkstyle-annotations.py build/reports/checkstyle/*.xml
@@ -110,7 +117,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        flink: ['1.20.5', '2.2.1']
+        flink: ${{ fromJSON(needs.changes.outputs.flink-matrix) }}
 
     steps:
     - name: Checkout code
@@ -143,7 +150,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        flink: ['1.20.5', '2.2.1']
+        flink: ${{ fromJSON(needs.changes.outputs.flink-matrix) }}
 
     steps:
     - name: Checkout code
@@ -219,10 +226,10 @@ jobs:
       fail-fast: false
       matrix:
         java-version: ['17', '21']
-        flink: ['1.20.5', '2.2.1']
+        flink: ${{ fromJSON(needs.changes.outputs.flink-matrix) }}
         include:
           - java-version: '21'
-            flink: '1.20.5'
+            flink: ${{ needs.changes.outputs.flink-primary }}
             coverage: true
 
     steps:
@@ -267,9 +274,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        flink: ['1.20.5', '2.2.1']
+        flink: ${{ fromJSON(needs.changes.outputs.flink-matrix) }}
         include:
-          - flink: '1.20.5'
+          - flink: ${{ needs.changes.outputs.flink-primary }}
             coverage: true
 
     steps:
