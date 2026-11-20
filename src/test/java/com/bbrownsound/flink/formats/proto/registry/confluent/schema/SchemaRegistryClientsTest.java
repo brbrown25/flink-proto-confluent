@@ -2,6 +2,7 @@ package com.bbrownsound.flink.formats.proto.registry.confluent.schema;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -40,6 +41,23 @@ class SchemaRegistryClientsTest {
         SchemaRegistryClients.CONNECTION_OPTIONS.keySet()
             .containsAll(SchemaRegistryClients.SECRET_OPTIONS));
     assertThrows(IllegalArgumentException.class, () -> SchemaRegistryClients.clientProperty("url"));
+  }
+
+  @Test
+  void stripsUserInfoFromRegistryUrls() {
+    assertEquals("https://sr:8081", SchemaRegistryClients.withoutUserInfo("https://u:pw@sr:8081"));
+    assertEquals(
+        "https://sr:8081/ctx?a=b@c#d@e",
+        SchemaRegistryClients.withoutUserInfo("https://u:p@ss@sr:8081/ctx?a=b@c#d@e"),
+        "the user info ends at the last '@' before the path; later '@'s are kept");
+    assertEquals(
+        "http://h1:8081, http://h2:8081,",
+        SchemaRegistryClients.withoutUserInfo("http://a:b@h1:8081, http://c:d@h2:8081,"),
+        "each URL of a comma-separated list");
+    assertEquals("sr:8081", SchemaRegistryClients.withoutUserInfo("u:pw@sr:8081"));
+    assertEquals("http://sr:8081/", SchemaRegistryClients.withoutUserInfo("http://sr:8081/"));
+    assertEquals("http://sr:8081", SchemaRegistryClients.withoutUserInfo("http://sr:8081"));
+    assertNull(SchemaRegistryClients.withoutUserInfo(null));
   }
 
   @Test

@@ -2,6 +2,11 @@ package com.bbrownsound.flink.formats.proto.registry.confluent.cli;
 
 import com.bbrownsound.flink.formats.proto.registry.confluent.schema.SchemaRegistryClients;
 import com.bbrownsound.flink.formats.proto.registry.confluent.util.RecursionStrategy;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -10,6 +15,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 
 /** The parsed arguments of the {@code ddl} command. */
 final class DdlArguments {
@@ -69,7 +75,21 @@ final class DdlArguments {
           "  --bearer-auth.token <token>",
           "  --property <key>=<value>         any other registry client property (repeatable)",
           "",
+          "  Each credential (the two passwords, --basic-auth.user-info and --bearer-auth.token)",
+          "  can also be read from an environment variable or a file instead of the command line,",
+          "  e.g. for --basic-auth.user-info:",
+          "  --basic-auth.user-info-env <variable>  read it from an environment variable",
+          "  --basic-auth.user-info-file <path>     read it from a file (trailing line breaks",
+          "                                         are dropped)",
+          "  and likewise --bearer-auth.token-env <variable>, --bearer-auth.token-file <path>.",
+          "",
           "Exit status: 0 on success, 1 if the schema cannot be resolved, 2 on a usage error.");
+
+  /** Suffix of the option that reads a credential from an environment variable. */
+  static final String ENV_SUFFIX = "-env";
+
+  /** Suffix of the option that reads a credential from a file. */
+  static final String FILE_SUFFIX = "-file";
 
   /** Options that take a value, besides the registry connection options. */
   private static final Set<String> VALUE_OPTIONS =
@@ -114,7 +134,15 @@ final class DdlArguments {
 
   boolean help;
 
-  private DdlArguments() {}
+  /** The option that set each connection option, to reject a credential given two ways. */
+  private final Map<String, String> connectionOptionSources = new LinkedHashMap<>();
+
+  /** Looks up environment variables for the {@code -env} options. */
+  private final Function<String, String> env;
+
+  private DdlArguments(Function<String, String> env) {
+    this.env = env;
+  }
 
   /**
    * Parses and validates the arguments that follow {@code ddl}.
@@ -124,7 +152,21 @@ final class DdlArguments {
    * @throws UsageException if the arguments are invalid
    */
   static DdlArguments parse(List<String> args) throws UsageException {
-    DdlArguments parsed = new DdlArguments();
+    return parse(args, System::getenv);
+  }
+
+  /**
+   * Parses and validates the arguments that follow {@code ddl}, reading the {@code -env} options
+   * from the given environment.
+   *
+   * @param args the arguments
+   * @param env returns the value of an environment variable, or {@code null} if it is not set
+   * @return the parsed arguments
+   * @throws UsageException if the arguments are invalid
+   */
+  static DdlArguments parse(List<String> args, Function<String, String> env)
+      throws UsageException {
+    DdlArguments parsed = new DdlArguments(env);
     for (int i = 0; i < args.size(); i++) {
       String arg = args.get(i);
       String name = arg;
@@ -145,7 +187,8 @@ final class DdlArguments {
         throw new UsageException("Unexpected argument '" + arg + "'");
       }
       if (!VALUE_OPTIONS.contains(name)
-          && !SchemaRegistryClients.CONNECTION_OPTIONS.containsKey(name.substring(2))) {
+          && !SchemaRegistryClients.CONNECTION_OPTIONS.containsKey(name.substring(2))
+          && credentialOption(name) == null) {
         throw new UsageException("Unknown option " + name);
       }
       String value;
@@ -162,6 +205,22 @@ final class DdlArguments {
       parsed.validate();
     }
     return parsed;
+  }
+
+  /**
+   * Returns the credential option an {@code -env} or {@code -file} option reads, e.g. {@code
+   * bearer-auth.token} for {@code --bearer-auth.token-file}, or {@code null} for any other name.
+   */
+  private static String credentialOption(String name) {
+    String option = name.substring(2);
+    if (option.endsWith(ENV_SUFFIX)) {
+      option = option.substring(0, option.length() - ENV_SUFFIX.length());
+    } else if (option.endsWith(FILE_SUFFIX)) {
+      option = option.substring(0, option.length() - FILE_SUFFIX.length());
+    } else {
+      return null;
+    }
+    return SchemaRegistryClients.SECRET_OPTIONS.contains(option) ? option : null;
   }
 
   private static boolean isFlag(String name) {
@@ -197,6 +256,11 @@ final class DdlArguments {
   private void setOption(String name, String value) throws UsageException {
     if (value.isEmpty()) {
       throw new UsageException(name + " needs a non-empty value");
+    }
+    String credential = credentialOption(name);
+    if (credential != null) {
+      setConnectionOption(name, credential, readCredential(name, value));
+      return;
     }
     switch (name) {
       case "--url":
@@ -253,9 +317,43 @@ final class DdlArguments {
         break;
       default:
         // A connection option, e.g. --basic-auth.user-info (parse() rejected unknown names).
-        connectionOptions.put(name.substring(2), value);
+        setConnectionOption(name, name.substring(2), value);
         break;
     }
+  }
+
+  private void setConnectionOption(String source, String option, String value)
+      throws UsageException {
+    String previous = connectionOptionSources.put(option, source);
+    if (previous != null && !previous.equals(source)) {
+      throw new UsageException(
+          previous + " and " + source + " both set " + option + "; pass only one");
+    }
+    connectionOptions.put(option, value);
+  }
+
+  /** Reads the credential an {@code -env} or {@code -file} option names. */
+  private String readCredential(String name, String value) throws UsageException {
+    if (name.endsWith(ENV_SUFFIX)) {
+      String credential = env.apply(value);
+      if (credential == null || credential.isEmpty()) {
+        throw new UsageException(
+            name + ": environment variable " + value + " is not set or is empty");
+      }
+      return credential;
+    }
+    String credential;
+    try {
+      credential = Files.readString(Paths.get(value), StandardCharsets.UTF_8);
+    } catch (IOException | InvalidPathException e) {
+      throw new UsageException(name + ": cannot read " + value + " (" + e + ")");
+    }
+    // A file written by echo or an editor ends with a line break that is not part of the secret.
+    credential = credential.replaceFirst("[\\r\\n]+$", "");
+    if (credential.isEmpty()) {
+      throw new UsageException(name + ": " + value + " is empty");
+    }
+    return credential;
   }
 
   private static Integer parseVersion(String value) throws UsageException {

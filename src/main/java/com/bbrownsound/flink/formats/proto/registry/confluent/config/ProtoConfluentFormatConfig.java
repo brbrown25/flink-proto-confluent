@@ -12,6 +12,7 @@ import org.slf4j.LoggerFactory;
 
 import com.bbrownsound.flink.formats.proto.registry.confluent.ProtoConfluentFormatOptions;
 import com.bbrownsound.flink.formats.proto.registry.confluent.RegistryProtoFormatFactory;
+import com.bbrownsound.flink.formats.proto.registry.confluent.schema.SchemaRegistryClients;
 import com.bbrownsound.flink.formats.proto.registry.confluent.subject.FixedSubjectNameStrategy;
 import com.bbrownsound.flink.formats.proto.registry.confluent.subject.SubjectNameStrategies;
 
@@ -184,7 +185,7 @@ public class ProtoConfluentFormatConfig implements Serializable {
     LOG.debug(
         "[proto-confluent] FormatConfig from options: schemaRegistryURL={}, topic={}, "
             + "subject={}, isKey={}, propertiesKeys={}",
-        schemaRegistryUrl,
+        SchemaRegistryClients.withoutUserInfo(schemaRegistryUrl),
         topic,
         subject,
         isKey,

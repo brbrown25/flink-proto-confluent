@@ -11,15 +11,21 @@ import io.confluent.kafka.schemaregistry.protobuf.ProtobufSchemaProvider;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class ProtoConfluentCliTest {
 
   private static final String URL = "http://localhost:8081";
+
+  @TempDir
+  Path temp;
 
   private final ByteArrayOutputStream out = new ByteArrayOutputStream();
   private final ByteArrayOutputStream err = new ByteArrayOutputStream();
@@ -179,6 +185,24 @@ class ProtoConfluentCliTest {
             "--include-secrets"));
     assertTrue(out().contains("'value.proto-confluent.bearer-auth.token' = 'it''s-secret'"), out());
     assertEquals("", err());
+  }
+
+  @Test
+  void readsACredentialFromAFile() throws Exception {
+    Path token = Files.writeString(temp.resolve("token"), "from-file\n");
+    assertEquals(
+        0,
+        cli.run(
+            "ddl",
+            "--url",
+            URL,
+            "--subject",
+            "orders-value",
+            "--bearer-auth.token-file",
+            token.toString()));
+    assertEquals(Map.of("bearer.auth.token", "from-file"), requestedProperties.get(0));
+    assertFalse(out().contains("from-file"), out());
+    assertTrue(err().contains("left bearer-auth.token out of the statement"), err());
   }
 
   @Test

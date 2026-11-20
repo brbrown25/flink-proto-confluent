@@ -23,6 +23,7 @@ import com.bbrownsound.flink.formats.proto.registry.confluent.config.DeadLetterD
 import com.bbrownsound.flink.formats.proto.registry.confluent.config.OnDeserializeError;
 import com.bbrownsound.flink.formats.proto.registry.confluent.config.ProtoConfluentFormatConfig;
 import com.bbrownsound.flink.formats.proto.registry.confluent.metrics.SchemaRegistryMetrics;
+import com.bbrownsound.flink.formats.proto.registry.confluent.schema.SchemaRegistryClients;
 import com.google.protobuf.Descriptors.Descriptor;
 import com.google.protobuf.DynamicMessage;
 
@@ -157,7 +158,7 @@ public class ProtoRowDataDeserializationSchema
       LOG.info(
           "[proto-confluent] ProtoRowDataDeserializationSchema.open: schemaRegistryURL={}, "
               + "topic={}, isKey={}",
-          formatConfig.schemaRegistryUrl,
+          SchemaRegistryClients.withoutUserInfo(formatConfig.schemaRegistryUrl),
           formatConfig.topic,
           formatConfig.isKey);
 
