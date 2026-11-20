@@ -11,7 +11,6 @@ import com.bbrownsound.flink.formats.proto.test.v1.TestSimple;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 import org.apache.flink.table.types.logical.RowType;
@@ -29,8 +28,8 @@ class ProtoRowDataDeserializationSchemaFailureLogTest {
   /** Records each failure the schema logs at ERROR, as (deserializeCount, suppressed) pairs. */
   private static final class RecordingSchema extends ProtoRowDataDeserializationSchema {
     private static final long serialVersionUID = 1L;
-    final transient AtomicLong clock = new AtomicLong();
-    final transient List<long[]> logged = new ArrayList<>();
+    final AtomicLong clock = new AtomicLong();
+    final ArrayList<long[]> logged = new ArrayList<>();
 
     RecordingSchema(ProtoConfluentFormatConfig config) {
       super(rowType(), null, config);
