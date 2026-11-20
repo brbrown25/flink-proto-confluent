@@ -424,9 +424,9 @@ public class ProtoToRowDataConverters {
       case DECIMAL:
         return createDecimalConverter((DecimalType) targetType, readSchema);
       case TINYINT:
-        return createTinyIntConverter(targetType, schemaType);
+        return createTinyIntConverter(targetType, readSchema);
       case SMALLINT:
-        return createSmallIntConverter(targetType, schemaType);
+        return createSmallIntConverter(targetType, readSchema);
       case INTEGER:
         return createIntegerConverter(targetType, schemaType);
       case BIGINT:
@@ -579,21 +579,42 @@ public class ProtoToRowDataConverters {
   }
 
   private static ProtoToRowDataConverter createTinyIntConverter(
-      LogicalType targetType, Type schemaType) {
+      LogicalType targetType, FieldDescriptor readSchema) {
+    final Type schemaType = readSchema.getType();
     return switch (schemaType) {
-      case INT32, SINT32, SFIXED32 -> object -> ((Number) object).byteValue();
-      case MESSAGE -> object -> ((Number) extractValueField(object)).byteValue();
+      case INT32, SINT32, SFIXED32 -> object -> (byte) narrow(readSchema, targetType, object);
+      case MESSAGE -> object -> (byte) narrow(readSchema, targetType, extractValueField(object));
       default -> throw unexpectedTypeForSchema(schemaType, targetType.getTypeRoot());
     };
   }
 
   private static ProtoToRowDataConverter createSmallIntConverter(
-      LogicalType targetType, Type schemaType) {
+      LogicalType targetType, FieldDescriptor readSchema) {
+    final Type schemaType = readSchema.getType();
     return switch (schemaType) {
-      case INT32, SINT32, SFIXED32 -> object -> ((Number) object).shortValue();
-      case MESSAGE -> object -> ((Number) extractValueField(object)).shortValue();
+      case INT32, SINT32, SFIXED32 -> object -> (short) narrow(readSchema, targetType, object);
+      case MESSAGE -> object -> (short) narrow(readSchema, targetType, extractValueField(object));
       default -> throw unexpectedTypeForSchema(schemaType, targetType.getTypeRoot());
     };
+  }
+
+  /**
+   * Returns a 32-bit value that fits the {@code TINYINT} or {@code SMALLINT} column, and fails the
+   * record (handled per {@code on-deserialize-error}) for one that does not instead of wrapping it.
+   */
+  private static int narrow(FieldDescriptor readSchema, LogicalType targetType, Object object)
+      throws IOException {
+    final int value = ((Number) object).intValue();
+    final boolean tinyInt = targetType.getTypeRoot() == LogicalTypeRoot.TINYINT;
+    final int min = tinyInt ? Byte.MIN_VALUE : Short.MIN_VALUE;
+    final int max = tinyInt ? Byte.MAX_VALUE : Short.MAX_VALUE;
+    if (value < min || value > max) {
+      throw new IOException(
+          String.format(
+              "Value %d of field '%s' is out of range for a %s column (%d to %d)",
+              value, readSchema.getFullName(), targetType.getTypeRoot(), min, max));
+    }
+    return value;
   }
 
   private static ProtoToRowDataConverter createIntegerConverter(
