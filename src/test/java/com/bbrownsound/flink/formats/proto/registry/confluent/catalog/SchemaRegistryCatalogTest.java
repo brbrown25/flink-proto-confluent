@@ -674,6 +674,22 @@ class SchemaRegistryCatalogTest {
   }
 
   @Test
+  void aFailingSubjectListingIsACatalogException() {
+    MockSchemaRegistryClient failing =
+        new MockSchemaRegistryClient(List.of(new ProtobufSchemaProvider())) {
+          @Override
+          public Collection<String> getAllSubjects() throws IOException {
+            throw new IOException("unreachable");
+          }
+        };
+    SchemaRegistryCatalog c = catalog(Map.of(), failing);
+    CatalogException e = assertThrows(CatalogException.class, () -> c.listTables("default"));
+    assertTrue(
+        e.getMessage().startsWith("Cannot list subjects in the Schema Registry at " + URL),
+        e.getMessage());
+  }
+
+  @Test
   void topicFiltersLimitTheTablesListedInBulk() throws Exception {
     SchemaRegistryCatalog c =
         bulkCatalog(Map.of("topics.exclude", "internal\\..*"), new BulkRestService(3));
