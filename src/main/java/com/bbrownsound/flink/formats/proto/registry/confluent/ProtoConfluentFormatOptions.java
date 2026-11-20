@@ -214,7 +214,7 @@ public class ProtoConfluentFormatOptions {
 
   /**
    * What to do when a record fails to deserialize: {@code skip} (drop + count) or {@code fail}
-   * (throw). An enum option, so any other value is rejected when a query using the table is planned; values are
+   * (throw). A Schema Registry outage always fails the task (GitHub issue #232). An enum option, so any other value is rejected when a query using the table is planned; values are
    * matched case-insensitively.
    */
   public static final ConfigOption<OnDeserializeError> ON_DESERIALIZE_ERROR =
@@ -227,8 +227,11 @@ public class ProtoConfluentFormatOptions {
                   + "the default, preserving existing semantics) or 'skip' (log, increment the "
                   + "numDeserializeErrors metric, optionally route to the dead-letter topic, and "
                   + "return null so a single poison record cannot crash-loop the job). Set 'skip' "
-                  + "(ideally with 'dead-letter-topic') for resilient pipelines. Values are "
-                  + "case-insensitive; any other value is rejected with a ValidationException.");
+                  + "(ideally with 'dead-letter-topic') for resilient pipelines. A Schema "
+                  + "Registry that cannot be reached or fails (I/O error, 5xx, 401, 403, 429) "
+                  + "fails the task with either value and the record is not dead-lettered; a "
+                  + "schema ID the registry says does not exist (404) is a poison record. Values "
+                  + "are case-insensitive; any other value is rejected with a ValidationException.");
 
   /** Optional dead-letter topic for records that fail to deserialize. */
   public static final ConfigOption<String> DEAD_LETTER_TOPIC =
