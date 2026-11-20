@@ -63,6 +63,8 @@ The registry's compatibility mode decides which schema changes can become a new 
 
 See it in the [schema evolution demo](../demos.md#schema-evolution-compatible-change-then-a-breaking-one).
 
+**Widened fields.** A field widened in a new version, such as `int32 amount` becoming `int64 amount` or `float ratio` becoming `double ratio`, is readable from records of both versions by a table that declares the wider type (`BIGINT`, `DOUBLE`, or a `DECIMAL` with enough digits): each record is read with its own writer schema, and the source widens the old values without loss. See [Widening reads](../reference/type-mapping.md#widening-reads). Narrowing (a table that keeps `INT` after the field becomes `int64`) is not accepted.
+
 ## Compatibility modes
 
 | Change against the latest version | `BACKWARD` | `FORWARD` | `FULL` | `NONE` |
