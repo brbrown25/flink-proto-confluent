@@ -36,6 +36,8 @@ All registry client settings are exposed as typed options under the format prefi
 
 Any other Schema Registry client property can be passed through `properties` (for example `'value.proto-confluent.properties' = 'key:value'`). Typed options win over the same setting tunneled through `properties`; see [precedence](../reference/configuration.md#option-precedence-and-validation).
 
+Each source and sink closes its Schema Registry client, and with it whatever its credential provider holds (an OAuth token provider's threads and token cache, for example), when the job leaves the TaskManager (finished, cancelled or failed for good), through a release hook on the job's user-code class loader. The catalog closes its client when the catalog is closed.
+
 !!! tip
     Keystore and truststore paths are read on the Flink task managers, so the files must exist on every node that runs the job.
 
