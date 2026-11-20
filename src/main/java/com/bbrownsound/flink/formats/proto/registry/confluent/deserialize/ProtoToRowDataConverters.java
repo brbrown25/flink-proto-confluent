@@ -706,6 +706,12 @@ public class ProtoToRowDataConverters {
         new BigDecimal(Long.toUnsignedString(value)), precision, scale);
   }
 
+  /** Reads one int32 part of a google.type.Date; an unset part reads as its default, 0. */
+  private static int datePart(Message message, String name) {
+    return ((Number) message.getField(message.getDescriptorForType().findFieldByName(name)))
+        .intValue();
+  }
+
   /**
    * Reads a google.type.Date as a calendar day. The message allows 0 in each part: all zeros is an
    * empty date and reads as NULL, like an unset one. A year, month or day of 0 alone is a partial
@@ -716,18 +722,9 @@ public class ProtoToRowDataConverters {
     final String fieldName = readSchema.getFullName();
     return object -> {
       Message message = (Message) object;
-      int year = 0;
-      int month = 0;
-      int day = 0;
-      for (Map.Entry<FieldDescriptor, Object> entry : message.getAllFields().entrySet()) {
-        final String name = entry.getKey().getName();
-        switch (name) {
-          case "year" -> year = ((Number) entry.getValue()).intValue();
-          case "month" -> month = ((Number) entry.getValue()).intValue();
-          case "day" -> day = ((Number) entry.getValue()).intValue();
-          default -> throw new IllegalStateException("Unexpected field name: " + name);
-        }
-      }
+      final int year = datePart(message, "year");
+      final int month = datePart(message, "month");
+      final int day = datePart(message, "day");
       if (year == 0 && month == 0 && day == 0) {
         return null;
       }
