@@ -1,6 +1,6 @@
 # Handle bad records with a dead-letter topic
 
-A record that is not valid Protobuf (or whose schema cannot be resolved) is a *poison record*. By default it fails the task. Set `on-deserialize-error` to `skip` to drop it, and add a `dead-letter-topic` to keep its raw bytes for inspection.
+A record that is not valid Protobuf (or whose schema cannot be resolved because the registry says it does not exist) is a *poison record*. By default it fails the task. Set `on-deserialize-error` to `skip` to drop it, and add a `dead-letter-topic` to keep its raw bytes for inspection. A Schema Registry that cannot be reached or answers with an error is not a poison record: it always fails the task, even with `skip` (see [When the Schema Registry is unavailable](#when-the-schema-registry-is-unavailable)).
 
 ```sql
 CREATE TABLE orders (
@@ -30,6 +30,23 @@ Each dead-letter record carries the original bytes plus `error.class`, `error.me
 
 !!! note "Only `fail` and `skip` are accepted"
     `on-deserialize-error` is matched case-insensitively, and any value other than `fail` or `skip` (including a typo such as `fial`) is rejected with a `ValidationException` when the query is planned. It no longer falls back to the skip path.
+
+## When the Schema Registry is unavailable
+
+The source looks up the writer schema of every schema ID it has not seen yet in Schema Registry, and after a restart that is every schema ID. When the lookup fails because of the registry rather than the record, the task fails whatever `on-deserialize-error` says, and the record is not dropped, not counted in `numDeserializeErrors` and not sent to the dead-letter topic. Flink's restart strategy then restarts the job from its last checkpoint, and the record is read again once the registry is back. Without this, `skip` would drop (and dead-letter) every valid record read during an outage. The task fails with a `com.bbrownsound.flink.formats.proto.registry.confluent.deserialize.SchemaRegistryUnavailableException` whose message names the schema ID, and the failed request is counted in `schemaRegistryErrors` (see the [metrics reference](../reference/metrics.md#schema-registry-metrics)).
+
+| The registry lookup | Is | With `skip` |
+| --- | --- | --- |
+| Cannot connect, times out, or fails with another I/O error (unknown host, TLS) | An outage | The task fails. |
+| Answers 5xx (500, 502, 503, 504, ...) | An outage | The task fails. |
+| Answers 401 or 403 (for example after a credential rotation), 407, 408 or 429 | An outage | The task fails. |
+| Answers 404 without the registry's own not-found error code (a proxy, or a wrong URL path) | An outage | The task fails. |
+| Answers 404 with error code 40403 (schema not found), 40401 or 40402: the schema ID does not exist | A poison record | Dropped, counted and dead-lettered. |
+| Answers any other 4xx | A poison record | Dropped, counted and dead-lettered. |
+
+Records that never reach the registry, or that fail after their schema was resolved, are poison records as before: an unknown magic byte, a record too short for its header, a payload that is not valid Protobuf, a record of another message than `message-name` or `message-class`, and a record that cannot be converted to the table's column types.
+
+The registry client retries 408, 429, 500, 502, 503 and 504 answers itself before it gives up; its `properties.max.retries`, `properties.retries.wait.ms` and `properties.retries.max.wait.ms` settings tune that. With the default `fail`, the only difference is that a record that failed on a registry outage is no longer counted in `numDeserializeErrors` or written to the dead-letter topic.
 
 ## Delivery guarantees
 

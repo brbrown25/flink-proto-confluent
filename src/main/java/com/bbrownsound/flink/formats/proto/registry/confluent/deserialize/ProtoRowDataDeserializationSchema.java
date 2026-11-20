@@ -236,7 +236,7 @@ public class ProtoRowDataDeserializationSchema
       if (n <= 3) {
         LOG.debug("[proto-confluent] deserialize #{}: schemaId={}", n, id);
       }
-      DynamicMessage dynamicMessage = deserializer.deserialize(formatConfig.topic, message);
+      DynamicMessage dynamicMessage = resolveAndDecode(message, id);
       checkMessageType(dynamicMessage, id);
 
       RowData rowData =
@@ -245,6 +245,19 @@ public class ProtoRowDataDeserializationSchema
         LOG.debug("[proto-confluent] message #{} from topic: {}", n, rowData);
       }
       return rowData;
+    } catch (SchemaRegistryUnavailableException e) {
+      // Not the record's fault: fail the task whatever on-deserialize-error says, and neither
+      // count nor dead-letter the record, so that it is read again after the restart instead of
+      // being dropped while the registry is down (GitHub issue #232). The failed registry
+      // request itself is counted in schemaRegistryErrors.
+      LOG.error(
+          "[proto-confluent] Schema Registry unavailable: messageLength={}, topic={}, "
+              + "deserializeCount={}",
+          message.length,
+          formatConfig.topic,
+          n,
+          e);
+      throw e;
     } catch (Exception e) {
       LOG.error(
           "[proto-confluent] deserialize failed: messageLength={}, topic={}, deserializeCount={}",
@@ -266,6 +279,24 @@ public class ProtoRowDataDeserializationSchema
         throw new IOException("Proto-confluent deserialize failed: " + e.getMessage(), e);
       }
       return null;
+    }
+  }
+
+  /**
+   * Resolves the record's writer schema (from the client's cache or the registry) and decodes the
+   * record with it. A failure that means the registry could not be asked, rather than that the
+   * record is bad, is rethrown as a {@link SchemaRegistryUnavailableException}; see {@link
+   * SchemaRegistryUnavailableException#isRegistryUnavailable} for the rules.
+   */
+  private DynamicMessage resolveAndDecode(byte[] message, int schemaId)
+      throws SchemaRegistryUnavailableException {
+    try {
+      return deserializer.deserialize(formatConfig.topic, message);
+    } catch (RuntimeException e) {
+      if (SchemaRegistryUnavailableException.isRegistryUnavailable(e)) {
+        throw new SchemaRegistryUnavailableException(formatConfig.topic, schemaId, e);
+      }
+      throw e;
     }
   }
 
