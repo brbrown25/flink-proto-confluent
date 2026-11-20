@@ -281,4 +281,38 @@ class RegistryProtoFormatFactoryTest {
     options.setString("message_name", "not valid");
     assertThrows(ValidationException.class, () -> factory.createDecodingFormat(null, options));
   }
+
+  @Test
+  void derivedMessageName_isADeclaredOptionalAndForwardedOption() {
+    assertTrue(
+        factory.optionalOptions().contains(ProtoConfluentFormatOptions.DERIVED_MESSAGE_NAME));
+    assertTrue(factory.forwardOptions().contains(ProtoConfluentFormatOptions.DERIVED_MESSAGE_NAME));
+    assertEquals("derived-message-name", ProtoConfluentFormatOptions.DERIVED_MESSAGE_NAME.key());
+    assertEquals(
+        "com.flink.proto.confluent.Row",
+        ProtoConfluentFormatOptions.DERIVED_MESSAGE_NAME.defaultValue());
+  }
+
+  @Test
+  void derivedMessageName_malformedValueIsRejectedBySinkAndSource() {
+    Configuration options = new Configuration();
+    options.set(ProtoConfluentFormatOptions.URL, "http://localhost:8081");
+    options.set(ProtoConfluentFormatOptions.TOPIC, "test-topic");
+    options.setString("derived-message-name", "com.example.Proto$Order");
+    ValidationException encode =
+        assertThrows(ValidationException.class, () -> factory.createEncodingFormat(null, options));
+    assertTrue(encode.getMessage().contains("'derived-message-name'"), encode.getMessage());
+    assertTrue(encode.getMessage().contains("'com.example.Proto$Order'"), encode.getMessage());
+    assertThrows(ValidationException.class, () -> factory.createDecodingFormat(null, options));
+  }
+
+  @Test
+  void derivedMessageName_validValueIsAcceptedBySinkAndSource() {
+    Configuration options = new Configuration();
+    options.set(ProtoConfluentFormatOptions.URL, "http://localhost:8081");
+    options.set(ProtoConfluentFormatOptions.TOPIC, "test-topic");
+    options.setString("derived-message-name", "com.example.Order");
+    assertNotNull(factory.createEncodingFormat(null, options));
+    assertNotNull(factory.createDecodingFormat(null, options));
+  }
 }

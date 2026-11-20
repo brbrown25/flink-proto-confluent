@@ -68,7 +68,7 @@ These are read-only: a sink writes a `BIGINT`, `DOUBLE` or `DECIMAL` column to t
 
 ## Flink to Protobuf: the schema a sink derives
 
-A sink writes with the latest schema registered under its subject, or with the class named by [`message-class`](../how-to/message-class.md). Only when the Schema Registry answers that the subject does not exist (and no `message-class` is set) does it derive a schema from the table's row type, as below, and register it when `auto-register-schemas` is `true`. The derived message is `com.flink.proto.confluent.Row`, in a `proto3` file.
+A sink writes with the latest schema registered under its subject, or with the class named by [`message-class`](../how-to/message-class.md). Only when the Schema Registry answers that the subject does not exist (and no `message-class` is set) does it derive a schema from the table's row type, as below, and register it when `auto-register-schemas` is `true`. The derived message is `com.flink.proto.confluent.Row`, in a `proto3` file, unless [`derived-message-name`](configuration.md) names another.
 
 | Flink SQL type | Protobuf field |
 | --- | --- |

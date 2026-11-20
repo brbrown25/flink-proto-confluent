@@ -43,7 +43,7 @@ The aliases are matched case-insensitively and the classes live in `io.confluent
 
 A `key.format` must set `'key.proto-confluent.is_key' = 'true'`, or it would resolve `<topic>-value` like the value format. A table that leaves it out, or whose key and value formats resolve one subject in any other way (the same explicit `subject`, for example), is rejected with a `ValidationException` when it is planned; see [validation](../reference/configuration.md#option-precedence-and-validation).
 
-With `record` or `topic-record` the sink cannot look up a subject before it knows which message it writes, so it skips the "latest schema" lookup described [below](#how-a-sink-picks-its-schema-and-how-long-it-keeps-it). It serializes with the `message-class` descriptor when one is set, or else with the schema derived from the table, whose message is `com.flink.proto.confluent.Row` (so `record` registers it under the subject `com.flink.proto.confluent.Row`). Pin `message-class` when several tables share a registry and should not share that subject.
+With `record` or `topic-record` the sink cannot look up a subject before it knows which message it writes, so it skips the "latest schema" lookup described [below](#how-a-sink-picks-its-schema-and-how-long-it-keeps-it). It serializes with the `message-class` descriptor when one is set, or else with the schema derived from the table, whose message is `com.flink.proto.confluent.Row` (so `record` registers it under the subject `com.flink.proto.confluent.Row`). Pin `message-class` when several tables share a registry and should not share that subject, or give the derived message another name with [`derived-message-name`](#naming-the-derived-message).
 
 To name the subject outright, set `subject`. It is used as is, needs no `topic`, and cannot be combined with `subject-name-strategy`:
 
@@ -54,6 +54,17 @@ To name the subject outright, set `subject`. It is used as is, needs no `topic`,
 A sink without `message-class` then looks up the latest schema under that subject, exactly as it would under `<topic>-value`, and a source works on the subject alone, for example one that subscribes with `topic-pattern`.
 
 The raw passthrough `'value.proto-confluent.properties' = 'value.subject.name.strategy:...'` still works. When `subject` or `subject-name-strategy` is set it wins over the passthrough.
+
+### Naming the derived message
+
+Without a `message-class`, `derived-message-name` names the message derived from the table instead of `com.flink.proto.confluent.Row`. With `record` each table then registers under its own subject, and with `topic-record` or the default `topic` strategy the registered schema carries a name that says what the data is:
+
+```sql
+'value.proto-confluent.subject-name-strategy' = 'record',
+'value.proto-confluent.derived-message-name' = 'com.example.orders.Order'
+```
+
+The value is a fully-qualified protobuf name: `com.example.orders` becomes the `package` of the derived `.proto` file and `Order` its message, so the subject above is `com.example.orders.Order`. A value that is not a dot-separated list of identifiers, such as `com.example.Proto$Order`, fails with a `ValidationException` when the query is planned. Unset, the message stays `com.flink.proto.confluent.Row`, so subjects registered by earlier releases do not change. The option only applies when the sink derives a schema: it does not rename a schema already registered under the subject, and a sink with a `message-class` ignores it.
 
 ## Lifecycle: initial, compatible, breaking
 

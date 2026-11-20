@@ -233,16 +233,19 @@ public class RegistryProtoFormatFactory
   }
 
   /**
-   * Rejects a malformed {@code message-name} when the table is planned. Checked on a sink too,
-   * where the option is ignored, so a typo surfaces whichever way the table is used first.
+   * Rejects a malformed {@code message-name} or {@code derived-message-name} when the table is
+   * planned. Each is checked on both a source and a sink, where one of them is ignored, so a typo
+   * surfaces whichever way the table is used first.
    */
   private static void validateMessageName(ReadableConfig formatOptions) {
-    formatOptions
-        .getOptional(ProtoConfluentFormatOptions.MESSAGE_NAME)
-        .ifPresent(
-            name ->
-                SourceMessageValidator.validateMessageName(
-                    ProtoConfluentFormatOptions.MESSAGE_NAME.key(), name));
+    for (ConfigOption<String> option :
+        List.of(
+            ProtoConfluentFormatOptions.MESSAGE_NAME,
+            ProtoConfluentFormatOptions.DERIVED_MESSAGE_NAME)) {
+      formatOptions
+          .getOptional(option)
+          .ifPresent(name -> SourceMessageValidator.validateMessageName(option.key(), name));
+    }
   }
 
   @Override
@@ -260,6 +263,7 @@ public class RegistryProtoFormatFactory
             ProtoConfluentFormatOptions.IS_KEY,
             ProtoConfluentFormatOptions.MESSAGE_CLASS,
             ProtoConfluentFormatOptions.MESSAGE_NAME,
+            ProtoConfluentFormatOptions.DERIVED_MESSAGE_NAME,
             ProtoConfluentFormatOptions.SCHEMA_CACHE_TTL,
             ProtoConfluentFormatOptions.PROPERTIES,
             ProtoConfluentFormatOptions.SSL_KEYSTORE_LOCATION,
@@ -295,6 +299,7 @@ public class RegistryProtoFormatFactory
     options.add(ProtoConfluentFormatOptions.IS_KEY);
     options.add(ProtoConfluentFormatOptions.MESSAGE_CLASS);
     options.add(ProtoConfluentFormatOptions.MESSAGE_NAME);
+    options.add(ProtoConfluentFormatOptions.DERIVED_MESSAGE_NAME);
     options.add(ProtoConfluentFormatOptions.PROPERTIES);
     options.add(ProtoConfluentFormatOptions.AUTO_REGISTER_SCHEMAS);
     options.add(ProtoConfluentFormatOptions.NORMALIZE_SCHEMAS);

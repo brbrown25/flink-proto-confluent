@@ -76,6 +76,12 @@ public class ProtoConfluentFormatConfig implements Serializable {
   public String messageName;
 
   /**
+   * Fully-qualified name of the message a sink derives from the table's row type; {@code null}
+   * (as in a config from an earlier release) means {@code com.flink.proto.confluent.Row}.
+   */
+  public String derivedMessageName;
+
+  /**
    * Constructs config from explicit parameters.
    *
    * @param schemaRegistryURL Schema Registry base URL
@@ -161,6 +167,7 @@ public class ProtoConfluentFormatConfig implements Serializable {
             .getOptional(ProtoConfluentFormatOptions.MESSAGE_NAME)
             .filter(v -> !v.isEmpty())
             .orElse(null);
+    derivedMessageName = formatOptions.get(ProtoConfluentFormatOptions.DERIVED_MESSAGE_NAME);
 
     properties = RegistryProtoFormatFactory.buildOptionalPropertiesMap(formatOptions);
     if (properties == null) {

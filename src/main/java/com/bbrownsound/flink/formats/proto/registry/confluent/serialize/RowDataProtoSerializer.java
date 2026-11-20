@@ -1,5 +1,6 @@
 package com.bbrownsound.flink.formats.proto.registry.confluent.serialize;
 
+import com.bbrownsound.flink.formats.proto.registry.confluent.ProtoConfluentFormatOptions;
 import com.bbrownsound.flink.formats.proto.registry.confluent.util.RowTypeToProto;
 import com.google.protobuf.Descriptors;
 import com.google.protobuf.DynamicMessage;
@@ -56,9 +57,6 @@ public final class RowDataProtoSerializer extends KafkaProtobufSerializer<Dynami
    */
   static final Duration REFRESH_RETRY_BACKOFF = Duration.ofSeconds(30);
 
-  private static final String ROW_MESSAGE_NAME = "Row";
-  private static final String ROW_PACKAGE_NAME = "com.flink.proto.confluent";
-
   /**
    * Converters keyed by descriptor <em>identity</em> ({@link Descriptors.Descriptor} does not
    * override {@code equals}), so two versions of a message that share a full name never share a
@@ -76,6 +74,12 @@ public final class RowDataProtoSerializer extends KafkaProtobufSerializer<Dynami
 
   /** Monotonic nanosecond clock; injectable so tests can move time without sleeping. */
   private final LongSupplier nanoClock;
+
+  /** Proto package of the Row-derived message; empty when the configured name has no package. */
+  private final String derivedPackageName;
+
+  /** Simple name of the Row-derived message. */
+  private final String derivedMessageName;
 
   /** The Row-derived descriptor for the last Row type seen, so it is built once, not per record. */
   private volatile RowDerivedSchema rowDerivedSchema;
@@ -106,11 +110,37 @@ public final class RowDataProtoSerializer extends KafkaProtobufSerializer<Dynami
    */
   RowDataProtoSerializer(
       SchemaRegistryClient client, @Nullable Duration schemaCacheTtl, LongSupplier nanoClock) {
+    this(client, schemaCacheTtl, nanoClock, null);
+  }
+
+  /**
+   * Creates a serializer whose cached subject schema expires and whose Row-derived message has the
+   * given name.
+   *
+   * @param client the Schema Registry client
+   * @param schemaCacheTtl how long a looked-up subject schema is reused before the registry is
+   *     asked again; {@code null} keeps it until the job restarts
+   * @param nanoClock monotonic clock in nanoseconds, e.g. {@code System::nanoTime}
+   * @param derivedMessageName fully-qualified name of the message derived from the table, e.g.
+   *     {@code com.example.Order}; {@code null} for {@code com.flink.proto.confluent.Row}
+   */
+  RowDataProtoSerializer(
+      SchemaRegistryClient client,
+      @Nullable Duration schemaCacheTtl,
+      LongSupplier nanoClock,
+      @Nullable String derivedMessageName) {
     super(client);
     this.converters = new ConcurrentHashMap<>();
     this.schemaCache = new ConcurrentHashMap<>();
     this.schemaCacheTtlNanos = toTtlNanos(schemaCacheTtl);
     this.nanoClock = nanoClock;
+    String fullName =
+        derivedMessageName == null
+            ? ProtoConfluentFormatOptions.DERIVED_MESSAGE_NAME.defaultValue()
+            : derivedMessageName;
+    int lastDot = fullName.lastIndexOf('.');
+    this.derivedPackageName = lastDot < 0 ? "" : fullName.substring(0, lastDot);
+    this.derivedMessageName = fullName.substring(lastDot + 1);
   }
 
   private static long toTtlNanos(@Nullable Duration ttl) {
@@ -363,7 +393,7 @@ public final class RowDataProtoSerializer extends KafkaProtobufSerializer<Dynami
       return current.schema;
     }
     Descriptors.Descriptor desc =
-        RowTypeToProto.fromRowType(rowType, ROW_MESSAGE_NAME, ROW_PACKAGE_NAME);
+        RowTypeToProto.fromRowType(rowType, derivedMessageName, derivedPackageName);
     if (current != null) {
       converters.remove(current.schema.descriptor);
     }
