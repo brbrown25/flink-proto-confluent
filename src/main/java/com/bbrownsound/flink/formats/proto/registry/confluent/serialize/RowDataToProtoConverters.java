@@ -311,10 +311,10 @@ public class RowDataToProtoConverters {
         } else if (type.getTypeRoot() == org.apache.flink.table.types.logical.LogicalTypeRoot.BIGINT
             && (targetSchema.getType() == Type.UINT32
                 || targetSchema.getType() == Type.FIXED32)) {
-          return value -> value == null ? null : toUnsignedInt((Long) value, targetSchema);
+          return value -> toUnsignedInt((Long) value, targetSchema);
         } else if (type.getTypeRoot() == org.apache.flink.table.types.logical.LogicalTypeRoot.BIGINT
             && targetSchema.getType() == Type.SFIXED32) {
-          return value -> value == null ? null : toSignedInt((Long) value, targetSchema);
+          return value -> toSignedInt((Long) value, targetSchema);
         } else {
           return new RowDataToProtoConverter() {
             @Override
